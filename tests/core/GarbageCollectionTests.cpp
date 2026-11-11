@@ -22,10 +22,10 @@ namespace
         ObjectHandle right;    // 強い参照
         ObjectHandle weakLink; // 弱い参照(登録しない)
 
-        HUSKY_PROPERTIES_BEGIN()
+        HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(left)
             HUSKY_PROPERTY(right)
-        HUSKY_PROPERTIES_END()
+        HUSKY_REFLECTION_END()
     };
 
     // 参照のプロパティを親(Node)から引き継ぐ子クラス。

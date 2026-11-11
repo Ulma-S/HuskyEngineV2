@@ -1,8 +1,9 @@
 // 型情報。RTTI(dynamic_cast や typeid)を使わずに、「このオブジェクトは何の型か」を調べるためのもの。
 // 型ごとに1つだけ作られ、アドレスがその型の目印になる。
-// リフレクションのプロパティ(メンバー変数の一覧)も、ここに持つ。
+// リフレクションのプロパティ(メンバー変数の一覧)とメソッド(メンバー関数の一覧)も、ここに持つ。
 #pragma once
 
+#include "core/Method.h"
 #include "core/Property.h"
 
 #include <cstddef>
@@ -15,19 +16,19 @@ namespace husky::core
     class TypeInfo final
     {
     public:
-        // プロパティを登録する関数の型。TypeInfo を作るときに1回だけ呼ばれる。
+        // プロパティとメソッドを登録する関数の型。TypeInfo を作るときに1回だけ呼ばれる。
         // void (*)(TypeInfo&) は「TypeInfo& を受け取り、何も返さない関数へのポインタ」(C# の Action<TypeInfo> に近い)。
-        using RegisterPropertiesFunction = void (*)(TypeInfo&);
+        using RegisterMembersFunction = void (*)(TypeInfo&);
 
         // name: 型の名前(例: "Enemy")。parent: 親の型の型情報。一番上の型(Object)では nullptr。
-        // registerProperties: この型のプロパティを登録する関数。プロパティが無ければ nullptr。
-        TypeInfo(const char* name, const TypeInfo* parent, RegisterPropertiesFunction registerProperties = nullptr)
+        // registerMembers: この型のプロパティとメソッドを登録する関数。登録するものが無ければ nullptr。
+        TypeInfo(const char* name, const TypeInfo* parent, RegisterMembersFunction registerMembers = nullptr)
             : m_name(name)
             , m_parent(parent)
         {
-            if (registerProperties != nullptr)
+            if (registerMembers != nullptr)
             {
-                registerProperties(*this);
+                registerMembers(*this);
             }
         }
 
@@ -93,9 +94,36 @@ namespace husky::core
             }
         }
 
+        // メソッドを1つ登録する。HUSKY_METHOD マクロから呼ばれる。
+        void AddMethod(Method method)
+        {
+            method.m_owner = this;
+            m_methods.push_back(std::move(method));
+        }
+
+        // この型で登録したメソッドだけを返す(親の型のものは含まない)。
+        const std::vector<Method>& GetOwnMethods() const { return m_methods; }
+
+        // 名前でメソッドを探す。見つからなければ、親の型を順に探す。それでも無ければ nullptr。
+        const Method* FindMethod(const char* name) const
+        {
+            for (const TypeInfo* type = this; type != nullptr; type = type->m_parent)
+            {
+                for (const Method& method : type->m_methods)
+                {
+                    if (std::strcmp(method.GetName(), name) == 0)
+                    {
+                        return &method;
+                    }
+                }
+            }
+            return nullptr;
+        }
+
     private:
         const char* m_name;
         const TypeInfo* m_parent;
         std::vector<Property> m_properties;
+        std::vector<Method> m_methods;
     };
 }

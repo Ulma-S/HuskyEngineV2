@@ -29,10 +29,10 @@ namespace
         std::string name = "actor";
         bool visible = true;
 
-        HUSKY_PROPERTIES_BEGIN()
+        HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(visible)
-        HUSKY_PROPERTIES_END()
+        HUSKY_REFLECTION_END()
     };
 
     class Enemy : public Actor
@@ -44,11 +44,11 @@ namespace
         ObjectHandle target;
         int notRegistered = 0; // 登録しないメンバーは、リフレクションからは見えない
 
-        HUSKY_PROPERTIES_BEGIN()
+        HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(hp)
             HUSKY_PROPERTY(speed)
             HUSKY_PROPERTY(target)
-        HUSKY_PROPERTIES_END()
+        HUSKY_REFLECTION_END()
     };
 
     class Boss : public Enemy
@@ -57,12 +57,12 @@ namespace
     public:
         std::int32_t rage = 0;
 
-        HUSKY_PROPERTIES_BEGIN()
+        HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(rage)
-        HUSKY_PROPERTIES_END()
+        HUSKY_REFLECTION_END()
     };
 
-    // HUSKY_PROPERTIES_BEGIN を書かないクラス。親のプロパティを二重に登録しないことを確かめる。
+    // HUSKY_REFLECTION_BEGIN を書かないクラス。親のプロパティを二重に登録しないことを確かめる。
     class Prop : public Actor
     {
         HUSKY_OBJECT(Prop, Actor)

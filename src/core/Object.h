@@ -7,11 +7,13 @@
 //   public:
 //       std::int32_t hp = 10;
 //       ObjectHandle target;
+//       void Heal(std::int32_t amount) { hp += amount; }
 //
-//       HUSKY_PROPERTIES_BEGIN()      // リフレクションに見せるメンバーを登録する(クラスの最後に書く)
+//       HUSKY_REFLECTION_BEGIN()      // リフレクションに見せるメンバーを登録する(クラスの最後に書く)
 //           HUSKY_PROPERTY(hp)
 //           HUSKY_PROPERTY(target)
-//       HUSKY_PROPERTIES_END()
+//           HUSKY_METHOD(Heal)
+//       HUSKY_REFLECTION_END()
 //   };
 //
 //   Object* object = ...;
@@ -35,8 +37,8 @@
 //   - Super: 親クラスの別名(C# の base にあたるものを、Super::Foo() のように書ける)。
 //   - ThisType: このクラス自身の別名。HUSKY_PROPERTY の中で使う。
 //   - StaticType(): この型の型情報を返す。関数の中の static 変数なので、最初に呼ばれたときに1回だけ作られる。
-//     作るときに、このクラスの RegisterProperties(プロパティの登録)を1回だけ呼ぶ。
-//     ただし、このクラスが HUSKY_PROPERTIES_BEGIN を書いていない場合、ThisClass::RegisterProperties は
+//     作るときに、このクラスの RegisterMembers(プロパティとメソッドの登録)を1回だけ呼ぶ。
+//     ただし、このクラスが HUSKY_REFLECTION_BEGIN を書いていない場合、ThisClass::RegisterMembers は
 //     親クラスのものを指してしまう(C++ では、static 関数も親から引き継がれるため)。
 //     そのまま呼ぶと親のプロパティを二重に登録するので、親と同じ関数なら nullptr(登録なし)を渡す。
 //   - GetType(): オブジェクトの実際の型の型情報を返す(virtual なので、基底クラスのポインタから呼んでも正しい型が返る)。
@@ -50,8 +52,8 @@ public:                                                                         
         static const ::husky::core::TypeInfo info(                                               \
             #ThisClass,                                                                          \
             &ParentClass::StaticType(),                                                          \
-            &ThisClass::RegisterProperties != &ParentClass::RegisterProperties                   \
-                ? &ThisClass::RegisterProperties                                                 \
+            &ThisClass::RegisterMembers != &ParentClass::RegisterMembers                         \
+                ? &ThisClass::RegisterMembers                                                    \
                 : nullptr);                                                                      \
         return info;                                                                             \
     }                                                                                            \
@@ -62,14 +64,14 @@ public:                                                                         
                                                                                                  \
 private:
 
-// プロパティの登録を始める。BEGIN と END の間に HUSKY_PROPERTY を並べる。
-// 中身は「RegisterProperties という static 関数」の始まり。END がその関数を閉じる。
+// リフレクションの登録を始める。BEGIN と END の間に HUSKY_PROPERTY と HUSKY_METHOD を並べる。
+// 中身は「RegisterMembers という static 関数」の始まり。END がその関数を閉じる。
 // END の後は public: のままなので、クラスの最後に書くとよい。
-#define HUSKY_PROPERTIES_BEGIN()                                                                  \
+#define HUSKY_REFLECTION_BEGIN()                                                                  \
 public:                                                                                          \
-    static void RegisterProperties(::husky::core::TypeInfo& info)                                \
+    static void RegisterMembers(::husky::core::TypeInfo& info)                                   \
     {                                                                                            \
-        (void)info; /* プロパティが1つも無いときの「使っていない引数」の警告を消す */
+        (void)info; /* 登録が1つも無いときの「使っていない引数」の警告を消す */
 
 // メンバー変数1つをプロパティとして登録する。
 //   #member: 名前の文字列("hp")。
@@ -80,8 +82,14 @@ public:                                                                         
                      ::husky::core::PropertyTypeOf<decltype(ThisType::member)>(),                \
                      offsetof(ThisType, member));
 
-// プロパティの登録を終える。
-#define HUSKY_PROPERTIES_END() }
+// メンバー関数1つをメソッドとして登録する。
+//   &ThisType::method: メンバー関数のアドレス。同じ名前の関数が複数ある(オーバーロード)と、
+//   どれのことか決められずにコンパイルエラーになる(オーバーロードは非対応)。
+//   引数や戻り値に対応していない型があっても、コンパイルエラーになる。
+#define HUSKY_METHOD(method) info.AddMethod(::husky::core::MakeMethod<&ThisType::method>(#method));
+
+// リフレクションの登録を終える。
+#define HUSKY_REFLECTION_END() }
 
 namespace husky::core
 {
@@ -120,8 +128,8 @@ namespace husky::core
         }
 
         // プロパティの登録(Object にはプロパティが無いので空)。
-        // 子クラスは HUSKY_PROPERTIES_BEGIN で同じ名前の関数を作る。作らなかった子クラスでは、これが引き継がれる。
-        static void RegisterProperties(TypeInfo&) {}
+        // 子クラスは HUSKY_REFLECTION_BEGIN で同じ名前の関数を作る。作らなかった子クラスでは、これが引き継がれる。
+        static void RegisterMembers(TypeInfo&) {}
 
         // このオブジェクトの実際の型の型情報。子クラスでは HUSKY_OBJECT が上書き(override)する。
         virtual const TypeInfo& GetType() const { return StaticType(); }
