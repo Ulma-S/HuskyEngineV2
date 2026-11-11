@@ -1,0 +1,10 @@
+# git で管理しないファイル。
+
+# CMake が生成するもの(.sln、.obj、exe、取ってきた SDL3 のソースなど)。いつでも作り直せる。
+/build/
+/out/
+
+# Visual Studio がフォルダを開いたときに作る、個人の設定やキャッシュ。
+.vs/
+*.user
+CMakeUserPresets.json
