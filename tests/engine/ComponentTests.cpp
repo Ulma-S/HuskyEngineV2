@@ -9,7 +9,7 @@ using husky::core::ObjectRegistry;
 using husky::engine::Actor;
 using husky::engine::Component;
 using husky::engine::Scene;
-using husky::engine::TickPhase;
+namespace TickOrder = husky::engine::TickOrder;
 
 namespace
 {
@@ -49,48 +49,57 @@ namespace
         HUSKY_OBJECT(FastCounter, Counter)
     };
 
-    // フェーズごとに、決まった1文字を書くコンポーネント。
+    // 実行順ごとに、決まった1文字を書くコンポーネント。
     class InputLogger : public Component
     {
         HUSKY_OBJECT(InputLogger, Component)
     public:
-        TickPhase GetTickPhase() const override { return TickPhase::Input; }
+        std::int32_t GetTickOrder() const override { return TickOrder::Input; }
         void Tick(double) override { g_log += "i"; }
     };
 
-    class PostUpdateLogger : public Component
+    class LateLogger : public Component
     {
-        HUSKY_OBJECT(PostUpdateLogger, Component)
+        HUSKY_OBJECT(LateLogger, Component)
     public:
-        TickPhase GetTickPhase() const override { return TickPhase::PostUpdate; }
-        void Tick(double) override { g_log += "p"; }
+        std::int32_t GetTickOrder() const override { return TickOrder::Late; }
+        void Tick(double) override { g_log += "l"; }
     };
 
     class PreRenderLogger : public Component
     {
         HUSKY_OBJECT(PreRenderLogger, Component)
     public:
-        TickPhase GetTickPhase() const override { return TickPhase::PreRender; }
+        std::int32_t GetTickOrder() const override { return TickOrder::PreRender; }
         void Tick(double) override { g_log += "r"; }
     };
 
-    // Update のフェーズで、持ち主に PostUpdateLogger を1つ足す(1回だけ)。
-    class PostUpdateAdder : public Component
+    // 名前付きの値の「間」(Default と Late の間)で動く。
+    class BetweenLogger : public Component
     {
-        HUSKY_OBJECT(PostUpdateAdder, Component)
+        HUSKY_OBJECT(BetweenLogger, Component)
+    public:
+        std::int32_t GetTickOrder() const override { return 500; }
+        void Tick(double) override { g_log += "b"; }
+    };
+
+    // Default の実行順で、持ち主に LateLogger を1つ足す(1回だけ)。
+    class LateAdder : public Component
+    {
+        HUSKY_OBJECT(LateAdder, Component)
     public:
         void Tick(double) override
         {
             if (!added)
             {
-                GetOwner()->AddComponent<PostUpdateLogger>();
+                GetOwner()->AddComponent<LateLogger>();
                 added = true;
             }
         }
         bool added = false;
     };
 
-    // Update のフェーズで、持ち主のアクターを Destroy する。
+    // Default の実行順で、持ち主のアクターを Destroy する。
     class OwnerDestroyer : public Component
     {
         HUSKY_OBJECT(OwnerDestroyer, Component)
@@ -222,51 +231,67 @@ TEST_CASE("Component: コンポーネントは、取り付け先のアクター�
     CHECK(counter->GetOwner() == nullptr); // 持ち主はもういない、と分かる
 }
 
-TEST_CASE("TickPhase: コンポーネントの既定のフェーズは Update")
+TEST_CASE("TickOrder: コンポーネントの既定の実行順は Default(0)")
 {
-    Counter counter; // レジストリで作らなくても、フェーズを聞くだけならできる
-    CHECK(counter.GetTickPhase() == TickPhase::Update);
+    Counter counter; // レジストリで作らなくても、実行順を聞くだけならできる
+    CHECK(counter.GetTickOrder() == TickOrder::Default);
+    CHECK(counter.GetTickOrder() == 0);
 }
 
-TEST_CASE("TickPhase: Scene::Tick は、フェーズごとに全アクターを回す(Input → Update → PostUpdate → PreRender)")
+TEST_CASE("TickOrder: Scene::Tick は、実行順の小さい順に、全アクターを回す")
 {
     g_log.clear();
     ObjectRegistry registry;
     Scene* scene = CreateRootScene(registry);
 
-    // 一覧の順番はフェーズとは関係ない、ということも確かめるため、わざとばらばらの順に付ける。
+    // 一覧の順番は実行順とは関係ない、ということも確かめるため、わざとばらばらの順に付ける。
     LoggingActor* first = scene->Spawn<LoggingActor>();
     first->AddComponent<PreRenderLogger>();
-    first->AddComponent<PostUpdateLogger>();
+    first->AddComponent<LateLogger>();
     first->AddComponent<Counter>();
     first->AddComponent<InputLogger>();
     LoggingActor* second = scene->Spawn<LoggingActor>();
-    second->AddComponent<PostUpdateLogger>();
+    second->AddComponent<LateLogger>();
     second->AddComponent<InputLogger>();
 
     scene->Tick(1.0);
 
-    // Input: i i / Update: アクター1(A)とその Counter(C)、アクター2(A) / PostUpdate: p p / PreRender: r
-    CHECK(g_log == "ii" "ACA" "pp" "r");
+    // Input(-1000): i i / Default(0): アクター1(A)とその Counter(C)、アクター2(A) / Late(1000): l l / PreRender(2000): r
+    CHECK(g_log == "ii" "ACA" "ll" "r");
 }
 
-TEST_CASE("TickPhase: フレームの途中で足したコンポーネントは、後のフェーズでも次のフレームまで更新されない")
+TEST_CASE("TickOrder: 名前付きの値の間の実行順も使える")
 {
     g_log.clear();
     ObjectRegistry registry;
     Scene* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
-    actor->AddComponent<PostUpdateAdder>(); // Update で PostUpdateLogger を足す
+    actor->AddComponent<LateLogger>();    // 1000
+    actor->AddComponent<BetweenLogger>(); // 500
+    actor->AddComponent<Counter>();       // 0
 
     scene->Tick(1.0);
-    CHECK(g_log.empty()); // 足したのは Update なので、同じフレームの PostUpdate では呼ばれない
-    CHECK(actor->GetComponent<PostUpdateLogger>() != nullptr);
 
-    scene->Tick(1.0);
-    CHECK(g_log == "p"); // 次のフレームからは呼ばれる
+    CHECK(g_log == "Cbl");
 }
 
-TEST_CASE("TickPhase: Update でアクターが Destroy されたら、そのアクターの残りのコンポーネントは更新されない")
+TEST_CASE("TickOrder: フレームの途中で足したコンポーネントは、実行順が後でも次のフレームまで更新されない")
+{
+    g_log.clear();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* actor = scene->Spawn<Actor>();
+    actor->AddComponent<LateAdder>(); // Default で LateLogger を足す
+
+    scene->Tick(1.0);
+    CHECK(g_log.empty()); // 足したのはフレームの途中なので、同じフレームの Late では呼ばれない
+    CHECK(actor->GetComponent<LateLogger>() != nullptr);
+
+    scene->Tick(1.0);
+    CHECK(g_log == "l"); // 次のフレームからは呼ばれる
+}
+
+TEST_CASE("TickOrder: Tick の途中でアクターが Destroy されたら、そのアクターの残りのコンポーネントは更新されない")
 {
     g_log.clear();
     ObjectRegistry registry;
@@ -274,11 +299,13 @@ TEST_CASE("TickPhase: Update でアクターが Destroy されたら、そのア
     Actor* actor = scene->Spawn<Actor>();
     actor->AddComponent<InputLogger>();
     actor->AddComponent<OwnerDestroyer>();
-    actor->AddComponent<Counter>();          // 同じ Update のフェーズでも、Destroy の後なので呼ばれない
-    actor->AddComponent<PostUpdateLogger>(); // 後のフェーズも呼ばれない
+    actor->AddComponent<Counter>();    // 同じ Default でも、Destroy の後なので呼ばれない
+    actor->AddComponent<LateLogger>(); // 後の実行順も呼ばれない
+    LoggingActor* other = scene->Spawn<LoggingActor>();
+    other->AddComponent<LateLogger>(); // ほかのアクターは影響を受けない
 
     scene->Tick(1.0);
 
-    CHECK(g_log == "i"); // Destroy より前の Input だけ
+    CHECK(g_log == "i" "A" "l"); // Destroy より前の Input と、ほかのアクターの分だけ
     CHECK(actor->IsPendingDestroy());
 }

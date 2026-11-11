@@ -7,7 +7,7 @@
 //       HUSKY_OBJECT(Health, Component)
 //   public:
 //       void Tick(double dt) override { ... }
-//       TickPhase GetTickPhase() const override { return TickPhase::PostUpdate; } // 省略すると Update
+//       std::int32_t GetTickOrder() const override { return TickOrder::Late; } // 省略すると Default(0)
 //       std::int32_t hp = 10;
 //   };
 //
@@ -25,19 +25,20 @@ namespace husky::engine
 {
     class Actor; // 前方宣言: 「Actor というクラスがある」とだけ伝える(Actor.h が Component.h を読むので、循環を避ける)
 
-    // コンポーネントの Tick が呼ばれる段階(フェーズ)。Scene::Tick は、この順に1フェーズずつ、
-    // シーンの全アクターのコンポーネントを回す。あるフェーズは、前のフェーズが全員分終わってから始まる。
+    // 実行順(Tick を呼ぶ順番を決める整数)の、よく使う値。Unity の DefaultExecutionOrder にあたる。
+    // Scene::Tick は、シーンの全コンポーネントを実行順の小さい順に呼ぶ。小さい値のものが、全アクター分
+    // 終わってから、大きい値のものが始まる。同じ値どうしは、シーンの一覧の順(アクターの順、その中の付けた順)。
+    // ここに無い値(たとえば Default と Late の間の 500)も自由に使ってよい。
     //
-    // enum class: C# の enum と同じく、名前の付いた整数の集まり。TickPhase::Update のように型名を付けて書く。
-    // 「: std::uint8_t」は、中身を 1 バイトの整数にするという指定。
-    enum class TickPhase : std::uint8_t
+    // namespace の中に constexpr の定数を並べて、TickOrder::Late のように名前で書けるようにしている。
+    // (enum class にしないのは、500 のような「間の値」をそのまま書けるようにするため)
+    namespace TickOrder
     {
-        Input,      // 入力を読んで、何をしたいかを決める
-        Update,     // 動く。アクター自身の Tick もここ(そのアクターの Update のコンポーネントより先)
-        PostUpdate, // 全員が動いた後の処理(カメラの追従、当たり判定の結果を見るなど)
-        PreRender,  // 描画の直前に、見た目の準備をする
-        Count,      // フェーズの数(フェーズではない。for で回すのに使う)
-    };
+        constexpr std::int32_t Input = -1000;    // 入力を読んで、何をしたいかを決める
+        constexpr std::int32_t Default = 0;      // 動く。アクター自身の Tick もここ(そのアクターの Default のコンポーネントより先)
+        constexpr std::int32_t Late = 1000;      // 全員が動いた後の処理(カメラの追従、当たり判定の結果を見るなど)
+        constexpr std::int32_t PreRender = 2000; // 描画の直前に、見た目の準備をする
+    }
 
     // 動作スレッド: ゲームスレッドのみ
     class Component : public core::Object
@@ -48,15 +49,15 @@ namespace husky::engine
         friend class Actor;
 
     public:
-        // 毎フレーム、シーンの更新(Scene::Tick)から、GetTickPhase() のフェーズで呼ばれる。
+        // 毎フレーム、シーンの更新(Scene::Tick)から、GetTickOrder() の順番で呼ばれる。
         // 子クラスで override して、機能を書く。Destroy 済みのコンポーネントや、
         // Destroy 済みのアクターに付いたコンポーネントでは呼ばれない。
         virtual void Tick(double dt) { (void)dt; }
 
-        // このコンポーネントの Tick を、どのフェーズで呼ぶか(宣言)。既定は Update。
-        // 別のフェーズで動かしたい子クラスは、override して返す値を変える。
-        // 型ごとに決まった値を返すこと(同じオブジェクトで、途中で値を変えない)。
-        virtual TickPhase GetTickPhase() const { return TickPhase::Update; }
+        // このコンポーネントの実行順(宣言)。既定は TickOrder::Default(0)。
+        // 先に、または後に動かしたい子クラスは、override して返す値を変える。
+        // Scene::Tick はフレームの最初にこの値を読んで順番を決めるので、フレームの途中で変えても、効くのは次のフレームから。
+        virtual std::int32_t GetTickOrder() const { return TickOrder::Default; }
 
         // 取り付け先のアクター。もう存在しなければ nullptr。
         Actor* GetOwner() const;

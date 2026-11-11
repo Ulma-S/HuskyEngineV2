@@ -19,7 +19,7 @@ namespace husky::engine
     public:
         // 毎フレーム、シーンの更新(Scene::Tick)から呼ばれる。dt はこのフレームの経過時間(秒)。
         // 子クラスで override して、動きを書く。Destroy 済みのアクターでは呼ばれない。
-        // このアクターのコンポーネントの Tick は、これの後に呼ばれる。
+        // 実行順は TickOrder::Default(0)で、このアクターの Default のコンポーネントより先に呼ばれる。
         virtual void Tick(double dt) { (void)dt; }
 
         // T 型のコンポーネントを作り、このアクターに取り付ける。メモリが足りなければ nullptr。
@@ -84,23 +84,12 @@ namespace husky::engine
         // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
         friend class Scene;
 
-        // このフレームで更新するコンポーネントの数を決める。Scene::Tick の最初に呼ばれる。
-        // これより後に AddComponent したものは一覧の末尾に入るので、次のフレームまで更新されない。
-        void BeginTick() { m_componentCountThisFrame = components.size(); }
-
-        // phase のフェーズのコンポーネントの Tick を、一覧の順に呼ぶ。Destroy 済みのものは飛ばす。
-        void TickComponents(double dt, TickPhase phase);
-
         // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、Scene が呼ぶ。
         void DestroyComponents();
 
         // Destroy 済み(またはもう存在しない)コンポーネントを、一覧から外す。戻り値: 外した数。
         // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(Scene::RemoveDestroyedActors が呼ぶ)。
         std::size_t RemoveDestroyedComponents();
-
-        // BeginTick で決めた、このフレームで更新するコンポーネントの数。
-        // フレームの途中では一覧から外さない(外すのはフレームの終わり)ので、先頭からこの数は動かない。
-        std::size_t m_componentCountThisFrame = 0;
 
         // ハンドルからコンポーネントを引く。もう無いか、型が違うか、レジストリで作っていなければ nullptr。
         template <typename T>

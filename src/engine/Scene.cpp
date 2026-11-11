@@ -1,54 +1,71 @@
 // Scene.h の実装。
 #include "engine/Scene.h"
 
-#include <algorithm> // std::remove_if
+#include <algorithm> // std::remove_if, std::sort
 
 namespace husky::engine
 {
     void Scene::Tick(double dt)
     {
-        // 回す数を最初に決めておく。Tick の中で Spawn されると actors の末尾に足されるが、
-        // それは次のフレームから更新する。
-        const std::size_t count = actors.size();
-
-        // 範囲 for(for (auto h : actors))ではなく番号で回す。
-        // Spawn で actors が大きくなると、vector は中身を別のメモリへ引っ越すことがあり、
-        // 範囲 for が使っている「今どこを見ているか」が無効になってしまうため。
-        // 番号なら、引っ越した後でも actors[i] で正しい場所を見られる。
-
-        // 0. 各アクターで、このフレームに更新するコンポーネントの数を決める。
-        for (std::size_t i = 0; i < count; ++i)
+        core::ObjectRegistry* registry = GetRegistry();
+        if (registry == nullptr)
         {
-            if (Actor* actor = ResolveActor(actors[i]))
+            return;
+        }
+
+        // 1. 順番表を作る。フレームの最初の時点のアクターとコンポーネントだけが載る。
+        //    そのため、Tick の途中で Spawn / AddComponent されたものは、次のフレームまで呼ばれない。
+        //    clear は中身を空にするだけで、確保したメモリは手放さない(次のフレームで使い回せる)。
+        m_tickEntries.clear();
+        std::uint32_t sequence = 0;
+        for (const core::ObjectHandle actorHandle : actors)
+        {
+            const Actor* actor = ResolveActor(actorHandle);
+            if (actor == nullptr || actor->IsPendingDestroy())
             {
-                actor->BeginTick();
+                continue;
+            }
+            // アクター自身の Tick。同じ Default のコンポーネントより先になるように、先に載せる。
+            m_tickEntries.push_back({TickOrder::Default, sequence++, actorHandle, core::ObjectHandle{}, true});
+            for (const core::ObjectHandle componentHandle : actor->components)
+            {
+                const Component* component = registry->Resolve<Component>(componentHandle);
+                if (component != nullptr && !component->IsPendingDestroy())
+                {
+                    m_tickEntries.push_back({component->GetTickOrder(), sequence++, actorHandle, componentHandle, false});
+                }
             }
         }
 
-        // 1. フェーズの順に回す。あるフェーズは、全アクターの分が終わってから次のフェーズへ進む。
-        //    static_cast で enum class と整数を行き来する(enum class は、暗黙には整数にならない)。
-        constexpr int phaseCount = static_cast<int>(TickPhase::Count);
-        for (int phaseIndex = 0; phaseIndex < phaseCount; ++phaseIndex)
-        {
-            const TickPhase phase = static_cast<TickPhase>(phaseIndex);
-            for (std::size_t i = 0; i < count; ++i)
+        // 2. 実行順で並べる。実行順が同じなら sequence(一覧の順)で並べるので、毎回同じ順番になる。
+        //    std::sort に渡しているのはラムダ式で、「a を b より先にするなら true」を返す比べ方。
+        std::sort(m_tickEntries.begin(), m_tickEntries.end(), [](const TickEntry& a, const TickEntry& b) {
+            if (a.order != b.order)
             {
-                // Destroy 済みのアクターは、そのフェーズから先は飛ばす(前のフェーズで Destroy された場合も)。
-                Actor* actor = ResolveActor(actors[i]);
-                if (actor == nullptr || actor->IsPendingDestroy())
-                {
-                    continue;
-                }
-                if (phase == TickPhase::Update)
-                {
-                    actor->Tick(dt);
-                    // アクターの Tick の中で自分を Destroy したら、コンポーネントは更新しない。
-                    if (actor->IsPendingDestroy())
-                    {
-                        continue;
-                    }
-                }
-                actor->TickComponents(dt, phase);
+                return a.order < b.order;
+            }
+            return a.sequence < b.sequence;
+        });
+
+        // 3. 順番に呼ぶ。呼ぶ直前に毎回、Destroy されていないかを確かめる。
+        //    前の行の Tick の中で、アクターやコンポーネントが Destroy されることがあるため。
+        //    (順番表は Tick の中で書き換わらないので、範囲 for で回してよい。Spawn で変わるのは actors のほう)
+        for (const TickEntry& entry : m_tickEntries)
+        {
+            Actor* actor = ResolveActor(entry.actor);
+            if (actor == nullptr || actor->IsPendingDestroy())
+            {
+                continue; // アクターが Destroy されたら、そのコンポーネントも呼ばない
+            }
+            if (entry.isActor)
+            {
+                actor->Tick(dt);
+                continue;
+            }
+            Component* component = registry->Resolve<Component>(entry.component);
+            if (component != nullptr && !component->IsPendingDestroy())
+            {
+                component->Tick(dt);
             }
         }
     }

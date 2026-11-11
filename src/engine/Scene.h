@@ -19,6 +19,7 @@
 #include "engine/Actor.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -54,11 +55,11 @@ namespace husky::engine
             return actor;
         }
 
-        // 全アクターの Tick を、一覧の順に呼ぶ。Destroy 済みのアクターは飛ばす。
-        // コンポーネントは、フェーズ(TickPhase)の順に、全アクター分を回す:
-        //   Input → Update → PostUpdate → PreRender
-        // アクター自身の Tick は Update のフェーズで、そのアクターの Update のコンポーネントの直前に呼ぶ。
-        // このフレームの途中で Spawn / AddComponent したものは、次のフレームから更新する。
+        // 全アクターと全コンポーネントの Tick を、実行順(TickOrder)の小さい順に呼ぶ。
+        //   - アクター自身の Tick の実行順は TickOrder::Default(0)。
+        //   - 実行順が同じものは、シーンの一覧の順(アクターの順。1つのアクターの中では、アクター自身 → 付けた順のコンポーネント)。
+        //   - 順番はフレームの最初に決める。このフレームの途中で Spawn / AddComponent したものは、次のフレームから更新する。
+        //   - Destroy 済みのアクターと、そのコンポーネント、Destroy 済みのコンポーネントは飛ばす(フレームの途中で Destroy されたものも)。
         void Tick(double dt);
 
         // Destroy 済み(またはもう存在しない)アクターを、一覧から外す。戻り値: 外した数。
@@ -90,6 +91,20 @@ namespace husky::engine
         HUSKY_REFLECTION_END()
 
     private:
+        // Tick の順番表の1行。1行が「アクター自身の Tick」か「コンポーネント1つの Tick」の1回分。
+        struct TickEntry
+        {
+            std::int32_t order = 0;       // 実行順(小さいほうが先)
+            std::uint32_t sequence = 0;   // 一覧の中の並び順(実行順が同じときに、これで並べる)
+            core::ObjectHandle actor;     // 呼ぶアクター(コンポーネントの行なら、その持ち主)
+            core::ObjectHandle component; // 呼ぶコンポーネント。isActor が true の行では使わない
+            bool isActor = false;         // true: アクター自身の Tick の行
+        };
+
+        // Tick の順番表。毎フレーム作り直すが、vector のメモリは使い回す(毎フレームの確保を避けるため)。
+        // ハンドルを持っているが、プロパティではないので GC はたどらない(Tick の間だけ使う、弱い参照)。
+        std::vector<TickEntry> m_tickEntries;
+
         // ハンドルからアクターを引く。もう無いか、レジストリで作っていないシーンなら nullptr。
         Actor* ResolveActor(core::ObjectHandle handle) const
         {
