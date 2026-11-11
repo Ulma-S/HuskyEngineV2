@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <type_traits> // std::is_same_v
+#include <vector>
 
 namespace husky::core
 {
@@ -16,11 +17,12 @@ namespace husky::core
     // プロパティにできる型。ここに無い型を登録しようとすると、コンパイルエラーになる。
     enum class PropertyType : std::uint8_t
     {
-        Bool,         // bool
-        Int32,        // std::int32_t
-        Float,        // float
-        String,       // std::string
-        ObjectHandle, // ObjectHandle(ほかのオブジェクトへの参照)
+        Bool,              // bool
+        Int32,             // std::int32_t
+        Float,             // float
+        String,            // std::string
+        ObjectHandle,      // ObjectHandle(ほかのオブジェクトへの参照)
+        ObjectHandleArray, // std::vector<ObjectHandle>(ほかのオブジェクトへの参照の一覧)
     };
 
     // C++ の型から PropertyType を選ぶ。コンパイル時に決まる。
@@ -47,6 +49,10 @@ namespace husky::core
         else if constexpr (std::is_same_v<T, ObjectHandle>)
         {
             return PropertyType::ObjectHandle;
+        }
+        else if constexpr (std::is_same_v<T, std::vector<ObjectHandle>>)
+        {
+            return PropertyType::ObjectHandleArray;
         }
         else
         {
@@ -75,7 +81,29 @@ namespace husky::core
         std::size_t GetOffset() const { return m_offset; }
 
         // ほかのオブジェクトを参照するプロパティなら true。GC はこれが true のものをたどる。
-        bool IsReference() const { return m_type == PropertyType::ObjectHandle; }
+        bool IsReference() const
+        {
+            return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray;
+        }
+
+        // このプロパティが参照しているオブジェクトのハンドルを、すべて function(handle) に渡す。
+        // ObjectHandle なら1つ、ObjectHandleArray なら中の要素を順に渡す。参照でないプロパティなら何もしない。
+        // GC が、プロパティの種類を気にせずに参照をたどれるようにするためのもの。
+        template <typename Function>
+        void ForEachReference(const Object& object, Function&& function) const
+        {
+            if (const ObjectHandle* single = GetValuePtr<ObjectHandle>(object))
+            {
+                function(*single);
+            }
+            else if (const std::vector<ObjectHandle>* array = GetValuePtr<std::vector<ObjectHandle>>(object))
+            {
+                for (const ObjectHandle handle : *array)
+                {
+                    function(handle);
+                }
+            }
+        }
 
         // object の中の、このプロパティの値へのポインタを返す。
         // T がプロパティの型と合わなければ nullptr(間違った型で読み書きして、メモリを壊さないため)。

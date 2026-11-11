@@ -3,6 +3,8 @@
 
 #include <doctest/doctest.h>
 
+#include <vector>
+
 using husky::core::Object;
 using husky::core::ObjectHandle;
 using husky::core::ObjectRegistry;
@@ -184,4 +186,85 @@ TEST_CASE("GC: 長い参照の鎖でもたどれる(再帰を使わないので�
 
     CHECK(registry.CollectGarbage() == 1);
     CHECK(registry.GetObjectCount() == 100001);
+}
+
+// --- 配列のプロパティ(std::vector<ObjectHandle>) ---
+
+namespace
+{
+    // 子の一覧を持つオブジェクト(シーンがアクターの一覧を持つのと同じ形)。
+    class Group : public Object
+    {
+        HUSKY_OBJECT(Group, Object)
+    public:
+        ~Group() override { ++g_destroyedCount; }
+
+        std::vector<ObjectHandle> members;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(members)
+        HUSKY_REFLECTION_END()
+    };
+}
+
+TEST_CASE("Property: std::vector<ObjectHandle> は ObjectHandleArray として登録され、参照フラグを持つ")
+{
+    const husky::core::Property* property = Group::StaticType().FindProperty("members");
+    REQUIRE(property != nullptr);
+    CHECK(property->GetType() == husky::core::PropertyType::ObjectHandleArray);
+    CHECK(property->IsReference());
+}
+
+TEST_CASE("GC: 配列のプロパティに入っているオブジェクトは、すべて生き残る")
+{
+    ResetCount();
+    ObjectRegistry registry;
+    Group* group = registry.Create<Group>();
+    registry.AddRoot(group->GetHandle());
+
+    for (int i = 0; i < 10; ++i)
+    {
+        group->members.push_back(registry.Create<Node>()->GetHandle());
+    }
+    const ObjectHandle outsider = registry.Create<Node>()->GetHandle(); // 一覧に入っていない
+
+    CHECK(registry.CollectGarbage() == 1); // outsider だけが回収される
+    CHECK(registry.Resolve(outsider) == nullptr);
+    for (const ObjectHandle member : group->members)
+    {
+        CHECK(registry.Resolve(member) != nullptr);
+    }
+}
+
+TEST_CASE("GC: 配列から外したオブジェクトは、次の GC で回収される")
+{
+    ResetCount();
+    ObjectRegistry registry;
+    Group* group = registry.Create<Group>();
+    registry.AddRoot(group->GetHandle());
+    group->members.push_back(registry.Create<Node>()->GetHandle());
+    group->members.push_back(registry.Create<Node>()->GetHandle());
+
+    const ObjectHandle removed = group->members.back();
+    group->members.pop_back(); // 一覧から外す(シーンからアクターを外すのと同じ)
+
+    CHECK(registry.CollectGarbage() == 1);
+    CHECK(registry.Resolve(removed) == nullptr);
+}
+
+TEST_CASE("GC: 配列の中に、すでに回収済みのハンドルや空のハンドルがあっても大丈夫")
+{
+    ResetCount();
+    ObjectRegistry registry;
+    Group* group = registry.Create<Group>();
+    registry.AddRoot(group->GetHandle());
+
+    Node* doomed = registry.Create<Node>();
+    group->members.push_back(doomed->GetHandle());
+    group->members.push_back(ObjectHandle{}); // どこも指さないハンドル
+    doomed->Destroy();
+    registry.FlushDestroyed(); // 一覧には古いハンドルが残ったまま
+
+    CHECK(registry.CollectGarbage() == 0); // 落ちずに終わり、group は生き残る
+    CHECK(registry.Resolve(group->GetHandle()) == group);
 }

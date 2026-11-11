@@ -144,6 +144,15 @@ namespace husky::core
         {
             return {PropertyTypeOf<Params>()...};
         }
+
+        // 引数の型が、すべて Value に入れられる型なら true。
+        template <typename Tuple>
+        struct AllValueTypes;
+
+        template <typename... Params>
+        struct AllValueTypes<std::tuple<Params...>> : std::bool_constant<(IsValueType<Params> && ...)>
+        {
+        };
     }
 
     // メンバー関数ポインタから Method を作る。HUSKY_METHOD マクロから呼ばれる。
@@ -154,6 +163,13 @@ namespace husky::core
     {
         using Traits = method_detail::MethodTraits<decltype(MethodPtr)>;
         using Return = std::decay_t<typename Traits::Return>;
+
+        // 引数と戻り値は Value でやり取りするので、Value に入る型でなければならない。
+        // プロパティにはできる配列(std::vector<ObjectHandle>)なども、ここで分かりやすいエラーにする。
+        static_assert(method_detail::AllValueTypes<typename Traits::Parameters>::value,
+                      "メソッドの引数に使えない型があります(Value に入る型だけが使えます)");
+        static_assert(std::is_void_v<Return> || IsValueType<Return>,
+                      "メソッドの戻り値に使えない型です(Value に入る型だけが使えます)");
 
         std::optional<PropertyType> returnType;
         if constexpr (!std::is_void_v<Return>)

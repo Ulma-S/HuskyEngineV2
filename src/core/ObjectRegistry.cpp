@@ -116,16 +116,11 @@ namespace husky::core
             stack.pop_back();
 
             // このオブジェクトの全プロパティ(親クラスの分も含む)のうち、参照フラグの付いたものをたどる。
+            // ForEachReference は、単独のハンドルでも配列でも、参照先のハンドルを1つずつ渡してくれる。
             object->GetType().ForEachProperty([&](const Property& property) {
-                if (!property.IsReference())
-                {
-                    return;
-                }
-                const ObjectHandle* reference = property.GetValuePtr<ObjectHandle>(*object);
-                if (reference != nullptr)
-                {
-                    markAndPush(Resolve(*reference)); // 回収済みの相手なら Resolve が nullptr を返すだけ
-                }
+                property.ForEachReference(*object, [&](ObjectHandle reference) {
+                    markAndPush(Resolve(reference)); // 回収済みの相手なら Resolve が nullptr を返すだけ
+                });
             });
         }
 

@@ -5,7 +5,8 @@
 
 #include <cstdint>
 #include <string>
-#include <variant> // std::variant, std::monostate
+#include <type_traits> // std::bool_constant, std::is_same_v
+#include <variant>     // std::variant, std::monostate
 
 namespace husky::core
 {
@@ -23,4 +24,21 @@ namespace husky::core
     //   (C++17 では、"abc" のアドレスが bool への変換に選ばれてしまうため)。
     //   文字列は Value v = std::string("abc"); のように、std::string にしてから入れること。
     using Value = std::variant<std::monostate, bool, std::int32_t, float, std::string, ObjectHandle>;
+
+    // T が Value に入れられる型なら true(コンパイル時に決まる)。
+    // プロパティにはできても Value に入らない型(std::vector<ObjectHandle> など)を、メソッドの引数で使わせないために使う。
+    // 中身: 「Value の候補の型(Ts...)のどれかと T が同じか」を、(... || ...) で全部 or して調べる。
+    namespace value_detail
+    {
+        template <typename T, typename Variant>
+        struct IsAlternativeOf;
+
+        template <typename T, typename... Ts>
+        struct IsAlternativeOf<T, std::variant<Ts...>> : std::bool_constant<(std::is_same_v<T, Ts> || ...)>
+        {
+        };
+    }
+
+    template <typename T>
+    constexpr bool IsValueType = value_detail::IsAlternativeOf<T, Value>::value;
 }
