@@ -15,6 +15,8 @@
 
 #include <cstddef>
 #include <memory>
+#include <new>     // placement new
+#include <utility> // std::forward
 
 namespace husky::core
 {
@@ -38,6 +40,47 @@ namespace husky::core
         // Allocate で返したアドレスを返却する。
         // 戻り値: 返却できたら true。nullptr、このアロケータのものでないアドレス、二重解放なら false(何もしない)。
         bool Free(void* pointer);
+
+        // T 型のオブジェクトを、このアロケータのメモリの上に作る(確保 + コンストラクタ)。足りなければ nullptr。
+        // C# の new T(args) にあたる。args は T のコンストラクタにそのまま渡す。
+        //
+        // 中でやっていること:
+        //   1. Allocate でメモリを借りる(ただのバイト列)
+        //   2. placement new で、その上でコンストラクタだけを呼ぶ(メモリの確保はしない)
+        // placement new は、CLAUDE.md で、この New の中だけに許可している。
+        template <typename T, typename... Args>
+        T* New(Args&&... args)
+        {
+            static_assert(alignof(T) <= MaxAlignment, "アラインメントが大きすぎます");
+            void* memory = Allocate(sizeof(T), alignof(T));
+            if (memory == nullptr)
+            {
+                return nullptr;
+            }
+            return new (memory) T(std::forward<Args>(args)...);
+        }
+
+        // New で作ったオブジェクトを破棄する(デストラクタ + 返却)。nullptr なら何もしない。
+        //
+        // 中でやっていること:
+        //   1. デストラクタを明示的に呼ぶ(メンバーが持つメモリの解放など、オブジェクトの後片付け)
+        //   2. Free でメモリをアロケータに返す
+        // デストラクタの明示的な呼び出しは、CLAUDE.md で、この Delete の中だけに許可している。
+        //
+        // 基底クラスのポインタで渡してもよい(T のデストラクタが virtual なら、実際の型のデストラクタが呼ばれる)。
+        // ただし、object のアドレスが New で借りたメモリの先頭と一致している必要がある。
+        // 継承が1本道(単一継承)なら一致する。複数のクラスを継承した型を、基底のポインタで渡してはいけない。
+        // 戻り値: 返却できたら true。
+        template <typename T>
+        bool Delete(T* object)
+        {
+            if (object == nullptr)
+            {
+                return false;
+            }
+            object->~T();
+            return Free(object); // T* は void* に自動で変換される(アドレスはそのまま)
+        }
 
         // 管理しているメモリの大きさ(バイト)。
         std::size_t GetCapacity() const { return m_capacity; }

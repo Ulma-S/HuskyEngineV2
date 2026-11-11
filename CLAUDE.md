@@ -48,7 +48,8 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - 根の登録口は`ObjectRegistry::AddRoot` / `ObjectRegistry::RemoveRoot`。プロパティとして登録した`ObjectHandle`は強い参照(GCがたどる)、登録していない`ObjectHandle`は弱い参照。
 - 世代付きハンドルを最初から用意する。弱参照と破棄済み検出に使う。
 - 生の`new`/`delete`は禁止。スマートポインタ、プール、ハンドルのみを使う。
-  - 例外: placement new(確保済みのメモリの上でコンストラクタを呼ぶ)と、デストラクタの明示的な呼び出しは、アロケータを使う生成・破棄の処理(`ObjectRegistry::Create`と`ObjectDeleter`)の中だけで使ってよい。
+  - 例外: placement new(確保済みのメモリの上でコンストラクタを呼ぶ)と、デストラクタの明示的な呼び出しは、`FreeListAllocator::New` / `FreeListAllocator::Delete`の中だけで使ってよい。アロケータでオブジェクトを作るときは、必ずこの2つを使う。
+  - `Delete`は、オブジェクトのアドレスが`New`で借りたメモリの先頭と一致することを前提にしている。基底クラスのポインタで渡すのは、単一継承の場合だけにする。
 - ゲームオブジェクトのメモリは、`ObjectRegistry`が持つ自作のヒープアロケータ(`FreeListAllocator`、フリーリスト型・ファーストフィット)から借りる。容量を使い切ると`Create`は`nullptr`を返す。
 - 自作アロケータの中の誤用はASanから見えない。ASanを入れるときに、手動でのポイズニングなど両立の方法を考える。
 

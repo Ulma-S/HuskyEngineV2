@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstring> // std::memset
 #include <random>
+#include <string>
+#include <utility> // std::move
 #include <vector>
 
 using husky::core::FreeListAllocator;
@@ -203,4 +205,63 @@ TEST_CASE("FreeListAllocator: 16 より大きいアラインメントには対�
     FreeListAllocator allocator(Capacity);
     CHECK(allocator.Allocate(64, 32) == nullptr);
     CHECK(allocator.Allocate(64, 8) != nullptr); // 16 以下なら OK
+}
+
+// --- New / Delete(確保 + コンストラクタ、デストラクタ + 返却を1回で) ---
+
+namespace
+{
+    int g_baseDestroyed = 0;
+    int g_derivedDestroyed = 0;
+
+    struct Base
+    {
+        virtual ~Base() { ++g_baseDestroyed; }
+        int value = 0;
+    };
+
+    struct Derived : Base
+    {
+        explicit Derived(int v, std::string n) : name(std::move(n)) { value = v; }
+        ~Derived() override { ++g_derivedDestroyed; }
+        std::string name;
+    };
+}
+
+TEST_CASE("FreeListAllocator: New はメモリを借りてコンストラクタを呼び、Delete はデストラクタを呼んでメモリを返す")
+{
+    g_baseDestroyed = 0;
+    g_derivedDestroyed = 0;
+    FreeListAllocator allocator(Capacity);
+
+    // 長い文字列は、std::string が別のメモリに置く。デストラクタが呼ばれないと、そのメモリが漏れる。
+    Derived* object = allocator.New<Derived>(42, std::string("とても長い名前のオブジェクトです。十六文字を超えます。"));
+    REQUIRE(object != nullptr);
+    CHECK(object->value == 42);
+    CHECK(object->name.size() > 15);
+    CHECK(allocator.GetUsedBytes() > 0);
+
+    CHECK(allocator.Delete(object));
+    CHECK(g_derivedDestroyed == 1); // 子のデストラクタも
+    CHECK(g_baseDestroyed == 1);    // 親のデストラクタも呼ばれる
+    CHECK(allocator.GetUsedBytes() == 0);
+}
+
+TEST_CASE("FreeListAllocator: 基底クラスのポインタで Delete しても、実際の型のデストラクタが呼ばれる")
+{
+    g_baseDestroyed = 0;
+    g_derivedDestroyed = 0;
+    FreeListAllocator allocator(Capacity);
+
+    Base* object = allocator.New<Derived>(1, std::string("a")); // 単一継承なので、アドレスは先頭と一致する
+    CHECK(allocator.Delete(object));
+    CHECK(g_derivedDestroyed == 1);
+    CHECK(allocator.GetUsedBytes() == 0);
+}
+
+TEST_CASE("FreeListAllocator: New は容量が足りなければ nullptr、Delete(nullptr) は何もしない")
+{
+    FreeListAllocator allocator(32); // ヘッダ 16 + 中身 16 しか入らない
+    CHECK(allocator.New<Derived>(1, std::string("a")) == nullptr); // Derived は 16 バイトより大きい
+    CHECK_FALSE(allocator.Delete(static_cast<Derived*>(nullptr)));
 }

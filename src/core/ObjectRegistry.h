@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <memory>      // std::unique_ptr
-#include <new>         // placement new
 #include <type_traits> // std::is_base_of_v
 #include <utility>     // std::forward
 #include <vector>
@@ -28,20 +27,15 @@ namespace husky::core
 {
     // unique_ptr の「削除の仕方」(デリータ)。
     // 普通の unique_ptr は delete で片付けるが、アロケータから借りたメモリは delete してはいけない。
-    // そこで「デストラクタを呼んでから、メモリをアロケータに返す」という片付け方を、ここで指定する。
+    // そこで「アロケータの Delete で片付ける(デストラクタを呼んでから、メモリを返す)」と指定する。
     struct ObjectDeleter
     {
         FreeListAllocator* allocator = nullptr;
-        void* memory = nullptr; // アロケータから借りたメモリの先頭(Free に渡すアドレス)
 
         // unique_ptr が中身を片付けるときに呼ぶ。
-        void operator()(Object* object) const
-        {
-            // デストラクタの明示的な呼び出し。メモリは解放せず、オブジェクトの後片付け(~Enemy など)だけを行う。
-            // virtual なので、Object* から呼んでも、実際の型のデストラクタが呼ばれる。
-            object->~Object();
-            allocator->Free(memory);
-        }
+        // Object のデストラクタは virtual なので、Object* で渡しても ~Enemy などが呼ばれる。
+        // Object の子孫は単一継承なので、Object* のアドレスは New で借りたメモリの先頭と一致する。
+        void operator()(Object* object) const { allocator->Delete(object); }
     };
 
     // アロケータから借りたメモリの上にあるオブジェクトを持つ unique_ptr。
@@ -73,24 +67,19 @@ namespace husky::core
         template <typename T, typename... Args>
         T* Create(Args&&... args)
         {
-            // T が Object の子孫であることと、アラインメントが対応範囲内であることを、コンパイル時に確かめる。
+            // T が Object の子孫であることを、コンパイル時に確かめる。
             static_assert(std::is_base_of_v<Object, T>, "ObjectRegistry で作れるのは Object の子孫だけです");
-            static_assert(alignof(T) <= FreeListAllocator::MaxAlignment, "アラインメントが大きすぎます");
 
-            // 1. メモリを借りる(まだオブジェクトにはなっていない、ただのバイト列)。
-            void* memory = m_allocator.Allocate(sizeof(T), alignof(T));
-            if (memory == nullptr)
+            // 1. アロケータのメモリの上にオブジェクトを作る(確保 + コンストラクタ)。
+            T* object = m_allocator.New<T>(std::forward<Args>(args)...);
+            if (object == nullptr)
             {
                 return nullptr;
             }
 
-            // 2. placement new: 借りたメモリの上で、T のコンストラクタだけを呼ぶ(メモリの確保はしない)。
-            //    CLAUDE.md で許可した例外。生の new(メモリの確保)とは別物。
-            T* object = new (memory) T(std::forward<Args>(args)...);
-
-            // 3. 片付け方(デリータ)を添えて unique_ptr に入れ、表に入れる。
+            // 2. 片付け方(デリータ)を添えて unique_ptr に入れ、表に入れる。
             //    表の中身は unique_ptr(オブジェクトへの矢印)なので、表が大きくなっても本体の場所は変わらない。
-            const Handle<ObjectPtr> slot = m_objects.Add(ObjectPtr(object, ObjectDeleter{&m_allocator, memory}));
+            const Handle<ObjectPtr> slot = m_objects.Add(ObjectPtr(object, ObjectDeleter{&m_allocator}));
 
             object->m_handle = ObjectHandle{slot.index, slot.generation};
             object->m_registry = this;
