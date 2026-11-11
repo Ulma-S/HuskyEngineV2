@@ -76,11 +76,11 @@ endfunction()
 
 # --- core モジュール ---
 # 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
-# 今はテンプレート(ヘッダ)だけで .cpp が無いので、INTERFACE ライブラリにする。
-# INTERFACE は「自分ではコンパイルするものが無く、使う側にインクルードパスなどの設定だけを伝える」という意味。
-# .cpp ができたら STATIC に変える。
-add_library(husky_core INTERFACE)
-target_include_directories(husky_core INTERFACE src)
+add_library(husky_core STATIC
+    src/core/ObjectHeap.cpp
+)
+husky_set_compile_options(husky_core)
+target_include_directories(husky_core PUBLIC src)
 
 # --- platform モジュール(静的ライブラリ) ---
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
@@ -216,6 +216,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/InputTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
+        tests/core/ObjectHeapTests.cpp
     )
     husky_set_compile_options(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
