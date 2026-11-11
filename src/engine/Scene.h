@@ -55,10 +55,13 @@ namespace husky::engine
         }
 
         // 全アクターの Tick を、一覧の順に呼ぶ。Destroy 済みのアクターは飛ばす。
+        // 各アクターの Tick の直後に、そのアクターのコンポーネントの Tick を呼ぶ(Actor::TickComponents)。
         void Tick(double dt);
 
         // Destroy 済み(またはもう存在しない)アクターを、一覧から外す。戻り値: 外した数。
         // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ。
+        // あわせて、Destroy 済みのアクターのコンポーネントを Destroy し、
+        // 生きているアクターからは Destroy 済みのコンポーネントを一覧から外す。
         std::size_t RemoveDestroyedActors();
 
         // 生きている(Destroy 済みでない)全アクターについて、function(actor) を一覧の順に呼ぶ。描画などに使う。

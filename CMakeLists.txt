@@ -108,6 +108,7 @@ target_link_libraries(husky_platform PRIVATE SDL3::SDL3)
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
 add_library(husky_engine STATIC
+    src/engine/Actor.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
     src/engine/Scene.cpp
@@ -218,6 +219,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
         tests/engine/SceneTests.cpp
+        tests/engine/ComponentTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp

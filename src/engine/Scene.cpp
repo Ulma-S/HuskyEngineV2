@@ -21,12 +21,38 @@ namespace husky::engine
             if (actor != nullptr && !actor->IsPendingDestroy())
             {
                 actor->Tick(dt);
+                // アクターの Tick の中で自分を Destroy したら、コンポーネントは更新しない。
+                if (!actor->IsPendingDestroy())
+                {
+                    actor->TickComponents(dt);
+                }
             }
         }
     }
 
     std::size_t Scene::RemoveDestroyedActors()
     {
+        // 先にコンポーネントを片付ける。
+        // Destroy 済みのアクターは、そのコンポーネントもまとめて Destroy する(部品はアクターと一緒に消える)。
+        // 生きているアクターは、Destroy 済みのコンポーネントを一覧から外す。
+        // どちらも FlushDestroyed の前なので、同じフレームの終わりに破棄が確定する。
+        for (const core::ObjectHandle handle : actors)
+        {
+            Actor* actor = ResolveActor(handle);
+            if (actor == nullptr)
+            {
+                continue;
+            }
+            if (actor->IsPendingDestroy())
+            {
+                actor->DestroyComponents();
+            }
+            else
+            {
+                actor->RemoveDestroyedComponents();
+            }
+        }
+
         const std::size_t before = actors.size();
         // Destroy 済みか、もう存在しないアクターのハンドルを、一覧から消す。
         actors.erase(std::remove_if(actors.begin(), actors.end(),
