@@ -5,13 +5,14 @@
 // 画面は毎フレーム1色で塗りつぶし、Space を押すと色が切り替わる。
 // 跳ね回るスプライトを 1000 個と、矢印キー(または WASD)で動かすプレイヤーを1つ描く。
 // どちらもシーンのアクター(Actor の子クラス)で、見た目は SpriteComponent で足す。
-// 更新は Scene::Tick、描画は Scene::ForEachActor で、SpriteComponent を持つアクターだけを積む。
+// 更新は Scene::Tick、描画は engine::DrawSprites で、SpriteComponent を持つアクターだけを積む。
 // SDL は直接使わず、platform と render だけを通す(main からは SDL のヘッダが見えない設定にしてある)。
 
 #include "core/ObjectRegistry.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
+#include "engine/SpriteComponent.h"
 #include "platform/Image.h"
 #include "platform/Platform.h"
 #include "platform/Window.h"
@@ -53,25 +54,8 @@ namespace
         }
     }
 
-    // スプライト1枚の見た目を、アクターに足すコンポーネント。描画に要る大きさと色を持つ。
-    // 位置は持たない。描くときは、持ち主のアクターの位置(x, y)を使う。
-    // Tick は使わない(見た目は描画のときに読まれるだけ)。
-    // (engine はまだ render に依存していないので、今はゲーム側のここに置く。engine に移すかは後で決める)
-    // 動作スレッド: ゲームスレッドのみ
-    class SpriteComponent : public engine::Component
-    {
-        HUSKY_OBJECT(SpriteComponent, engine::Component)
-    public:
-        float width = 32.0f; // 描く大きさ(ピクセル)
-        float height = 32.0f;
-        render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
-
-        // color は render の型で、リフレクションの対応型ではないので登録しない。
-        HUSKY_REFLECTION_BEGIN()
-            HUSKY_PROPERTY(width)
-            HUSKY_PROPERTY(height)
-        HUSKY_REFLECTION_END()
-    };
+    // using: engine::SpriteComponent を、この中では SpriteComponent と短く書けるようにする(C# の using と同じ)。
+    using engine::SpriteComponent;
 
     // 画面の中を跳ね回るアクター。見た目は SpriteComponent で足す。
     // 動作スレッド: ゲームスレッドのみ
@@ -269,25 +253,8 @@ namespace
             //    vsync のため BeginFrame の中で待つ。
             if (renderDevice.BeginFrame(colors[colorIndex]))
             {
-                // シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前になる。
-                // [&](...) { ... } はラムダ式(C# の (actor) => { ... })。
-                // [&] は「外の変数(renderDevice)を参照で使う」という意味。C# のラムダは自動でこうなる。
-                scene->ForEachActor([&](engine::Actor& actor) {
-                    // Unity の GetComponent<SpriteRenderer>() と同じ。スプライトを付けていないアクターは描かない。
-                    // 位置はアクターから、大きさと色はコンポーネントから取る。
-                    const SpriteComponent* spriteComponent = actor.GetComponent<SpriteComponent>();
-                    if (spriteComponent == nullptr)
-                    {
-                        return;
-                    }
-                    render::Sprite sprite;
-                    sprite.x = actor.x;
-                    sprite.y = actor.y;
-                    sprite.width = spriteComponent->width;
-                    sprite.height = spriteComponent->height;
-                    sprite.color = spriteComponent->color;
-                    renderDevice.DrawSprite(sprite);
-                });
+                // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
+                engine::DrawSprites(*scene, renderDevice);
 
                 renderDevice.EndFrame();
             }

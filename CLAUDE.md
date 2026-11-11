@@ -30,7 +30,8 @@
 core / engine / platform / tools / game の5つに分け、依存は一方向にする。
 
 - core: 型、メモリ、リフレクション、GC、世代付きハンドル、ジョブ。他のモジュールを一切参照しない。
-- engine: シーン、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platformに依存する。
+- engine: シーン、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platform、render(描画層)に依存する。
+- render(描画層): SDL_GPUで描く。`RenderDevice`と独自の型(`Color`、`Sprite`など)だけを公開する。platformに依存する。engineを参照しない(依存の向きは engine → render)。
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ。engineに依存する。リリースビルドには含めない。
 - game: ゲーム固有のコード。engineに依存する。

@@ -112,6 +112,7 @@ add_library(husky_engine STATIC
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
     src/engine/Scene.cpp
+    src/engine/SpriteComponent.cpp
 )
 husky_set_compile_options(husky_engine)
 target_include_directories(husky_engine PUBLIC src)
@@ -121,7 +122,12 @@ target_include_directories(husky_engine PUBLIC src)
 # engine を使う側にも platform のヘッダが見えている必要があるから。
 # SDL3 は platform の中で PRIVATE なので、ここを PUBLIC にしても SDL3 は外に漏れない。
 # core も同じ理由で PUBLIC(engine のヘッダは、これから core のハンドルなどを使う)。
-target_link_libraries(husky_engine PUBLIC husky_core husky_platform)
+# render も PUBLIC(engine のヘッダ SpriteComponent.h が render::Color を使うため)。
+# 依存の向きは engine → render。render は下の層で、engine を知らない(逆は禁止)。
+# render の中の SDL3 は PRIVATE なので、ここを PUBLIC にしても SDL3 は外に漏れない。
+# husky_render は、このファイルの下のほうで定義している。CMake はターゲットの名前を最後にまとめて解決するので、
+# 定義より前に名前を書いてもよい。
+target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render)
 
 # --- シェーダの変換 ---
 # HLSL で書いたシェーダを、ビルドの途中で DXC(Vulkan SDK に付属)に変換させる。
@@ -173,8 +179,9 @@ husky_compile_shader(Sprite.vert vs HUSKY_SHADER_HEADERS)
 husky_compile_shader(Sprite.frag ps HUSKY_SHADER_HEADERS)
 
 # --- render(描画層、静的ライブラリ) ---
-# engine の描画抽象の、SDL_GPU による実装。platform と同じく SDL3 を触ってよい場所。
-# engine 本体に SDL3 が見えないよう、別のライブラリにしている。
+# SDL_GPU で描く層。公開するのは RenderDevice と独自の型(Color、Sprite など)だけ。
+# platform と同じく SDL3 を触ってよい場所。engine 本体に SDL3 が見えないよう、別のライブラリにしている。
+# engine はこれを使う(engine → render)。render は engine を知らない。
 add_library(husky_render STATIC
     src/render/RenderDevice.cpp
     ${HUSKY_SHADER_HEADERS} # ソースに含めると、ビルドの前にシェーダの変換が走る
@@ -220,6 +227,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/InputTests.cpp
         tests/engine/SceneTests.cpp
         tests/engine/ComponentTests.cpp
+        tests/engine/SpriteComponentTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
