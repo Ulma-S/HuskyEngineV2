@@ -148,6 +148,7 @@ namespace husky::core
         ObjectHandle m_handle;         // 作ったレジストリが設定する
         ObjectRegistry* m_registry = nullptr;  // 作ったレジストリ(持ち主)。借りているだけで、所有はしていない
         bool m_pendingDestroy = false;
+        bool m_gcMarked = false;               // GC のマークの印。CollectGarbage の中だけで使う
     };
 
     // object が T 型(か T の子孫)なら T* として返し、違えば nullptr を返す(C# の「object as T」)。

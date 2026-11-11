@@ -98,6 +98,22 @@ namespace husky::core
         // 今入っている中身の数。
         std::size_t Size() const { return m_count; }
 
+        // 入っている中身すべてについて、function(ハンドル, 中身) を呼ぶ。
+        // 注意: function の中で Add や Remove を呼ばないこと(回っている途中で表の形が変わってしまう)。
+        //   消したいものは、いったんハンドルを集めておき、回り終わってから Remove する。
+        template <typename Function>
+        void ForEach(Function&& function)
+        {
+            for (std::size_t i = 0; i < m_slots.size(); ++i)
+            {
+                Slot& slot = m_slots[i];
+                if (slot.value.has_value())
+                {
+                    function(Handle<T>{static_cast<std::uint32_t>(i), slot.generation}, *slot.value);
+                }
+            }
+        }
+
     private:
         static constexpr std::uint32_t NoFreeSlot = 0xFFFFFFFFu; // 空きリストの終わりの印
 

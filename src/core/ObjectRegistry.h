@@ -81,6 +81,28 @@ namespace husky::core
         // 今あるオブジェクトの数(破棄を予約済みのものも含む)。
         std::size_t GetObjectCount() const { return m_objects.Size(); }
 
+        // --- GC(マーク&スイープ) ---
+        //
+        // 根(ルート): GC が「必ず生かしておく」出発点。ワールドやアセットのキャッシュなどを登録する。
+        // 根から、参照フラグの付いたプロパティ(登録した ObjectHandle)をたどって届くオブジェクトは生き残り、
+        // 届かないオブジェクトは CollectGarbage で破棄される。
+        // プロパティとして登録していない ObjectHandle は「弱い参照」で、相手を生かしておく力は無い
+        // (相手が回収されたかどうかは、Resolve が nullptr を返すことで分かる)。
+
+        // 根に加える。すでに根なら何もしない。戻り値: そのオブジェクトが存在すれば true。
+        bool AddRoot(ObjectHandle handle);
+
+        // 根から外す。戻り値: 根だったら true。
+        bool RemoveRoot(ObjectHandle handle);
+
+        // 根から届かないオブジェクトを、すべて破棄する。戻り値: 破棄した数。
+        // フレームの終わりに、FlushDestroyed の後で、必要なときだけ呼ぶ(停止型: 終わるまで戻らない)。
+        // 注意: デストラクタの中で、ほかのオブジェクトの Destroy を呼ばないこと。
+        std::size_t CollectGarbage();
+
+        // 今の根の数。
+        std::size_t GetRootCount() const { return m_roots.size(); }
+
     private:
         friend class Object; // Object::Destroy から RequestDestroy を呼べるようにする
 
@@ -97,6 +119,7 @@ namespace husky::core
         // m_objects を後に宣言して先に破棄させ、オブジェクトのデストラクタが動いている間も、
         // m_pendingDestroy がまだ有効であるようにしておく。
         std::vector<ObjectHandle> m_pendingDestroy;     // 破棄を予約されたもの
+        std::vector<ObjectHandle> m_roots;              // GC の根
         HandleTable<std::unique_ptr<Object>> m_objects; // 全オブジェクト。持ち主はこの表
     };
 }
