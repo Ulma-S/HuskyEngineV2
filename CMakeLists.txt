@@ -77,7 +77,7 @@ endfunction()
 # --- core モジュール ---
 # 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
 add_library(husky_core STATIC
-    src/core/ObjectHeap.cpp
+    src/core/ObjectRegistry.cpp
 )
 husky_set_compile_options(husky_core)
 target_include_directories(husky_core PUBLIC src)
@@ -216,7 +216,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/InputTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
-        tests/core/ObjectHeapTests.cpp
+        tests/core/ObjectRegistryTests.cpp
     )
     husky_set_compile_options(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)

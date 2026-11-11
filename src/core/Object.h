@@ -46,19 +46,19 @@ private:
 namespace husky::core
 {
     class Object;
-    class ObjectHeap;
+    class ObjectRegistry;
 
     // オブジェクトを指すハンドル。外部(スクリプトなど)に渡すときや、長く持つときはこれを使う。
     using ObjectHandle = Handle<Object>;
 
     // すべてのゲームオブジェクトの基底クラス。
-    // 生成と破棄は ObjectHeap が行う(heap.Create<T>() で作り、Destroy() で破棄を予約する)。
+    // 生成と破棄は ObjectRegistry が行う(registry.Create<T>() で作り、Destroy() で破棄を予約する)。
     // 動作スレッド: ゲームスレッドのみ
     class Object
     {
-        // friend: ObjectHeap には private なメンバー(m_handle など)を触らせる。
-        // ハンドルや持ち主のヒープは、作ったヒープだけが設定してよいため。
-        friend class ObjectHeap;
+        // friend: ObjectRegistry には private なメンバー(m_handle など)を触らせる。
+        // ハンドルや持ち主のレジストリは、作ったレジストリだけが設定してよいため。
+        friend class ObjectRegistry;
 
     public:
         Object() = default;
@@ -89,20 +89,20 @@ namespace husky::core
             return GetType().IsA(T::StaticType());
         }
 
-        // このオブジェクトを指すハンドル。ObjectHeap で作ったものでなければ、どこも指さないハンドル。
+        // このオブジェクトを指すハンドル。ObjectRegistry で作ったものでなければ、どこも指さないハンドル。
         ObjectHandle GetHandle() const { return m_handle; }
 
-        // 破棄を予約する。実際に破棄されるのは、フレームの終わりの ObjectHeap::FlushDestroyed のとき。
+        // 破棄を予約する。実際に破棄されるのは、フレームの終わりの ObjectRegistry::FlushDestroyed のとき。
         // それまではメモリは有効で、ハンドルからも引ける(IsPendingDestroy で予約済みかが分かる)。
-        // 何度呼んでもよい。ObjectHeap で作ったものでなければ何もしない。
+        // 何度呼んでもよい。ObjectRegistry で作ったものでなければ何もしない。
         void Destroy();
 
         // Destroy が呼ばれ、破棄を待っているなら true。
         bool IsPendingDestroy() const { return m_pendingDestroy; }
 
     private:
-        ObjectHandle m_handle;         // 作ったヒープが設定する
-        ObjectHeap* m_heap = nullptr;  // 作ったヒープ(持ち主)。借りているだけで、所有はしていない
+        ObjectHandle m_handle;         // 作ったレジストリが設定する
+        ObjectRegistry* m_registry = nullptr;  // 作ったレジストリ(持ち主)。借りているだけで、所有はしていない
         bool m_pendingDestroy = false;
     };
 

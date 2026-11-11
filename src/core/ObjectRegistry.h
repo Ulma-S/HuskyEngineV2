@@ -1,13 +1,14 @@
-// ゲームオブジェクトの置き場。オブジェクトを作り、持ち、破棄する。
+// ゲームオブジェクトの登録簿(レジストリ)。オブジェクトを作り、持ち主になり、破棄する。
+// メモリの確保そのものは標準の仕組み(std::make_unique)に任せている。自前のメモリアロケータではない。
 //
 // 使い方:
-//   ObjectHeap heap;
-//   Enemy* enemy = heap.Create<Enemy>();          // 作る(持ち主はヒープ)
+//   ObjectRegistry registry;
+//   Enemy* enemy = registry.Create<Enemy>();          // 作る(持ち主はレジストリ)
 //   ObjectHandle handle = enemy->GetHandle();      // 長く持つときはハンドルで
 //   ...
 //   enemy->Destroy();                              // 破棄を予約(まだメモリは有効)
-//   heap.FlushDestroyed();                         // フレームの終わりに、予約分をまとめて破棄
-//   heap.Resolve<Enemy>(handle);                   // → nullptr(もう無い)
+//   registry.FlushDestroyed();                         // フレームの終わりに、予約分をまとめて破棄
+//   registry.Resolve<Enemy>(handle);                   // → nullptr(もう無い)
 //
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
@@ -23,17 +24,17 @@
 
 namespace husky::core
 {
-    class ObjectHeap final
+    class ObjectRegistry final
     {
     public:
-        ObjectHeap() = default;
-        // ヒープを破棄すると、残っているオブジェクトもすべて破棄される(unique_ptr が自動で delete する)。
-        ~ObjectHeap();
+        ObjectRegistry() = default;
+        // レジストリを破棄すると、残っているオブジェクトもすべて破棄される(unique_ptr が自動で delete する)。
+        ~ObjectRegistry();
 
-        ObjectHeap(const ObjectHeap&) = delete;
-        ObjectHeap& operator=(const ObjectHeap&) = delete;
+        ObjectRegistry(const ObjectRegistry&) = delete;
+        ObjectRegistry& operator=(const ObjectRegistry&) = delete;
 
-        // T 型のオブジェクトを作り、ポインタを返す。持ち主はヒープ。
+        // T 型のオブジェクトを作り、ポインタを返す。持ち主はレジストリ。
         // args は T のコンストラクタにそのまま渡す。
         //
         // template <typename T, typename... Args> の「...」は可変長テンプレート。
@@ -41,12 +42,12 @@ namespace husky::core
         // Args&&... と std::forward は「受け取った引数を、コピーを増やさずにそのまま次へ渡す」ための定番の書き方。
         //
         // 返したポインタは、そのオブジェクトの破棄が確定する(FlushDestroyed)まで有効。
-        // オブジェクトはヒープ上の固定の場所にあるので、ほかのオブジェクトを作っても動かない。
+        // オブジェクト本体はメモリ上の固定の場所にあるので、ほかのオブジェクトを作っても動かない。
         template <typename T, typename... Args>
         T* Create(Args&&... args)
         {
             // T が Object の子孫であることを、コンパイル時に確かめる。
-            static_assert(std::is_base_of_v<Object, T>, "ObjectHeap で作れるのは Object の子孫だけです");
+            static_assert(std::is_base_of_v<Object, T>, "ObjectRegistry で作れるのは Object の子孫だけです");
 
             // make_unique: new を書かずに、オブジェクトを作って unique_ptr に入れる。
             std::unique_ptr<T> object = std::make_unique<T>(std::forward<Args>(args)...);
@@ -58,7 +59,7 @@ namespace husky::core
             const Handle<std::unique_ptr<Object>> slot = m_objects.Add(std::move(object));
 
             raw->m_handle = ObjectHandle{slot.index, slot.generation};
-            raw->m_heap = this;
+            raw->m_registry = this;
             return raw;
         }
 

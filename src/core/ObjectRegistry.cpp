@@ -1,5 +1,5 @@
-// ObjectHeap.h と、Object の中でヒープを使う部分の実装。
-#include "core/ObjectHeap.h"
+// ObjectRegistry.h と、Object の中でレジストリを使う部分の実装。
+#include "core/ObjectRegistry.h"
 
 namespace husky::core
 {
@@ -7,31 +7,31 @@ namespace husky::core
 
     void Object::Destroy()
     {
-        if (m_heap == nullptr || m_pendingDestroy)
+        if (m_registry == nullptr || m_pendingDestroy)
         {
-            return; // ヒープで作ったものではないか、すでに予約済み
+            return; // レジストリで作ったものではないか、すでに予約済み
         }
         m_pendingDestroy = true;
-        m_heap->RequestDestroy(*this); // *this: 自分自身(ポインタ this の指す先)
+        m_registry->RequestDestroy(*this); // *this: 自分自身(ポインタ this の指す先)
     }
 
-    // --- ObjectHeap ---
+    // --- ObjectRegistry ---
 
     // = default: m_objects(HandleTable)が破棄され、中の unique_ptr が、残っているオブジェクトを delete する。
-    ObjectHeap::~ObjectHeap() = default;
+    ObjectRegistry::~ObjectRegistry() = default;
 
-    Object* ObjectHeap::Resolve(ObjectHandle handle) const
+    Object* ObjectRegistry::Resolve(ObjectHandle handle) const
     {
         const std::unique_ptr<Object>* entry = m_objects.Get(ToSlot(handle));
         return entry != nullptr ? entry->get() : nullptr;
     }
 
-    void ObjectHeap::RequestDestroy(Object& object)
+    void ObjectRegistry::RequestDestroy(Object& object)
     {
         m_pendingDestroy.push_back(object.GetHandle());
     }
 
-    std::size_t ObjectHeap::FlushDestroyed()
+    std::size_t ObjectRegistry::FlushDestroyed()
     {
         std::size_t destroyedCount = 0;
         for (const ObjectHandle handle : m_pendingDestroy)
