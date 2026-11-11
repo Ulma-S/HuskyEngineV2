@@ -9,6 +9,7 @@ using husky::core::ObjectRegistry;
 using husky::engine::Actor;
 using husky::engine::Component;
 using husky::engine::Scene;
+using husky::engine::TickPhase;
 
 namespace
 {
@@ -46,6 +47,55 @@ namespace
     class FastCounter : public Counter
     {
         HUSKY_OBJECT(FastCounter, Counter)
+    };
+
+    // フェーズごとに、決まった1文字を書くコンポーネント。
+    class InputLogger : public Component
+    {
+        HUSKY_OBJECT(InputLogger, Component)
+    public:
+        TickPhase GetTickPhase() const override { return TickPhase::Input; }
+        void Tick(double) override { g_log += "i"; }
+    };
+
+    class PostUpdateLogger : public Component
+    {
+        HUSKY_OBJECT(PostUpdateLogger, Component)
+    public:
+        TickPhase GetTickPhase() const override { return TickPhase::PostUpdate; }
+        void Tick(double) override { g_log += "p"; }
+    };
+
+    class PreRenderLogger : public Component
+    {
+        HUSKY_OBJECT(PreRenderLogger, Component)
+    public:
+        TickPhase GetTickPhase() const override { return TickPhase::PreRender; }
+        void Tick(double) override { g_log += "r"; }
+    };
+
+    // Update のフェーズで、持ち主に PostUpdateLogger を1つ足す(1回だけ)。
+    class PostUpdateAdder : public Component
+    {
+        HUSKY_OBJECT(PostUpdateAdder, Component)
+    public:
+        void Tick(double) override
+        {
+            if (!added)
+            {
+                GetOwner()->AddComponent<PostUpdateLogger>();
+                added = true;
+            }
+        }
+        bool added = false;
+    };
+
+    // Update のフェーズで、持ち主のアクターを Destroy する。
+    class OwnerDestroyer : public Component
+    {
+        HUSKY_OBJECT(OwnerDestroyer, Component)
+    public:
+        void Tick(double) override { GetOwner()->Destroy(); }
     };
 
     Scene* CreateRootScene(ObjectRegistry& registry)
@@ -170,4 +220,65 @@ TEST_CASE("Component: コンポーネントは、取り付け先のアクター�
 
     CHECK(registry.CollectGarbage() == 1); // アクターは回収される
     CHECK(counter->GetOwner() == nullptr); // 持ち主はもういない、と分かる
+}
+
+TEST_CASE("TickPhase: コンポーネントの既定のフェーズは Update")
+{
+    Counter counter; // レジストリで作らなくても、フェーズを聞くだけならできる
+    CHECK(counter.GetTickPhase() == TickPhase::Update);
+}
+
+TEST_CASE("TickPhase: Scene::Tick は、フェーズごとに全アクターを回す(Input → Update → PostUpdate → PreRender)")
+{
+    g_log.clear();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+
+    // 一覧の順番はフェーズとは関係ない、ということも確かめるため、わざとばらばらの順に付ける。
+    LoggingActor* first = scene->Spawn<LoggingActor>();
+    first->AddComponent<PreRenderLogger>();
+    first->AddComponent<PostUpdateLogger>();
+    first->AddComponent<Counter>();
+    first->AddComponent<InputLogger>();
+    LoggingActor* second = scene->Spawn<LoggingActor>();
+    second->AddComponent<PostUpdateLogger>();
+    second->AddComponent<InputLogger>();
+
+    scene->Tick(1.0);
+
+    // Input: i i / Update: アクター1(A)とその Counter(C)、アクター2(A) / PostUpdate: p p / PreRender: r
+    CHECK(g_log == "ii" "ACA" "pp" "r");
+}
+
+TEST_CASE("TickPhase: フレームの途中で足したコンポーネントは、後のフェーズでも次のフレームまで更新されない")
+{
+    g_log.clear();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* actor = scene->Spawn<Actor>();
+    actor->AddComponent<PostUpdateAdder>(); // Update で PostUpdateLogger を足す
+
+    scene->Tick(1.0);
+    CHECK(g_log.empty()); // 足したのは Update なので、同じフレームの PostUpdate では呼ばれない
+    CHECK(actor->GetComponent<PostUpdateLogger>() != nullptr);
+
+    scene->Tick(1.0);
+    CHECK(g_log == "p"); // 次のフレームからは呼ばれる
+}
+
+TEST_CASE("TickPhase: Update でアクターが Destroy されたら、そのアクターの残りのコンポーネントは更新されない")
+{
+    g_log.clear();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* actor = scene->Spawn<Actor>();
+    actor->AddComponent<InputLogger>();
+    actor->AddComponent<OwnerDestroyer>();
+    actor->AddComponent<Counter>();          // 同じ Update のフェーズでも、Destroy の後なので呼ばれない
+    actor->AddComponent<PostUpdateLogger>(); // 後のフェーズも呼ばれない
+
+    scene->Tick(1.0);
+
+    CHECK(g_log == "i"); // Destroy より前の Input だけ
+    CHECK(actor->IsPendingDestroy());
 }

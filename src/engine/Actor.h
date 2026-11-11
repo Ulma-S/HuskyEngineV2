@@ -64,16 +64,6 @@ namespace husky::engine
             return nullptr;
         }
 
-        // 全コンポーネントの Tick を、一覧の順に呼ぶ。Destroy 済みのものは飛ばす。Scene::Tick から呼ばれる。
-        void TickComponents(double dt);
-
-        // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、Scene が呼ぶ。
-        void DestroyComponents();
-
-        // Destroy 済み(またはもう存在しない)コンポーネントを、一覧から外す。戻り値: 外した数。
-        // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(Scene::RemoveDestroyedActors が呼ぶ)。
-        std::size_t RemoveDestroyedComponents();
-
         std::string name;
         float x = 0.0f; // 位置(ピクセル、左上が原点)
         float y = 0.0f;
@@ -90,6 +80,28 @@ namespace husky::engine
         HUSKY_REFLECTION_END()
 
     private:
+        // 下のコンポーネントの更新と片付けは、Scene だけが呼ぶ。
+        // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
+        friend class Scene;
+
+        // このフレームで更新するコンポーネントの数を決める。Scene::Tick の最初に呼ばれる。
+        // これより後に AddComponent したものは一覧の末尾に入るので、次のフレームまで更新されない。
+        void BeginTick() { m_componentCountThisFrame = components.size(); }
+
+        // phase のフェーズのコンポーネントの Tick を、一覧の順に呼ぶ。Destroy 済みのものは飛ばす。
+        void TickComponents(double dt, TickPhase phase);
+
+        // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、Scene が呼ぶ。
+        void DestroyComponents();
+
+        // Destroy 済み(またはもう存在しない)コンポーネントを、一覧から外す。戻り値: 外した数。
+        // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(Scene::RemoveDestroyedActors が呼ぶ)。
+        std::size_t RemoveDestroyedComponents();
+
+        // BeginTick で決めた、このフレームで更新するコンポーネントの数。
+        // フレームの途中では一覧から外さない(外すのはフレームの終わり)ので、先頭からこの数は動かない。
+        std::size_t m_componentCountThisFrame = 0;
+
         // ハンドルからコンポーネントを引く。もう無いか、型が違うか、レジストリで作っていなければ nullptr。
         template <typename T>
         T* ResolveComponent(core::ObjectHandle handle) const

@@ -55,7 +55,10 @@ namespace husky::engine
         }
 
         // 全アクターの Tick を、一覧の順に呼ぶ。Destroy 済みのアクターは飛ばす。
-        // 各アクターの Tick の直後に、そのアクターのコンポーネントの Tick を呼ぶ(Actor::TickComponents)。
+        // コンポーネントは、フェーズ(TickPhase)の順に、全アクター分を回す:
+        //   Input → Update → PostUpdate → PreRender
+        // アクター自身の Tick は Update のフェーズで、そのアクターの Update のコンポーネントの直前に呼ぶ。
+        // このフレームの途中で Spawn / AddComponent したものは、次のフレームから更新する。
         void Tick(double dt);
 
         // Destroy 済み(またはもう存在しない)アクターを、一覧から外す。戻り値: 外した数。

@@ -15,17 +15,40 @@ namespace husky::engine
         // Spawn で actors が大きくなると、vector は中身を別のメモリへ引っ越すことがあり、
         // 範囲 for が使っている「今どこを見ているか」が無効になってしまうため。
         // 番号なら、引っ越した後でも actors[i] で正しい場所を見られる。
+
+        // 0. 各アクターで、このフレームに更新するコンポーネントの数を決める。
         for (std::size_t i = 0; i < count; ++i)
         {
-            Actor* actor = ResolveActor(actors[i]);
-            if (actor != nullptr && !actor->IsPendingDestroy())
+            if (Actor* actor = ResolveActor(actors[i]))
             {
-                actor->Tick(dt);
-                // アクターの Tick の中で自分を Destroy したら、コンポーネントは更新しない。
-                if (!actor->IsPendingDestroy())
+                actor->BeginTick();
+            }
+        }
+
+        // 1. フェーズの順に回す。あるフェーズは、全アクターの分が終わってから次のフェーズへ進む。
+        //    static_cast で enum class と整数を行き来する(enum class は、暗黙には整数にならない)。
+        constexpr int phaseCount = static_cast<int>(TickPhase::Count);
+        for (int phaseIndex = 0; phaseIndex < phaseCount; ++phaseIndex)
+        {
+            const TickPhase phase = static_cast<TickPhase>(phaseIndex);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                // Destroy 済みのアクターは、そのフェーズから先は飛ばす(前のフェーズで Destroy された場合も)。
+                Actor* actor = ResolveActor(actors[i]);
+                if (actor == nullptr || actor->IsPendingDestroy())
                 {
-                    actor->TickComponents(dt);
+                    continue;
                 }
+                if (phase == TickPhase::Update)
+                {
+                    actor->Tick(dt);
+                    // アクターの Tick の中で自分を Destroy したら、コンポーネントは更新しない。
+                    if (actor->IsPendingDestroy())
+                    {
+                        continue;
+                    }
+                }
+                actor->TickComponents(dt, phase);
             }
         }
     }
