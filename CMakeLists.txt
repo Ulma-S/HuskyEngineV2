@@ -215,6 +215,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
         tests/core/HandleTableTests.cpp
+        tests/core/ObjectTests.cpp
     )
     husky_set_compile_options(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
