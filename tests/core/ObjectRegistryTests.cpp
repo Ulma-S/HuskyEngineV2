@@ -145,3 +145,55 @@ TEST_CASE("Object: レジストリで作っていないオブジェクトの Des
     CHECK_FALSE(item.IsPendingDestroy());
     CHECK(item.GetHandle().IsNull());
 }
+
+// --- 自作アロケータとのつながり(M1-9) ---
+
+TEST_CASE("ObjectRegistry: オブジェクトのメモリは、レジストリのアロケータから借りる")
+{
+    ObjectRegistry registry(64 * 1024);
+    CHECK(registry.GetAllocator().GetUsedBytes() == 0);
+
+    Enemy* enemy = registry.Create<Enemy>();
+    const std::size_t usedAfterCreate = registry.GetAllocator().GetUsedBytes();
+    CHECK(usedAfterCreate >= sizeof(Enemy)); // ヘッダの分だけ多い
+
+    // 破棄すると、借りていたメモリがアロケータに返り、使用量が 0 に戻る。
+    enemy->Destroy();
+    registry.FlushDestroyed();
+    CHECK(registry.GetAllocator().GetUsedBytes() == 0);
+}
+
+TEST_CASE("ObjectRegistry: GC で回収されたオブジェクトのメモリも、アロケータに返る")
+{
+    ObjectRegistry registry(64 * 1024);
+    registry.Create<Enemy>();
+    registry.Create<Enemy>();
+    CHECK(registry.GetAllocator().GetUsedBytes() > 0);
+
+    CHECK(registry.CollectGarbage() == 2); // 根が無いので両方回収される
+    CHECK(registry.GetAllocator().GetUsedBytes() == 0);
+    CHECK(registry.GetAllocator().GetFreeBlockCount() == 1); // 結合されて1つの空きに戻る
+}
+
+TEST_CASE("ObjectRegistry: メモリを使い切ると、Create は nullptr を返す")
+{
+    ObjectRegistry registry(256); // 小さなメモリ
+    int created = 0;
+    while (registry.Create<Enemy>() != nullptr)
+    {
+        ++created;
+    }
+    CHECK(created > 0);
+    CHECK(registry.GetObjectCount() == static_cast<std::size_t>(created));
+}
+
+TEST_CASE("ObjectRegistry: レジストリを破棄すると、デストラクタが呼ばれてからメモリが解放される")
+{
+    g_destroyedCount = 0;
+    {
+        ObjectRegistry registry(64 * 1024);
+        registry.Create<Enemy>(1);
+        registry.Create<Enemy>(2);
+    } // デリータが ~Enemy を呼び、その後でアロケータが破棄される
+    CHECK(g_destroyedCount == 2);
+}

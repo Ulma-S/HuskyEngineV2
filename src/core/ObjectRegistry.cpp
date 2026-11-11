@@ -19,12 +19,19 @@ namespace husky::core
 
     // --- ObjectRegistry ---
 
-    // = default: m_objects(HandleTable)が破棄され、中の unique_ptr が、残っているオブジェクトを delete する。
+    ObjectRegistry::ObjectRegistry(std::size_t capacityBytes)
+        : m_allocator(capacityBytes)
+    {
+    }
+
+    // = default: メンバーが宣言と逆の順に破棄される。
+    // まず m_objects が破棄され、中の unique_ptr のデリータが、残っているオブジェクトを片付けてメモリを返す。
+    // 最後に m_allocator が破棄され、メモリの塊そのものが解放される。
     ObjectRegistry::~ObjectRegistry() = default;
 
     Object* ObjectRegistry::Resolve(ObjectHandle handle) const
     {
-        const std::unique_ptr<Object>* entry = m_objects.Get(ToSlot(handle));
+        const ObjectPtr* entry = m_objects.Get(ToSlot(handle));
         return entry != nullptr ? entry->get() : nullptr;
     }
 
@@ -38,7 +45,7 @@ namespace husky::core
         std::size_t destroyedCount = 0;
         for (const ObjectHandle handle : m_pendingDestroy)
         {
-            // 表から消すと、中の unique_ptr が破棄され、オブジェクトのデストラクタが呼ばれる。
+            // 表から消すと、中の unique_ptr のデリータが、デストラクタを呼んでメモリをアロケータに返す。
             if (m_objects.Remove(ToSlot(handle)))
             {
                 ++destroyedCount;
@@ -79,7 +86,7 @@ namespace husky::core
     {
         // 1. 準備: 全オブジェクトの印を消す。
         //    (ラムダ式の引数を使わないときは、名前を書かずに型だけ書くと「使っていない引数」の警告が出ない)
-        m_objects.ForEach([](Handle<std::unique_ptr<Object>>, std::unique_ptr<Object>& object) {
+        m_objects.ForEach([](Handle<ObjectPtr>, ObjectPtr& object) {
             object->m_gcMarked = false;
         });
 
@@ -125,7 +132,7 @@ namespace husky::core
         // 3. スイープ: 印の無いオブジェクトを集めてから、まとめて破棄する。
         //    (ForEach で回っている最中に Remove すると表の形が変わるので、先に集める)
         std::vector<ObjectHandle> garbage;
-        m_objects.ForEach([&garbage](Handle<std::unique_ptr<Object>>, std::unique_ptr<Object>& object) {
+        m_objects.ForEach([&garbage](Handle<ObjectPtr>, ObjectPtr& object) {
             if (!object->m_gcMarked)
             {
                 garbage.push_back(object->GetHandle());
@@ -133,7 +140,7 @@ namespace husky::core
         });
         for (const ObjectHandle handle : garbage)
         {
-            m_objects.Remove(ToSlot(handle)); // unique_ptr が破棄され、デストラクタが呼ばれる
+            m_objects.Remove(ToSlot(handle)); // デリータが、デストラクタを呼んでメモリを返す
         }
 
         // 4. 後片付け: もう存在しないオブジェクトを指す根を外す(Destroy で破棄された根など)。

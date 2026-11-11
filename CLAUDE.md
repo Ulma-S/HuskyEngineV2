@@ -45,10 +45,12 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 ## メモリとGC
 
 - GCは停止型のマーク&スイープ。フレーム末に破棄を確定してから、必要なときだけ回す。
-- 根の登録口`GC::AddRoot` / `GC::RemoveRoot`を用意する。
+- 根の登録口は`ObjectRegistry::AddRoot` / `ObjectRegistry::RemoveRoot`。プロパティとして登録した`ObjectHandle`は強い参照(GCがたどる)、登録していない`ObjectHandle`は弱い参照。
 - 世代付きハンドルを最初から用意する。弱参照と破棄済み検出に使う。
 - 生の`new`/`delete`は禁止。スマートポインタ、プール、ハンドルのみを使う。
-- M1の最後(M1-8、GCとメソッド登録の後)に、簡単な自作ヒープアロケータを入れる予定。オブジェクトの生成は`ObjectRegistry::Create`に集約してあるので、そこで差し替える。アロケータの実装の内部だけは、OSからメモリの塊をもらう処理を例外として許可する(入れる時点でこのルールを書き直す)。ASanとの両立も、その時点で考える。
+  - 例外: placement new(確保済みのメモリの上でコンストラクタを呼ぶ)と、デストラクタの明示的な呼び出しは、アロケータを使う生成・破棄の処理(`ObjectRegistry::Create`と`ObjectDeleter`)の中だけで使ってよい。
+- ゲームオブジェクトのメモリは、`ObjectRegistry`が持つ自作のヒープアロケータ(`FreeListAllocator`、フリーリスト型・ファーストフィット)から借りる。容量を使い切ると`Create`は`nullptr`を返す。
+- 自作アロケータの中の誤用はASanから見えない。ASanを入れるときに、手動でのポイズニングなど両立の方法を考える。
 
 ## リフレクション
 
