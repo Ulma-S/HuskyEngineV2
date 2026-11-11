@@ -74,6 +74,14 @@ function(husky_set_compile_options target)
     endif()
 endfunction()
 
+# --- core モジュール ---
+# 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
+# 今はテンプレート(ヘッダ)だけで .cpp が無いので、INTERFACE ライブラリにする。
+# INTERFACE は「自分ではコンパイルするものが無く、使う側にインクルードパスなどの設定だけを伝える」という意味。
+# .cpp ができたら STATIC に変える。
+add_library(husky_core INTERFACE)
+target_include_directories(husky_core INTERFACE src)
+
 # --- platform モジュール(静的ライブラリ) ---
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
 # STATIC は「.lib を作り、使う側の exe に丸ごと組み込む」という意味。
@@ -108,7 +116,8 @@ target_include_directories(husky_engine PUBLIC src)
 # PUBLIC にするのは、engine のヘッダ(Input.h)が platform のヘッダ(Keyboard.h)を読み込んでいて、
 # engine を使う側にも platform のヘッダが見えている必要があるから。
 # SDL3 は platform の中で PRIVATE なので、ここを PUBLIC にしても SDL3 は外に漏れない。
-target_link_libraries(husky_engine PUBLIC husky_platform)
+# core も同じ理由で PUBLIC(engine のヘッダは、これから core のハンドルなどを使う)。
+target_link_libraries(husky_engine PUBLIC husky_core husky_platform)
 
 # --- シェーダの変換 ---
 # HLSL で書いたシェーダを、ビルドの途中で DXC(Vulkan SDK に付属)に変換させる。
@@ -205,11 +214,15 @@ if(HUSKY_BUILD_TESTS)
         tests/TestMain.cpp
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
+        tests/core/HandleTableTests.cpp
     )
     husky_set_compile_options(HuskyTests)
-    target_link_libraries(HuskyTests PRIVATE husky_engine doctest::doctest)
+    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
-    target_compile_definitions(HuskyTests PRIVATE DOCTEST_CONFIG_NO_EXCEPTIONS)
+    # _BUT_WITH_ALL_ASSERTS: 例外なしでも REQUIRE(失敗したら打ち切る確認)を使えるようにする。
+    #   例外で「そのテストだけ」を抜けられないので、REQUIRE が失敗するとテストの実行全体がそこで止まる
+    #   (止まっても失敗として報告されるので、見逃すことはない)。
+    target_compile_definitions(HuskyTests PRIVATE DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
 
     # CTest(CMake のテスト実行の仕組み)に登録する。
     # これで `ctest --preset debug` から HuskyTests が実行され、失敗すると ctest も失敗を返す。

@@ -95,6 +95,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 実行: `build/vs2022/Debug/HuskyEngineV2.exe`
 - テスト(doctest、ヘッドレス。ビルドの後に実行):
   - `ctest --preset debug`(または`release`)
+  - ビルドが失敗しても、ctestは前回の古いexeを実行して「passed」と出す。必ずビルドの成功を確かめてからテスト結果を見る。
   - 個別の結果を見るときは`build/vs2022/Debug/HuskyTests.exe`を直接実行する。
   - テストは`tests/`に、モジュールごとのフォルダ(`tests/engine/`など)で置き、`CMakeLists.txt`の`HuskyTests`に足す。
 - テストはdtを注入したヘッドレス実行で行い、結果が毎回同じになるようにする。
