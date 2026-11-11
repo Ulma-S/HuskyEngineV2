@@ -4,7 +4,8 @@
 // ウィンドウを1枚開き、閉じるボタンか Escape が押されるまでゲームループを回す。
 // 画面は毎フレーム1色で塗りつぶし、Space を押すと色が切り替わる。
 // 跳ね回るスプライトを 1000 個と、矢印キー(または WASD)で動かすプレイヤーを1つ描く。
-// どちらもシーンのアクター(Actor の子クラス)で、更新は Scene::Tick、描画は Scene::ForEachActor で行う。
+// どちらもシーンのアクター(Actor の子クラス)で、見た目は SpriteComponent で足す。
+// 更新は Scene::Tick、描画は Scene::ForEachActor で、SpriteComponent を持つアクターだけを積む。
 // SDL は直接使わず、platform と render だけを通す(main からは SDL のヘッダが見えない設定にしてある)。
 
 #include "core/ObjectRegistry.h"
@@ -52,14 +53,14 @@ namespace
         }
     }
 
-    // スプライト1枚で描かれるアクター。描画に要る大きさと色を持つ。
-    // 本来、見た目はコンポーネント(スプライトのコンポーネント)で足すもの。
-    // コンポーネントを作るまでの仮として、アクターの子クラスのメンバーで持つ。
-    // 継承: Object → Actor → SpriteActor → BouncerActor / PlayerActor(Actor から2階層まで)。
+    // スプライト1枚の見た目を、アクターに足すコンポーネント。描画に要る大きさと色を持つ。
+    // 位置は持たない。描くときは、持ち主のアクターの位置(x, y)を使う。
+    // Tick は使わない(見た目は描画のときに読まれるだけ)。
+    // (engine はまだ render に依存していないので、今はゲーム側のここに置く。engine に移すかは後で決める)
     // 動作スレッド: ゲームスレッドのみ
-    class SpriteActor : public engine::Actor
+    class SpriteComponent : public engine::Component
     {
-        HUSKY_OBJECT(SpriteActor, engine::Actor)
+        HUSKY_OBJECT(SpriteComponent, engine::Component)
     public:
         float width = 32.0f; // 描く大きさ(ピクセル)
         float height = 32.0f;
@@ -72,11 +73,11 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    // 画面の中を跳ね回るアクター。
+    // 画面の中を跳ね回るアクター。見た目は SpriteComponent で足す。
     // 動作スレッド: ゲームスレッドのみ
-    class BouncerActor : public SpriteActor
+    class BouncerActor : public engine::Actor
     {
-        HUSKY_OBJECT(BouncerActor, SpriteActor)
+        HUSKY_OBJECT(BouncerActor, engine::Actor)
     public:
         float vx = 0.0f; // 速度(ピクセル/秒)
         float vy = 0.0f;
@@ -84,11 +85,13 @@ namespace
         // Scene::Tick から毎フレーム呼ばれる。
         // override: 親(Actor)の virtual 関数を上書きしていることを、コンパイラに確かめさせる(C# の override と同じ)。
         // 名前や引数を間違えると、上書きではなく「別の関数」になってしまうが、override があればコンパイルエラーになる。
+        // 跳ね返る位置は、見た目(SpriteComponent)の大きさではなく、当たりの大きさ(BouncerSize)で決める。
+        // 動きは見た目に頼らない(見た目のコンポーネントを外しても、同じように動く)。
         void Tick(double dt) override
         {
             const float step = static_cast<float>(dt);
-            MoveAndBounce(x, vx, step, ScreenWidth - width);
-            MoveAndBounce(y, vy, step, ScreenHeight - height);
+            MoveAndBounce(x, vx, step, ScreenWidth - BouncerSize);
+            MoveAndBounce(y, vy, step, ScreenHeight - BouncerSize);
         }
 
         HUSKY_REFLECTION_BEGIN()
@@ -97,11 +100,11 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    // 矢印キー(または WASD)で動くプレイヤーのアクター。
+    // 矢印キー(または WASD)で動くプレイヤーのアクター。見た目は SpriteComponent で足す。
     // 動作スレッド: ゲームスレッドのみ
-    class PlayerActor : public SpriteActor
+    class PlayerActor : public engine::Actor
     {
-        HUSKY_OBJECT(PlayerActor, SpriteActor)
+        HUSKY_OBJECT(PlayerActor, engine::Actor)
     public:
         float moveSpeed = 300.0f; // 移動の速さ(ピクセル/秒)
 
@@ -149,18 +152,19 @@ namespace
         for (int i = 0; i < count; ++i)
         {
             BouncerActor* bouncer = scene.Spawn<BouncerActor>();
-            if (bouncer == nullptr) // オブジェクト用のメモリを使い切った
+            SpriteComponent* sprite = bouncer != nullptr ? bouncer->AddComponent<SpriteComponent>() : nullptr;
+            if (sprite == nullptr) // オブジェクト用のメモリを使い切った
             {
                 std::printf("跳ね回るアクターを作れませんでした(%d 個目)\n", i);
                 return;
             }
-            bouncer->width = BouncerSize;
-            bouncer->height = BouncerSize;
             bouncer->x = static_cast<float>(randomX(random));
             bouncer->y = static_cast<float>(randomY(random));
             bouncer->vx = static_cast<float>(randomSpeed(random));
             bouncer->vy = static_cast<float>(randomSpeed(random));
-            bouncer->color = {randomColor(random), randomColor(random), randomColor(random), 1.0f};
+            sprite->width = BouncerSize;
+            sprite->height = BouncerSize;
+            sprite->color = {randomColor(random), randomColor(random), randomColor(random), 1.0f};
         }
     }
 
@@ -197,8 +201,11 @@ namespace
         SpawnBouncers(*scene, BouncerCount);
         if (PlayerActor* player = scene->Spawn<PlayerActor>())
         {
-            player->width = PlayerSize;
-            player->height = PlayerSize;
+            if (SpriteComponent* sprite = player->AddComponent<SpriteComponent>())
+            {
+                sprite->width = PlayerSize;
+                sprite->height = PlayerSize; // 色は既定の白(テクスチャのまま)
+            }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
             player->y = (ScreenHeight - PlayerSize) / 2.0f;
             player->input = &input;
@@ -266,18 +273,19 @@ namespace
                 // [&](...) { ... } はラムダ式(C# の (actor) => { ... })。
                 // [&] は「外の変数(renderDevice)を参照で使う」という意味。C# のラムダは自動でこうなる。
                 scene->ForEachActor([&](engine::Actor& actor) {
-                    // Cast は C# の「actor as SpriteActor」。スプライトを持たないアクターは描かない。
-                    const SpriteActor* spriteActor = core::Cast<SpriteActor>(&actor);
-                    if (spriteActor == nullptr)
+                    // Unity の GetComponent<SpriteRenderer>() と同じ。スプライトを付けていないアクターは描かない。
+                    // 位置はアクターから、大きさと色はコンポーネントから取る。
+                    const SpriteComponent* spriteComponent = actor.GetComponent<SpriteComponent>();
+                    if (spriteComponent == nullptr)
                     {
                         return;
                     }
                     render::Sprite sprite;
-                    sprite.x = spriteActor->x;
-                    sprite.y = spriteActor->y;
-                    sprite.width = spriteActor->width;
-                    sprite.height = spriteActor->height;
-                    sprite.color = spriteActor->color;
+                    sprite.x = actor.x;
+                    sprite.y = actor.y;
+                    sprite.width = spriteComponent->width;
+                    sprite.height = spriteComponent->height;
+                    sprite.color = spriteComponent->color;
                     renderDevice.DrawSprite(sprite);
                 });
 
