@@ -217,6 +217,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
+        tests/core/PropertyTests.cpp
     )
     husky_set_compile_options(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)

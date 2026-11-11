@@ -5,7 +5,13 @@
 //   {
 //       HUSKY_OBJECT(Enemy, Actor)   // クラスの最初に1行書く
 //   public:
-//       int hp = 10;
+//       std::int32_t hp = 10;
+//       ObjectHandle target;
+//
+//       HUSKY_PROPERTIES_BEGIN()      // リフレクションに見せるメンバーを登録する(クラスの最後に書く)
+//           HUSKY_PROPERTY(hp)
+//           HUSKY_PROPERTY(target)
+//       HUSKY_PROPERTIES_END()
 //   };
 //
 //   Object* object = ...;
@@ -14,6 +20,8 @@
 
 #include "core/Handle.h"
 #include "core/TypeInfo.h"
+
+#include <cstddef> // offsetof
 
 // 型情報を定義するマクロ。クラスの宣言の最初に書く。
 //   ThisClass: このクラスの名前。ParentClass: 親クラスの名前(HUSKY_OBJECT を書いたクラスであること)。
@@ -25,15 +33,26 @@
 //
 // 中身:
 //   - Super: 親クラスの別名(C# の base にあたるものを、Super::Foo() のように書ける)。
+//   - ThisType: このクラス自身の別名。HUSKY_PROPERTY の中で使う。
 //   - StaticType(): この型の型情報を返す。関数の中の static 変数なので、最初に呼ばれたときに1回だけ作られる。
+//     作るときに、このクラスの RegisterProperties(プロパティの登録)を1回だけ呼ぶ。
+//     ただし、このクラスが HUSKY_PROPERTIES_BEGIN を書いていない場合、ThisClass::RegisterProperties は
+//     親クラスのものを指してしまう(C++ では、static 関数も親から引き継がれるため)。
+//     そのまま呼ぶと親のプロパティを二重に登録するので、親と同じ関数なら nullptr(登録なし)を渡す。
 //   - GetType(): オブジェクトの実際の型の型情報を返す(virtual なので、基底クラスのポインタから呼んでも正しい型が返る)。
 // マクロの最後で private: に戻す(class の既定と同じ)。メンバーを公開したいときは、マクロの後に public: と書く。
 #define HUSKY_OBJECT(ThisClass, ParentClass)                                                      \
 public:                                                                                          \
     using Super = ParentClass;                                                                   \
+    using ThisType = ThisClass;                                                                  \
     static const ::husky::core::TypeInfo& StaticType()                                           \
     {                                                                                            \
-        static const ::husky::core::TypeInfo info(#ThisClass, &ParentClass::StaticType());       \
+        static const ::husky::core::TypeInfo info(                                               \
+            #ThisClass,                                                                          \
+            &ParentClass::StaticType(),                                                          \
+            &ThisClass::RegisterProperties != &ParentClass::RegisterProperties                   \
+                ? &ThisClass::RegisterProperties                                                 \
+                : nullptr);                                                                      \
         return info;                                                                             \
     }                                                                                            \
     const ::husky::core::TypeInfo& GetType() const override                                      \
@@ -42,6 +61,27 @@ public:                                                                         
     }                                                                                            \
                                                                                                  \
 private:
+
+// プロパティの登録を始める。BEGIN と END の間に HUSKY_PROPERTY を並べる。
+// 中身は「RegisterProperties という static 関数」の始まり。END がその関数を閉じる。
+// END の後は public: のままなので、クラスの最後に書くとよい。
+#define HUSKY_PROPERTIES_BEGIN()                                                                  \
+public:                                                                                          \
+    static void RegisterProperties(::husky::core::TypeInfo& info)                                \
+    {                                                                                            \
+        (void)info; /* プロパティが1つも無いときの「使っていない引数」の警告を消す */
+
+// メンバー変数1つをプロパティとして登録する。
+//   #member: 名前の文字列("hp")。
+//   decltype(ThisType::member): メンバーの型(std::int32_t など)。対応していない型ならコンパイルエラー。
+//   offsetof(ThisType, member): オブジェクトの先頭から、このメンバーまでのバイト数。
+#define HUSKY_PROPERTY(member)                                                                    \
+    info.AddProperty(#member,                                                                    \
+                     ::husky::core::PropertyTypeOf<decltype(ThisType::member)>(),                \
+                     offsetof(ThisType, member));
+
+// プロパティの登録を終える。
+#define HUSKY_PROPERTIES_END() }
 
 namespace husky::core
 {
@@ -78,6 +118,10 @@ namespace husky::core
             static const TypeInfo info("Object", nullptr);
             return info;
         }
+
+        // プロパティの登録(Object にはプロパティが無いので空)。
+        // 子クラスは HUSKY_PROPERTIES_BEGIN で同じ名前の関数を作る。作らなかった子クラスでは、これが引き継がれる。
+        static void RegisterProperties(TypeInfo&) {}
 
         // このオブジェクトの実際の型の型情報。子クラスでは HUSKY_OBJECT が上書き(override)する。
         virtual const TypeInfo& GetType() const { return StaticType(); }
