@@ -1,31 +1,21 @@
-// HuskyEngineV2 のエントリポイント(プログラムが最初に実行する関数)。
+// HuskyEngineV2 のエントリポイント(プログラムが最初に実行する関数)。ゲーム側のコード。
 // 動作スレッド: メインスレッド(= ゲームスレッド)。
 //
-// ウィンドウを1枚開き、閉じるボタンか Escape が押されるまでゲームループを回す。
-// 画面は毎フレーム1色で塗りつぶし、Space を押すと色が切り替わる。
-// 跳ね回るスプライトを 1000 個と、矢印キー(または WASD)で動かすプレイヤーを1つ描く。
-// どちらもシーンのアクター(Actor の子クラス)で、見た目は SpriteComponent で足す。
-// 更新は Scene::Tick、描画は engine::DrawSprites で、SpriteComponent を持つアクターだけを積む。
-// SDL は直接使わず、platform と render だけを通す(main からは SDL のヘッダが見えない設定にしてある)。
+// 跳ね回るスプライトを 1000 個と、矢印キー(または WASD)で動かすプレイヤーを1つ置き、
+// Space で背景色を切り替える処理を渡して、engine::Application に動かしてもらう。
+// ゲームループ、ウィンドウ、描画、フレームの終わりの処理(破棄の確定と GC)は Application の中にある。
 
-#include "core/ObjectRegistry.h"
-#include "engine/FrameClock.h"
+#include "engine/Application.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
 #include "engine/SpriteComponent.h"
-#include "platform/Image.h"
-#include "platform/Platform.h"
-#include "platform/Window.h"
 #include "render/RenderDevice.h"
 
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
-#include <vector>
 
 namespace
 {
-    namespace core = husky::core;
-    namespace platform = husky::platform;
     namespace engine = husky::engine;
     namespace render = husky::render;
 
@@ -151,39 +141,11 @@ namespace
         }
     }
 
-    // ゲームループ本体。終了が要求されるまで戻らない。
-    // 引数は参照(&)で受け取る。コピーではなく、main が持っている本物を使うため。
-    void RunGameLoop(render::RenderDevice& renderDevice)
+    // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
+    void SpawnInitialActors(engine::Scene& scene)
     {
-        engine::FrameClock clock; // dt を決めるのはこれだけ
-        engine::Input input;
-
-        // キーイベントの受け皿。ループの外に置いて毎フレーム使い回し、メモリの確保を減らす。
-        std::vector<platform::KeyEvent> keyEvents;
-
-        // ゲームオブジェクトの登録簿と、シーン。シーンを GC の根にする。
-        // registry は input より後に宣言しているので、input より先に破棄される(C++ では後に作ったものが先に壊れる)。
-        // そのため、シーンが input を借りている間に、input が先に消えることはない。
-        core::ObjectRegistry registry;
-        engine::Scene* scene = registry.Create<engine::Scene>();
-        registry.AddRoot(scene->GetHandle());
-        scene->SetInput(&input); // アクターは GetScene()->GetInput() で入力を読む
-
-        // GC は毎フレームではなく、1秒に1回だけ回す(停止型なので、回すたびに少し時間がかかるため)。
-        constexpr double GcIntervalSeconds = 1.0;
-        double secondsSinceGc = 0.0;
-        std::size_t collectedLastGc = 0;
-
-        // Space で切り替える2色。
-        const render::Color colors[] = {
-            {0.10f, 0.12f, 0.20f, 1.0f}, // 紺
-            {0.20f, 0.45f, 0.30f, 1.0f}, // 緑
-        };
-        int colorIndex = 0;
-
-        // アクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
-        SpawnBouncers(*scene, BouncerCount);
-        if (PlayerActor* player = scene->Spawn<PlayerActor>())
+        SpawnBouncers(scene, BouncerCount);
+        if (PlayerActor* player = scene.Spawn<PlayerActor>())
         {
             if (SpriteComponent* sprite = player->AddComponent<SpriteComponent>())
             {
@@ -193,119 +155,34 @@ namespace
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
             player->y = (ScreenHeight - PlayerSize) / 2.0f;
         }
-
-        // FPS 表示用の集計(1秒ごとにリセットする)
-        int framesThisSecond = 0;
-        double secondsThisSecond = 0.0;
-
-        // ゲームループ。1周 = 1フレーム。
-        while (true)
-        {
-            // 1. このフレームの dt を決める
-            const double dt = clock.Tick(platform::GetTimeNanoseconds());
-
-            // 2. 入力: OS のイベントを処理し、キーの状態を更新する
-            const bool quitRequested = platform::ProcessEvents(keyEvents);
-            input.BeginFrame(keyEvents);
-            if (quitRequested || input.WasPressed(engine::Key::Escape))
-            {
-                break;
-            }
-
-            // 3. 更新
-            if (input.WasPressed(engine::Key::Space))
-            {
-                colorIndex = 1 - colorIndex; // 0 と 1 を入れ替える
-                std::printf("色を切り替えました: %d\n", colorIndex);
-            }
-
-            scene->Tick(dt); // シーンの全アクターを更新(跳ね回るアクターとプレイヤー)
-
-            // 3.5 フレームの終わり: 破棄の確定と、必要なら GC。
-            //     この順番が大事: Destroy 済みのアクターを一覧から外す → 破棄を確定する → (たまに)GC。
-            scene->RemoveDestroyedActors();
-            registry.FlushDestroyed();
-            secondsSinceGc += dt;
-            if (secondsSinceGc >= GcIntervalSeconds)
-            {
-                collectedLastGc = registry.CollectGarbage();
-                secondsSinceGc = 0.0;
-            }
-
-            ++framesThisSecond;
-            secondsThisSecond += dt;
-            if (secondsThisSecond >= 1.0)
-            {
-                const render::FrameStats stats = renderDevice.GetLastFrameStats();
-                std::printf("FPS: %d  平均 dt: %.2f ms  スプライト: %d  描画命令: %d 回  描けなかった数: %d"
-                            "  オブジェクト: %zu  直前の GC で回収: %zu\n",
-                            framesThisSecond,
-                            secondsThisSecond / framesThisSecond * 1000.0,
-                            stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount,
-                            registry.GetObjectCount(), collectedLastGc);
-                std::fflush(stdout); // 出力を溜めずに、すぐ画面(やファイル)へ書き出す
-                framesThisSecond = 0;
-                secondsThisSecond = 0.0;
-            }
-
-            // 4. 描画: 描きたいスプライトを積んで、EndFrame でまとめて描く。
-            //    vsync のため BeginFrame の中で待つ。
-            if (renderDevice.BeginFrame(colors[colorIndex]))
-            {
-                // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
-                engine::DrawSprites(*scene, renderDevice);
-
-                renderDevice.EndFrame();
-            }
-        }
     }
 }
 
 int main()
 {
-    if (!platform::Initialize())
-    {
-        return 1; // 0 以外は「異常終了」の意味
-    }
+    // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
+    engine::Application app;
+    SpawnInitialActors(app.GetScene());
 
-    int exitCode = 0;
-
-    // この { } がウィンドウの寿命になる。
-    // その後で platform::Shutdown() を呼ぶので、「ウィンドウを壊してから SDL を終了する」順番が必ず守られる。
-    {
-        platform::Window window;
-
-        platform::WindowDesc desc;
-        desc.title = "HuskyEngineV2";
-        desc.width = ScreenWidth;
-        desc.height = ScreenHeight;
-
-        if (!window.Open(desc))
+    // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
+    // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。
+    // mutable を付けると、ラムダ式の中でその変数を書き換えられる(付けないと const 扱いになる)。
+    app.SetUpdateCallback([colorIndex = 0](engine::Application& application, double) mutable {
+        static const husky::render::Color colors[] = {
+            {0.10f, 0.12f, 0.20f, 1.0f}, // 紺
+            {0.20f, 0.45f, 0.30f, 1.0f}, // 緑
+        };
+        if (application.GetInput().WasPressed(engine::Key::Space))
         {
-            exitCode = 1;
+            colorIndex = 1 - colorIndex; // 0 と 1 を入れ替える
+            application.SetClearColor(colors[colorIndex]);
+            std::printf("色を切り替えました: %d\n", colorIndex);
         }
-        else
-        {
-            // renderDevice は window より内側のブロックにあるので、window より先に破棄される。
-            // RenderDevice は Window を使っているので、この順番でないといけない。
-            render::RenderDevice renderDevice;
+    });
 
-            // テクスチャは2段で用意する: ① PNG を CPU のメモリに読む(platform) → ② GPU に送る(render)
-            // image は GPU に送り終えたら要らないので、この if の中だけで使う。
-            platform::Image image;
-            if (renderDevice.Initialize(window)
-                && platform::LoadPng("assets/textures/test_sprite.png", image)
-                && renderDevice.LoadTestTexture(image))
-            {
-                RunGameLoop(renderDevice);
-            }
-            else
-            {
-                exitCode = 1;
-            }
-        } // ← ここで renderDevice が破棄される
-    } // ← ここで window が破棄される
-
-    platform::Shutdown();
-    return exitCode;
+    engine::ApplicationDesc desc;
+    desc.title = "HuskyEngineV2";
+    desc.width = ScreenWidth;
+    desc.height = ScreenHeight;
+    return app.Run(desc); // 閉じるボタンか Escape で戻ってくる
 }
