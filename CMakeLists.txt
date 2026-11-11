@@ -23,6 +23,21 @@ if(MSVC)
     string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
 
+# --- AddressSanitizer(ASan) ---
+# ON にすると、自分のコード(husky_set_compile_options を付けたもの)を ASan 付きでビルドする。
+# ASan はメモリの誤用(範囲外の読み書き、解放済みメモリの使用、二重解放など)を、起きた瞬間に止めて場所を教える。
+# 普段のビルド(vs2022 プリセット)では OFF。ASan 用のプリセット(vs2022-asan)が ON にする。
+option(HUSKY_ENABLE_ASAN "AddressSanitizer を有効にする(MSVC)" OFF)
+if(HUSKY_ENABLE_ASAN AND MSVC)
+    # Debug の既定に入っている /RTC1(実行時チェック)は、ASan と一緒に使えないので取り除く。
+    string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+    string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+
+    # ASan の実行時ライブラリ(DLL)は、コンパイラ(cl.exe)と同じフォルダにある。exe の隣へコピーするために場所を覚える。
+    # get_filename_component(... DIRECTORY) は、ファイルのパスからフォルダの部分だけを取り出す。
+    get_filename_component(HUSKY_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+endif()
+
 # --- 依存ライブラリ: SDL3 ---
 # FetchContent は「生成(configure)のときに、指定したバージョンのソースを取ってきて、
 # 自分のプロジェクトの一部としてビルドする」仕組み。取ってきたソースは build/ 以下に置かれる。
@@ -71,6 +86,30 @@ function(husky_set_compile_options target)
         )
         # 標準ライブラリ(MSVC STL)にも「例外なし」で動くよう伝える。これが無いと STL のヘッダが警告を出す。
         target_compile_definitions(${target} PRIVATE _HAS_EXCEPTIONS=0)
+
+        if(HUSKY_ENABLE_ASAN)
+            # /fsanitize=address: コンパイラが、メモリを読み書きする場所に確認のコードを差し込む。
+            # /Zi: デバッグ情報を出す(ASan の報告に、ファイル名と行番号を出すため)。
+            target_compile_options(${target} PRIVATE /fsanitize=address /Zi)
+            # /INCREMENTAL:NO: 差分リンクは ASan と一緒に使えないので切る。/DEBUG: リンク時にもデバッグ情報を残す。
+            # (静的ライブラリにはリンクの段階が無いので、exe にだけ効く)
+            target_link_options(${target} PRIVATE /INCREMENTAL:NO /DEBUG)
+        endif()
+    endif()
+endfunction()
+
+# exe を ASan 付きで動かすために、ASan の実行時ライブラリ(DLL)を exe の隣へコピーする。
+# Debug 用(dbg が付くもの)とそれ以外の両方をコピーしておく(どちらを使うかは、ビルドの構成で決まる)。
+function(husky_copy_asan_runtime target)
+    if(HUSKY_ENABLE_ASAN AND MSVC)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${HUSKY_MSVC_BIN_DIR}/clang_rt.asan_dynamic-x86_64.dll"
+                    "${HUSKY_MSVC_BIN_DIR}/clang_rt.asan_dbg_dynamic-x86_64.dll"
+                    "$<TARGET_FILE_DIR:${target}>"
+            COMMENT "ASan の実行時ライブラリを exe の隣へコピー"
+            VERBATIM
+        )
     endif()
 endfunction()
 
@@ -204,6 +243,7 @@ add_executable(HuskyEngineV2
     src/main.cpp
 )
 husky_set_compile_options(HuskyEngineV2)
+husky_copy_asan_runtime(HuskyEngineV2)
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
 target_link_libraries(HuskyEngineV2 PRIVATE husky_engine husky_render husky_platform)
@@ -239,6 +279,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/FreeListAllocatorTests.cpp
     )
     husky_set_compile_options(HuskyTests)
+    husky_copy_asan_runtime(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
     # _BUT_WITH_ALL_ASSERTS: 例外なしでも REQUIRE(失敗したら打ち切る確認)を使えるようにする。

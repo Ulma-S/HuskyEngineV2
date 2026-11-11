@@ -8,6 +8,16 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/vs2022"
+    },
+    {
+      "name": "vs2022-asan",
+      "inherits": "vs2022",
+      "displayName": "Visual Studio 2022 (x64) + AddressSanitizer",
+      "description": "ASan を有効にしたソリューションを build/vs2022-asan に生成する(普段のビルドとはフォルダを分ける)",
+      "binaryDir": "${sourceDir}/build/vs2022-asan",
+      "cacheVariables": {
+        "HUSKY_ENABLE_ASAN": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -22,6 +32,12 @@
       "displayName": "Release",
       "configurePreset": "vs2022",
       "configuration": "Release"
+    },
+    {
+      "name": "asan",
+      "displayName": "Debug + ASan",
+      "configurePreset": "vs2022-asan",
+      "configuration": "Debug"
     }
   ],
   "testPresets": [
@@ -37,6 +53,13 @@
       "displayName": "Release のテスト",
       "configurePreset": "vs2022",
       "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "asan",
+      "displayName": "Debug + ASan のテスト",
+      "configurePreset": "vs2022-asan",
+      "configuration": "Debug",
       "output": { "outputOnFailure": true }
     }
   ]

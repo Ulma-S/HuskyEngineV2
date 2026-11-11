@@ -108,6 +108,13 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - テストは`tests/`に、モジュールごとのフォルダ(`tests/engine/`など)で置き、`CMakeLists.txt`の`HuskyTests`に足す。
 - テストはdtを注入したヘッドレス実行で行い、結果が毎回同じになるようにする。
 - ASan、UBSan、TSanを有効にしたビルドを用意し、定期的に回す。
+  - ASan(MSVC、Debug構成。`build/vs2022-asan/`に普段のビルドとは別に作る):
+    - 生成: `cmake --preset vs2022-asan`
+    - ビルド: `cmake --build --preset asan`
+    - テスト: `ctest --preset asan`(個別の結果は`build/vs2022-asan/Debug/HuskyTests.exe`)
+  - ASanの実行時ライブラリ(DLL)は、ビルドのたびにexeの隣へコピーされる。
+  - 自作アロケータ(`FreeListAllocator`)の中で解放したメモリへのアクセスは、まだASanで検出できない(ポイズニングは未対応)。
+  - UBSanとTSanは、MSVCでは使えない(UBSanはClang、TSanはWindows以外が必要)。扱いは未決。
 - スマホから依頼されたときは、目視確認を前提にせず、テストと自動検証で完了を判断する。
 
 ## 未決事項
