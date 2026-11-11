@@ -89,11 +89,14 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 ## 検証
 
 - 変更ごとにビルドとテストを回す。ビルドとテストのコマンドはM0で確定し、ここに追記する。
-- ビルド(リポジトリのルートで実行。cmakeはPATHに無いので、VS 2022付属の`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`を使う):
+- ビルド(リポジトリのルートで実行。cmakeとctestはPATHに無いので、VS 2022付属の`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`にあるものを使う):
   - 生成: `cmake --preset vs2022`(`build/vs2022/`に.slnができる)
   - ビルド: `cmake --build --preset debug`(または`release`)
   - 実行: `build/vs2022/Debug/HuskyEngineV2.exe`
-- テストのコマンドは未定(テストを導入するステップで追記する)。
+- テスト(doctest、ヘッドレス。ビルドの後に実行):
+  - `ctest --preset debug`(または`release`)
+  - 個別の結果を見るときは`build/vs2022/Debug/HuskyTests.exe`を直接実行する。
+  - テストは`tests/`に、モジュールごとのフォルダ(`tests/engine/`など)で置き、`CMakeLists.txt`の`HuskyTests`に足す。
 - テストはdtを注入したヘッドレス実行で行い、結果が毎回同じになるようにする。
 - ASan、UBSan、TSanを有効にしたビルドを用意し、定期的に回す。
 - スマホから依頼されたときは、目視確認を前提にせず、テストと自動検証で完了を判断する。

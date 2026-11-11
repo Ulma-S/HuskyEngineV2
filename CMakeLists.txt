@@ -42,6 +42,22 @@ FetchContent_Declare(SDL3
 # これ以降、SDL3::SDL3 という名前のターゲット(ライブラリ)が使えるようになる。
 FetchContent_MakeAvailable(SDL3)
 
+# --- 依存ライブラリ: doctest(テスト用。ゲームの exe には入らない) ---
+# テストを作るかどうか。OFF にすると、doctest の取り込みもテスト用 exe も作らない。
+option(HUSKY_BUILD_TESTS "テスト用の exe を作る" ON)
+if(HUSKY_BUILD_TESTS)
+    set(DOCTEST_WITH_TESTS OFF CACHE BOOL "" FORCE) # doctest 自身のテストは要らない
+    set(DOCTEST_NO_INSTALL ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(doctest
+        GIT_REPOSITORY https://github.com/doctest/doctest.git
+        GIT_TAG        v2.5.3
+        GIT_SHALLOW    TRUE
+        # SYSTEM: doctest のヘッダを「外部のヘッダ」として扱い、その中の警告は出さない(自分のコードの警告だけ見る)。
+        SYSTEM
+    )
+    FetchContent_MakeAvailable(doctest)
+endif()
+
 # --- 自分のコード全部に共通するコンパイル設定 ---
 # function は CMake の関数。ターゲット名を受け取り、同じ設定をまとめて付ける。
 # モジュールが増えても、設定を1か所で管理できる。
@@ -181,6 +197,25 @@ add_custom_command(TARGET HuskyEngineV2 POST_BUILD
     COMMENT "assets を exe の隣へコピー"
     VERBATIM
 )
+
+# --- テスト用の実行ファイル ---
+# ウィンドウも GPU も使わない(ヘッドレス)。engine など、OS や SDL に依存しない部分をテストする。
+if(HUSKY_BUILD_TESTS)
+    add_executable(HuskyTests
+        tests/TestMain.cpp
+        tests/engine/FrameClockTests.cpp
+        tests/engine/InputTests.cpp
+    )
+    husky_set_compile_options(HuskyTests)
+    target_link_libraries(HuskyTests PRIVATE husky_engine doctest::doctest)
+    # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
+    target_compile_definitions(HuskyTests PRIVATE DOCTEST_CONFIG_NO_EXCEPTIONS)
+
+    # CTest(CMake のテスト実行の仕組み)に登録する。
+    # これで `ctest --preset debug` から HuskyTests が実行され、失敗すると ctest も失敗を返す。
+    enable_testing()
+    add_test(NAME HuskyTests COMMAND HuskyTests)
+endif()
 
 # Visual Studio でソリューションを開いたとき、F5 で起動するプロジェクトを HuskyEngineV2 にする。
 # (指定しないと、CMake が作る補助プロジェクト ALL_BUILD が選ばれてしまう)

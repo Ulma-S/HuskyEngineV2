@@ -17,10 +17,12 @@ namespace husky::engine
         // 毎フレームの最初に1回呼び、そのフレームの dt(秒)を返す。
         // nowNanoseconds: 今の時刻(ナノ秒)。時計は自分で読まず、呼ぶ側から受け取る。
         //   こうすると、テストでは好きな時刻を渡すだけで動かせる。
-        // 最初の1回は前の時刻がないので 0 を返す。
+        // 最初の1回は前の時刻がないので 0 を返す(固定 dt が設定されていれば、その値)。
+        // 返す値は、固定 dt も含めて、上限(maxDeltaSeconds)を超えない。
         double Tick(std::uint64_t nowNanoseconds);
 
-        // テスト用: dt を固定値にする。seconds が 0 以下なら固定を解除し、実時間に戻す。
+        // テスト用: dt を固定値にする。最初の Tick も含めて、実際の時間に関係なく毎回この値を返す。
+        // seconds が 0 以下なら固定を解除し、実時間に戻す。
         void SetFixedDelta(double seconds);
 
         // 直前の Tick が返した dt(秒)。
