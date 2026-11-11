@@ -12,11 +12,18 @@
 
 namespace husky::engine
 {
+    class Scene; // 前方宣言(Scene.h が Actor.h を読むので、ここでは読まない)
+
     // 動作スレッド: ゲームスレッドのみ
     class Actor : public core::Object
     {
         HUSKY_OBJECT(Actor, core::Object)
     public:
+        // このアクターがいるシーン。Scene::Spawn で作ったものだけが持つ。
+        // シーンの外で作った(registry.Create<Actor>() など)か、シーンがもう無ければ nullptr。
+        // シーンからは、エンジンの機能(入力など)を引ける(Scene::GetInput など)。
+        Scene* GetScene() const;
+
         // 毎フレーム、シーンの更新(Scene::Tick)から呼ばれる。dt はこのフレームの経過時間(秒)。
         // 子クラスで override して、動きを書く。Destroy 済みのアクターでは呼ばれない。
         // 実行順は TickOrder::Default(0)で、このアクターの Default のコンポーネントより先に呼ばれる。
@@ -90,6 +97,10 @@ namespace husky::engine
         // Destroy 済み(またはもう存在しない)コンポーネントを、一覧から外す。戻り値: 外した数。
         // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(Scene::RemoveDestroyedActors が呼ぶ)。
         std::size_t RemoveDestroyedComponents();
+
+        // このアクターがいるシーン。Scene::Spawn が設定する。
+        // プロパティとして登録しないので、弱い参照(アクターがシーンを生かし続けることはない。生かす向きはシーン → アクター)。
+        core::ObjectHandle m_scene;
 
         // ハンドルからコンポーネントを引く。もう無いか、型が違うか、レジストリで作っていなければ nullptr。
         template <typename T>

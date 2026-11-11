@@ -92,13 +92,12 @@ namespace
     public:
         float moveSpeed = 300.0f; // 移動の速さ(ピクセル/秒)
 
-        // キーの状態を読む先。借りているだけで、所有はしていない(Input の寿命はゲームループが決める)。
-        // Input は GC 管理の型ではないので、ハンドルではなくポインタで持つ。プロパティにも登録しない。
-        // (入力をどうアクターに渡すかは、入力の仕組みを作るときに考え直す。今は仮)
-        const engine::Input* input = nullptr;
-
         void Tick(double dt) override
         {
+            // 入力は、自分のいるシーンから引く(配られるのを待たない)。
+            // シーンにいない、またはシーンに入力が渡されていなければ、動かない。
+            const engine::Scene* scene = GetScene();
+            const engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
             if (input == nullptr)
             {
                 return;
@@ -164,10 +163,11 @@ namespace
 
         // ゲームオブジェクトの登録簿と、シーン。シーンを GC の根にする。
         // registry は input より後に宣言しているので、input より先に破棄される(C++ では後に作ったものが先に壊れる)。
-        // そのため、プレイヤーが input を借りている間に、input が先に消えることはない。
+        // そのため、シーンが input を借りている間に、input が先に消えることはない。
         core::ObjectRegistry registry;
         engine::Scene* scene = registry.Create<engine::Scene>();
         registry.AddRoot(scene->GetHandle());
+        scene->SetInput(&input); // アクターは GetScene()->GetInput() で入力を読む
 
         // GC は毎フレームではなく、1秒に1回だけ回す(停止型なので、回すたびに少し時間がかかるため)。
         constexpr double GcIntervalSeconds = 1.0;
@@ -192,7 +192,6 @@ namespace
             }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
             player->y = (ScreenHeight - PlayerSize) / 2.0f;
-            player->input = &input;
         }
 
         // FPS 表示用の集計(1秒ごとにリセットする)

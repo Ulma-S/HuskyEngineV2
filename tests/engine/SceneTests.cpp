@@ -1,4 +1,5 @@
 // Scene と Actor のテスト。dt は固定値を渡すので、結果は毎回同じになる。
+#include "engine/Input.h"
 #include "engine/Scene.h"
 
 #include <doctest/doctest.h>
@@ -165,4 +166,66 @@ TEST_CASE("Actor: 名前と位置は、リフレクションのプロパティ�
     CHECK(Actor::StaticType().FindProperty("name") != nullptr);
     CHECK(Actor::StaticType().FindProperty("x") != nullptr);
     CHECK(Mover::StaticType().FindProperty("y") != nullptr); // 子クラスからも見える
+}
+
+namespace
+{
+    // シーンから入力を引き、Space が押されている間だけ右へ動くアクター。
+    class InputReader : public Actor
+    {
+        HUSKY_OBJECT(InputReader, Actor)
+    public:
+        void Tick(double dt) override
+        {
+            const Scene* scene = GetScene();
+            const husky::engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
+            if (input != nullptr && input->IsDown(husky::platform::Key::Space))
+            {
+                x += static_cast<float>(100.0 * dt);
+            }
+        }
+    };
+}
+
+TEST_CASE("Actor: Spawn したアクターは自分のシーンを知っている。シーンの外で作ったものは知らない")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+
+    CHECK(scene->Spawn<Mover>()->GetScene() == scene);
+    CHECK(registry.Create<Mover>()->GetScene() == nullptr);
+}
+
+TEST_CASE("Actor: シーンへの参照は弱い。アクターだけが残っても、シーンは回収される")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Mover* mover = scene->Spawn<Mover>();
+    registry.AddRoot(mover->GetHandle()); // アクターだけを根にする
+    registry.RemoveRoot(scene->GetHandle());
+
+    CHECK(registry.CollectGarbage() == 1); // シーンだけが回収される
+    CHECK(mover->GetScene() == nullptr);   // シーンがもう無いと分かる
+}
+
+TEST_CASE("Scene: 入力は SetInput で渡したものを返し、アクターはシーンから入力を読める")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    InputReader* reader = scene->Spawn<InputReader>();
+
+    CHECK(scene->GetInput() == nullptr);
+    scene->Tick(1.0); // 入力が無くても落ちない
+    CHECK(reader->x == 0.0f);
+
+    husky::engine::Input input;
+    scene->SetInput(&input);
+    CHECK(scene->GetInput() == &input);
+
+    input.BeginFrame({husky::platform::KeyEvent{husky::platform::Key::Space, true}}); // Space を押す
+    scene->Tick(0.5);
+    CHECK(reader->x == doctest::Approx(50.0));
+
+    scene->SetInput(nullptr); // 外せる
+    CHECK(scene->GetInput() == nullptr);
 }

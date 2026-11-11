@@ -26,6 +26,8 @@
 
 namespace husky::engine
 {
+    class Input; // 前方宣言: ポインタで持つだけなので、中身(Input.h)は要らない
+
     // 動作スレッド: ゲームスレッドのみ
     class Scene : public core::Object
     {
@@ -50,10 +52,22 @@ namespace husky::engine
             T* actor = registry->Create<T>(std::forward<Args>(args)...);
             if (actor != nullptr)
             {
+                // T に同じ名前のメンバーがあっても大丈夫なように、Actor& として書く。
+                // 設定するのはコンストラクタの後なので、アクターのコンストラクタの中では GetScene() は nullptr。
+                Actor& base = *actor;
+                base.m_scene = GetHandle();
                 actors.push_back(actor->GetHandle());
             }
             return actor;
         }
+
+        // エンジンの入力。ゲームループが SetInput で渡す。渡されていなければ nullptr。
+        // アクターやコンポーネントは GetScene()->GetInput() で読む(自分で Input を持ったり、配られたりしない)。
+        const Input* GetInput() const { return m_input; }
+
+        // 入力を渡す。シーンは借りるだけで、持ち主にはならない(Input の寿命は呼んだ側が決める)。
+        // input はシーンより長く生きていること。外すときは nullptr を渡す。
+        void SetInput(const Input* input) { m_input = input; }
 
         // 全アクターと全コンポーネントの Tick を、実行順(TickOrder)の小さい順に呼ぶ。
         //   - アクター自身の Tick の実行順は TickOrder::Default(0)。
@@ -104,6 +118,9 @@ namespace husky::engine
         // Tick の順番表。毎フレーム作り直すが、vector のメモリは使い回す(毎フレームの確保を避けるため)。
         // ハンドルを持っているが、プロパティではないので GC はたどらない(Tick の間だけ使う、弱い参照)。
         std::vector<TickEntry> m_tickEntries;
+
+        // 借りている入力(SetInput で渡されたもの)。GC 管理の型ではないので、ハンドルではなくポインタ。
+        const Input* m_input = nullptr;
 
         // ハンドルからアクターを引く。もう無いか、レジストリで作っていないシーンなら nullptr。
         Actor* ResolveActor(core::ObjectHandle handle) const

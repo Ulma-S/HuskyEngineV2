@@ -1,6 +1,8 @@
 // Actor.h と Component.h の実装。
 #include "engine/Actor.h"
 
+#include "engine/Scene.h" // GetScene で Scene* を返すために、Scene の中身(Object の子であること)を知る必要がある
+
 #include <algorithm> // std::remove_if
 
 namespace husky::engine
@@ -9,6 +11,12 @@ namespace husky::engine
     {
         core::ObjectRegistry* registry = GetRegistry();
         return registry != nullptr ? registry->Resolve<Actor>(m_owner) : nullptr;
+    }
+
+    Scene* Actor::GetScene() const
+    {
+        core::ObjectRegistry* registry = GetRegistry();
+        return registry != nullptr ? registry->Resolve<Scene>(m_scene) : nullptr;
     }
 
     void Actor::DestroyComponents()
