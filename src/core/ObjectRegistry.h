@@ -81,8 +81,11 @@ namespace husky::core
             //    表の中身は unique_ptr(オブジェクトへの矢印)なので、表が大きくなっても本体の場所は変わらない。
             const Handle<ObjectPtr> slot = m_objects.Add(ObjectPtr(object, ObjectDeleter{&m_allocator}));
 
-            object->m_handle = ObjectHandle{slot.index, slot.generation};
-            object->m_registry = this;
+            // Object としてのメンバーに書き込む。T に同じ名前のメンバーがあると、T のほうが優先されて
+            // 親の名前が隠れてしまう(名前の隠蔽)ので、いったん Object& として扱ってから書く。
+            Object& base = *object;
+            base.m_handle = ObjectHandle{slot.index, slot.generation};
+            base.m_registry = this;
             return object;
         }
 

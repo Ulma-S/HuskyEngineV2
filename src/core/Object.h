@@ -152,6 +152,13 @@ namespace husky::core
         // Destroy が呼ばれ、破棄を待っているなら true。
         bool IsPendingDestroy() const { return m_pendingDestroy; }
 
+    protected:
+        // このオブジェクトを作ったレジストリ。レジストリで作っていなければ nullptr。
+        // 子クラス(Scene など)が、ほかのオブジェクトを作ったり引いたりするのに使う。
+        // 注意: レジストリが設定するのはコンストラクタの後なので、コンストラクタの中では nullptr。
+        // protected: 外からは見えないが、子クラスからは使える(C# の protected と同じ)。
+        ObjectRegistry* GetRegistry() const { return m_registry; }
+
     private:
         ObjectHandle m_handle;         // 作ったレジストリが設定する
         ObjectRegistry* m_registry = nullptr;  // 作ったレジストリ(持ち主)。借りているだけで、所有はしていない

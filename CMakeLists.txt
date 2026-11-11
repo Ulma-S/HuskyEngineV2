@@ -110,6 +110,7 @@ target_link_libraries(husky_platform PRIVATE SDL3::SDL3)
 add_library(husky_engine STATIC
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
+    src/engine/Scene.cpp
 )
 husky_set_compile_options(husky_engine)
 target_include_directories(husky_engine PUBLIC src)
@@ -216,6 +217,7 @@ if(HUSKY_BUILD_TESTS)
         tests/TestMain.cpp
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
+        tests/engine/SceneTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp

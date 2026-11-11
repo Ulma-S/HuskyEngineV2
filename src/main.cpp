@@ -6,8 +6,10 @@
 // 跳ね回るスプライトを 1000 個と、矢印キー(または WASD)で動かすプレイヤーを1つ描く。
 // SDL は直接使わず、platform と render だけを通す(main からは SDL のヘッダが見えない設定にしてある)。
 
+#include "core/ObjectRegistry.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
+#include "engine/Scene.h"
 #include "platform/Image.h"
 #include "platform/Platform.h"
 #include "platform/Window.h"
@@ -19,6 +21,7 @@
 
 namespace
 {
+    namespace core = husky::core;
     namespace platform = husky::platform;
     namespace engine = husky::engine;
     namespace render = husky::render;
@@ -87,6 +90,17 @@ namespace
         // キーイベントの受け皿。ループの外に置いて毎フレーム使い回し、メモリの確保を減らす。
         std::vector<platform::KeyEvent> keyEvents;
 
+        // ゲームオブジェクトの登録簿と、シーン。シーンを GC の根にする。
+        // (アクターはまだいない。跳ね回るスプライトをアクターにするのは次のステップ)
+        core::ObjectRegistry registry;
+        engine::Scene* scene = registry.Create<engine::Scene>();
+        registry.AddRoot(scene->GetHandle());
+
+        // GC は毎フレームではなく、1秒に1回だけ回す(停止型なので、回すたびに少し時間がかかるため)。
+        constexpr double GcIntervalSeconds = 1.0;
+        double secondsSinceGc = 0.0;
+        std::size_t collectedLastGc = 0;
+
         // Space で切り替える2色。
         const render::Color colors[] = {
             {0.10f, 0.12f, 0.20f, 1.0f}, // 紺
@@ -144,15 +158,30 @@ namespace
                 MoveAndBounce(b.y, b.vy, dt, ScreenHeight - BouncerSize);
             }
 
+            scene->Tick(dt); // シーンの全アクターを更新
+
+            // 3.5 フレームの終わり: 破棄の確定と、必要なら GC。
+            //     この順番が大事: Destroy 済みのアクターを一覧から外す → 破棄を確定する → (たまに)GC。
+            scene->RemoveDestroyedActors();
+            registry.FlushDestroyed();
+            secondsSinceGc += dt;
+            if (secondsSinceGc >= GcIntervalSeconds)
+            {
+                collectedLastGc = registry.CollectGarbage();
+                secondsSinceGc = 0.0;
+            }
+
             ++framesThisSecond;
             secondsThisSecond += dt;
             if (secondsThisSecond >= 1.0)
             {
                 const render::FrameStats stats = renderDevice.GetLastFrameStats();
-                std::printf("FPS: %d  平均 dt: %.2f ms  スプライト: %d  描画命令: %d 回  描けなかった数: %d\n",
+                std::printf("FPS: %d  平均 dt: %.2f ms  スプライト: %d  描画命令: %d 回  描けなかった数: %d"
+                            "  オブジェクト: %zu  直前の GC で回収: %zu\n",
                             framesThisSecond,
                             secondsThisSecond / framesThisSecond * 1000.0,
-                            stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount);
+                            stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount,
+                            registry.GetObjectCount(), collectedLastGc);
                 std::fflush(stdout); // 出力を溜めずに、すぐ画面(やファイル)へ書き出す
                 framesThisSecond = 0;
                 secondsThisSecond = 0.0;

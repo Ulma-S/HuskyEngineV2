@@ -30,7 +30,7 @@
 core / engine / platform / tools / game の5つに分け、依存は一方向にする。
 
 - core: 型、メモリ、リフレクション、GC、世代付きハンドル、ジョブ。他のモジュールを一切参照しない。
-- engine: ワールド、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platformに依存する。
+- engine: シーン、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platformに依存する。
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ。engineに依存する。リリースビルドには含めない。
 - game: ゲーム固有のコード。engineに依存する。
@@ -40,6 +40,9 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - ゲーム上の意味を持つものは、GC管理のアクター(薄い入れ物)とし、機能はコンポーネントで足す。継承は1〜2階層まで。
 - ゲームオブジェクトは必ずGC管理型の基底クラスから派生させる。
 - 破棄は`Destroy()`で印を付け、フレーム末にまとめて確定する。
+- 設計メモの「ワールド」は、このプロジェクトでは「シーン」(`engine::Scene`)と呼ぶ。シーンはアクターの一覧(`actors`)を持ち、GCの根になる。アクターは`Scene::Spawn<T>()`で作る。
+- フレーム末の順番: `Scene::RemoveDestroyedActors()` → `ObjectRegistry::FlushDestroyed()` → (1秒に1回)`ObjectRegistry::CollectGarbage()`。
+- `Object`の子クラスに、`Object`のメンバーと同じ名前のメンバーを作らない(名前が隠れて、レジストリの設定が壊れる)。
 - `Pool<T>`とECSは今は作らない(保留)。
 
 ## メモリとGC
