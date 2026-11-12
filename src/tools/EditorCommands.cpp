@@ -3,6 +3,8 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "core/TypeRegistry.h"      // actor.spawn: 型の名前から作る
+#include "engine/Actor.h"
 #include "engine/AssetDatabase.h"   // CreateMissingMetaFiles、Scan
 #include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
 
@@ -25,6 +27,84 @@ namespace husky::tools
         result.succeeded = false;
         result.message = std::move(message);
         return result;
+    }
+
+    const char* GetArgTypeName(EditorArgType type)
+    {
+        switch (type)
+        {
+        case EditorArgType::Bool: return "bool";
+        case EditorArgType::Int: return "int";
+        case EditorArgType::Float: return "float";
+        case EditorArgType::String: return "string";
+        }
+        return "";
+    }
+
+    bool EditorCommand::HasRequiredArgs() const
+    {
+        for (const EditorCommandArg& arg : args)
+        {
+            if (arg.required)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::string ValidateCommandArgs(const EditorCommand& command, const engine::ArchiveValue& args)
+    {
+        using Type = engine::ArchiveValue::Type;
+        if (!args.IsNull() && args.GetType() != Type::Object)
+        {
+            return "Arguments must be a JSON object, like {\"name\": value}";
+        }
+
+        // 1. 渡された名前が、どれも知っている引数か(打ち間違いを、黙って無視しないため)。
+        for (std::size_t i = 0; i < args.GetMemberCount(); ++i)
+        {
+            const std::string& name = args.GetMemberName(i);
+            bool known = false;
+            for (const EditorCommandArg& arg : command.args)
+            {
+                known = known || arg.name == name;
+            }
+            if (!known)
+            {
+                return "Unknown argument '" + name + "' for " + command.name;
+            }
+        }
+
+        // 2. 引数ごとに、あるか、種類が合っているか。
+        for (const EditorCommandArg& arg : command.args)
+        {
+            const engine::ArchiveValue* value = args.Find(arg.name);
+            const std::string what = "'" + arg.name + "' (" + GetArgTypeName(arg.type) + ")";
+            if (value == nullptr)
+            {
+                if (arg.required)
+                {
+                    return "Missing argument " + what + ": " + arg.description;
+                }
+                continue;
+            }
+            const Type type = value->GetType();
+            bool matches = false;
+            switch (arg.type)
+            {
+            case EditorArgType::Bool: matches = type == Type::Bool; break;
+            case EditorArgType::Int: matches = type == Type::Int; break;
+            // JSON では 100 と 100.0 の区別があいまいなので、数を受け取る引数には整数も受け付ける。
+            case EditorArgType::Float: matches = type == Type::Float || type == Type::Int; break;
+            case EditorArgType::String: matches = type == Type::String; break;
+            }
+            if (!matches)
+            {
+                return "Argument " + what + " has the wrong type: " + arg.description;
+            }
+        }
+        return std::string();
     }
 
     bool EditorCommandRegistry::Register(EditorCommand command)
@@ -62,14 +142,19 @@ namespace husky::tools
         if (const EditorCommand* command = Find(name))
         {
             const char* reason = GetUnavailableReason(*command, app);
-            if (reason == nullptr)
+            if (reason != nullptr)
             {
-                EditorCommandContext context{app, args};
-                result = command->execute(context);
+                result = EditorCommandResult::Failure(command->label + " is not available now: " + reason);
+            }
+            else if (const std::string argError = ValidateCommandArgs(*command, args); !argError.empty())
+            {
+                // 引数は、実行する前に形で確かめる(コマンドの中で1つずつ確かめなくて済み、理由の書き方もそろう)。
+                result = EditorCommandResult::Failure(argError);
             }
             else
             {
-                result = EditorCommandResult::Failure(command->label + " is not available now: " + reason);
+                EditorCommandContext context{app, args};
+                result = command->execute(context);
             }
         }
         else
@@ -213,6 +298,54 @@ namespace husky::tools
                                          " (a copied .meta? give one of them a new GUID)");
             }
             return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeSpawnActorCommand()
+    {
+        EditorCommand command;
+        command.name = "actor.spawn";
+        command.label = "Spawn actor";
+        command.description = "Place a new actor of the given type in the scene. Only the actor is created "
+                              "(no components such as a sprite).";
+        command.modifiesScene = true;
+        command.args = {
+            {"type", EditorArgType::String, "Type name of the actor, like \"BouncerActor\" (must derive from Actor)", true},
+            {"x", EditorArgType::Float, "X position in pixels (default 0)", false},
+            {"y", EditorArgType::Float, "Y position in pixels (default 0)", false},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            // 引数は Execute が形で確かめ済みなので、ここでは種類の心配をせずに読める。
+            const std::string& typeName = context.args.Find("type")->AsString();
+            const engine::ArchiveValue* xValue = context.args.Find("x");
+            const engine::ArchiveValue* yValue = context.args.Find("y");
+            const float x = xValue != nullptr ? static_cast<float>(xValue->AsFloat()) : 0.0f;
+            const float y = yValue != nullptr ? static_cast<float>(yValue->AsFloat()) : 0.0f;
+
+            // 型の名前から型を探し、アクターの子孫かを確かめてから作る(シーンのファイルを読むときと同じ道具を使う)。
+            const core::TypeRegistry& types = context.app.GetTypeRegistry();
+            const core::TypeInfo* type = types.Find(typeName);
+            if (type == nullptr)
+            {
+                return EditorCommandResult::Failure("Unknown type: " + typeName);
+            }
+            if (!type->IsA(engine::Actor::StaticType()))
+            {
+                return EditorCommandResult::Failure(typeName + " is not an actor");
+            }
+            engine::Scene& scene = context.app.GetScene();
+            engine::Actor* actor = core::Cast<engine::Actor>(types.Create(typeName, context.app.GetRegistry()));
+            if (actor == nullptr || !scene.AddLoadedActor(*actor))
+            {
+                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+            }
+            actor->x = x;
+            actor->y = y;
+            // 位置は %g で短く書く(std::to_string は 100.000000 のように桁を並べて読みにくい)。
+            char position[64];
+            std::snprintf(position, sizeof(position), " at (%g, %g)", static_cast<double>(x), static_cast<double>(y));
+            return EditorCommandResult::Success("Spawned " + typeName + position);
         };
         return command;
     }

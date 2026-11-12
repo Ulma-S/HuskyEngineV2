@@ -37,6 +37,11 @@ namespace husky::tools
                 ImGui::PushID(command.name.c_str());
                 // 今は使えないコマンドは、ボタンを灰色にして押せなくする(BeginDisabled と EndDisabled の間)。
                 const char* unavailable = EditorCommandRegistry::GetUnavailableReason(command, app);
+                // 省略できない引数があるコマンドは、引数を入力する欄ができるまで、画面からは実行できない。
+                if (unavailable == nullptr && command.HasRequiredArgs())
+                {
+                    unavailable = "Needs arguments, and this window has no input fields yet (use HuskyEditorCli)";
+                }
                 ImGui::BeginDisabled(unavailable != nullptr);
                 // ボタンの文字: "Save scene (F5)"。
                 text.assign(command.label);
@@ -59,6 +64,12 @@ namespace husky::tools
                     ImGui::BeginTooltip();
                     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
                     ImGui::TextUnformatted(command.description.c_str());
+                    // 引数の形も並べる(何を渡せばよいかが分かるように)。
+                    for (const EditorCommandArg& arg : command.args)
+                    {
+                        ImGui::BulletText("%s (%s%s): %s", arg.name.c_str(), GetArgTypeName(arg.type),
+                                          arg.required ? ", required" : "", arg.description.c_str());
+                    }
                     if (unavailable != nullptr)
                     {
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Not available: %s", unavailable);

@@ -84,6 +84,86 @@ TEST_CASE("EditorCli: コマンドを名前で実行し、--assets のフォル�
     CHECK(json.Find("details")->GetArraySize() >= 1);
 }
 
+TEST_CASE("EditorCli: シーンを書き換えるコマンドは --scene のファイルを読んでから実行し、成功したら保存する(無ければ作る)")
+{
+    husky::tests::TestFolder folder("husky_test_cli_scene");
+    const std::string scene = folder.PathOf("level.json");
+    std::string out;
+
+    // --scene が無ければ、使い方の誤り
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "Actor"})"}, folder.Root(), out) == CliExitCode::UsageError);
+    CHECK(out.find("--scene") != std::string::npos);
+
+    // 1回目: ファイルが無いので、空のシーンから作る
+    out.clear();
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "Actor", "x": 10})", "--scene", scene}, folder.Root(), out) ==
+          CliExitCode::Success);
+    CHECK(out.find("created scene") != std::string::npos);
+    CHECK(husky::platform::FileExists(scene.c_str()));
+
+    // 2回目: 1回目のファイルを読んでから置くので、2体になる
+    out.clear();
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "Actor", "x": 20})", "--scene", scene}, folder.Root(), out) ==
+          CliExitCode::Success);
+    CHECK(out.find("saved scene") != std::string::npos);
+    husky::engine::Application check;
+    REQUIRE(check.LoadSceneFile(scene));
+    CHECK(check.GetScene().actors.size() == 2);
+
+    // 引数の誤りは使い方の誤り(2)、コマンドの失敗(知らない型)は 1。どちらもファイルは変えない
+    out.clear();
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "Actor", "x": "left"})", "--scene", scene}, folder.Root(), out) ==
+          CliExitCode::UsageError);
+    CHECK(out.find("'x' (float)") != std::string::npos);
+    out.clear();
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "NoSuchActor"})", "--scene", scene}, folder.Root(), out) ==
+          CliExitCode::CommandFailed);
+    husky::engine::Application recheck;
+    REQUIRE(recheck.LoadSceneFile(scene));
+    CHECK(recheck.GetScene().actors.size() == 2);
+}
+
+TEST_CASE("EditorCli: ゲームの型は、渡した関数(setupApplication)で登録してから使える")
+{
+    husky::tests::TestFolder folder("husky_test_cli_setup");
+    const std::string scene = folder.PathOf("level.json");
+    std::string out;
+    bool called = false;
+    CHECK(RunEditorCli({"actor.spawn", R"({"type": "Actor"})", "--scene", scene}, folder.Root(), out,
+                       [&called](husky::engine::Application&) { called = true; }) == CliExitCode::Success);
+    CHECK(called);
+}
+
+TEST_CASE("EditorCli: --list は引数の形も出す")
+{
+    husky::tests::TestFolder folder("husky_test_cli_list_args");
+    std::string out;
+    const std::string jsonPath = folder.PathOf("list.json");
+    CHECK(RunEditorCli({"--list", "--json-out", jsonPath}, folder.Root(), out) == CliExitCode::Success);
+    CHECK(out.find("type (string, required)") != std::string::npos);
+
+    std::string text;
+    REQUIRE(husky::platform::ReadTextFile(jsonPath.c_str(), text));
+    husky::engine::ArchiveValue json;
+    REQUIRE(husky::engine::JsonFormat::Read(text, json));
+    const husky::engine::ArchiveValue* commands = json.Find("commands");
+    REQUIRE(commands != nullptr);
+    bool found = false;
+    for (std::size_t i = 0; i < commands->GetArraySize(); ++i)
+    {
+        const husky::engine::ArchiveValue& command = commands->At(i);
+        if (command.Find("name")->AsString() == "actor.spawn")
+        {
+            found = true;
+            CHECK(command.Find("modifiesScene")->AsBool());
+            REQUIRE(command.Find("args")->GetArraySize() == 3);
+            CHECK(command.Find("args")->At(0).Find("name")->AsString() == "type");
+            CHECK(command.Find("args")->At(0).Find("required")->AsBool());
+        }
+    }
+    CHECK(found);
+}
+
 TEST_CASE("EditorCli: コマンドが失敗したら終了コード 1。知らないコマンドと壊れた引数は 2")
 {
     husky::tests::TestFolder folder("husky_test_cli_fail");

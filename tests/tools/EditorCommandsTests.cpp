@@ -4,6 +4,8 @@
 #include "tools/EditorCommands.h"
 
 #include "core/MemoryTracker.h"
+#include "engine/Actor.h"
+#include "engine/JsonFormat.h"
 #include "platform/FileSystem.h"
 #include "tools/DebugWindow.h"
 #include "HeadlessImGui.h"
@@ -67,6 +69,7 @@ TEST_CASE("EditorCommands: 名前で実行し、引数を渡す。結果は「�
     EditorCommand echo;
     echo.name = "test.echo";
     echo.label = "Echo";
+    echo.args = {{"text", husky::tools::EditorArgType::String, "text to echo", false}}; // 受け取る引数は、形を書いておく
     echo.execute = [](EditorCommandContext& context) {
         const ArchiveValue* text = context.args.Find("text");
         if (text == nullptr)
@@ -217,6 +220,74 @@ TEST_CASE("EditorCommands: アセットを最新にしたとき、人が直す�
         listed = listed || detail.find(".meta without asset: 1") != std::string::npos;
     }
     CHECK(listed);
+}
+
+TEST_CASE("EditorCommands: 引数は実行の前に形で確かめる。足りない・種類が違う・知らない名前なら、実行せずに理由つきで失敗")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    int calls = 0;
+    EditorCommand command = MakeCountingCommand("test.args", calls);
+    command.args = {
+        {"name", husky::tools::EditorArgType::String, "a name", true},
+        {"size", husky::tools::EditorArgType::Float, "a size", false},
+        {"count", husky::tools::EditorArgType::Int, "a count", false},
+        {"on", husky::tools::EditorArgType::Bool, "a switch", false},
+    };
+    CHECK(command.HasRequiredArgs());
+    REQUIRE(commands.Register(command));
+
+    const auto run = [&](const char* json) {
+        ArchiveValue args;
+        if (json != nullptr)
+        {
+            REQUIRE(husky::engine::JsonFormat::Read(json, args));
+        }
+        return commands.Execute("test.args", app, args);
+    };
+
+    EditorCommandResult result = run(nullptr);
+    CHECK_FALSE(result.succeeded);
+    CHECK(result.message.find("Missing argument 'name' (string)") != std::string::npos);
+    CHECK_FALSE(run(R"({"name": 5})").succeeded);                       // 種類が違う
+    CHECK(run(R"({"name": 5})").message.find("wrong type") != std::string::npos);
+    CHECK_FALSE(run(R"({"name": "a", "sise": 1})").succeeded);          // 打ち間違い
+    CHECK(run(R"({"name": "a", "sise": 1})").message.find("Unknown argument 'sise'") != std::string::npos);
+    CHECK_FALSE(run(R"({"name": "a", "count": 1.5})").succeeded);      // 整数のところに小数
+    CHECK_FALSE(run(R"({"name": "a", "on": 1})").succeeded);           // bool のところに数
+    CHECK(calls == 0); // ここまで、どれも実行していない
+
+    CHECK(run(R"({"name": "a"})").succeeded);                          // 省略できるものは省略してよい
+    CHECK(run(R"({"name": "a", "size": 100, "count": 2, "on": true})").succeeded); // float には整数で書いてもよい
+    CHECK(calls == 2);
+}
+
+TEST_CASE("EditorCommands: アクターを置くコマンドは、型の名前から作り、位置を決める。アクターでない型と知らない型は失敗")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    const EditorCommand* spawn = commands.Find("actor.spawn");
+    REQUIRE(spawn != nullptr);
+    CHECK(spawn->modifiesScene);
+
+    ArchiveValue args;
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "Actor", "x": 100, "y": 50.5})", args));
+    const EditorCommandResult result = commands.Execute("actor.spawn", app, args);
+    CHECK(result.succeeded);
+    CHECK(result.message == "Spawned Actor at (100, 50.5)");
+    REQUIRE(app.GetScene().actors.size() == 1);
+    const husky::engine::Actor* actor = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetScene().actors[0]);
+    REQUIRE(actor != nullptr);
+    CHECK(actor->x == 100.0f);
+    CHECK(actor->y == 50.5f);
+    CHECK(actor->GetScene() == &app.GetScene());
+
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "SpriteComponent"})", args));
+    CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded); // アクターではない
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "NoSuchActor"})", args));
+    CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded);
+    CHECK(app.GetScene().actors.size() == 1);
 }
 
 TEST_CASE("EditorCommands: 温まった後は、キーが押されていないフレームのショートカットの確認も、ボタンを並べるのも、メモリを確保しない")

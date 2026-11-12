@@ -25,6 +25,8 @@ namespace husky::tools
             "\n"
             "Options:\n"
             "  --assets <folder>      The assets folder (default: the source assets folder)\n"
+            "  --scene <file>         The scene file for commands that change the scene: it is loaded first\n"
+            "                         (or started empty if it does not exist) and saved if the command succeeds\n"
             "  --json-out <file>      Also write the result as JSON to <file> (for CI and AI)\n"
             "\n"
             "Exit code: 0 = success, 1 = the command failed, 2 = usage error\n";
@@ -36,6 +38,7 @@ namespace husky::tools
             bool list = false;
             std::string assetsDirectory;
             std::string jsonOutPath;
+            std::string scenePath;
             std::string commandName;
             std::string argsJson;
         };
@@ -55,14 +58,17 @@ namespace husky::tools
                 {
                     options.list = true;
                 }
-                else if (arg == "--assets" || arg == "--json-out")
+                else if (arg == "--assets" || arg == "--json-out" || arg == "--scene")
                 {
                     if (i + 1 >= args.size())
                     {
                         error = arg + " needs a value";
                         return false;
                     }
-                    (arg == "--assets" ? options.assetsDirectory : options.jsonOutPath) = args[++i];
+                    std::string& target = arg == "--assets" ? options.assetsDirectory
+                                         : arg == "--scene"  ? options.scenePath
+                                                             : options.jsonOutPath;
+                    target = args[++i];
                 }
                 else if (arg.size() >= 2 && arg[0] == '-' && arg[1] == '-')
                 {
@@ -92,6 +98,7 @@ namespace husky::tools
         void RegisterCliCommands(EditorCommandRegistry& commands, const std::string& assetsDirectory)
         {
             commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
+            commands.Register(MakeSpawnActorCommand());
         }
 
         // value を JSON にして path に書く。書けなければ、理由を out に足して false。
@@ -148,10 +155,27 @@ namespace husky::tools
             for (const EditorCommand& command : commands.GetCommands())
             {
                 out += command.name + "  (" + command.label + ")\n    " + command.description + "\n";
+                if (command.modifiesScene)
+                {
+                    out += "    Changes the scene: use --scene <file>\n";
+                }
                 engine::ArchiveValue& item = list.Append(engine::ArchiveValue::MakeObject());
                 item.Set("name", engine::ArchiveValue(command.name));
                 item.Set("label", engine::ArchiveValue(command.label));
                 item.Set("description", engine::ArchiveValue(command.description));
+                item.Set("modifiesScene", engine::ArchiveValue(command.modifiesScene));
+                // 引数の形も出す(人には一覧で、AI には JSON で「どう呼べばよいか」が分かるように)。
+                engine::ArchiveValue& argList = item.Set("args", engine::ArchiveValue::MakeArray());
+                for (const EditorCommandArg& arg : command.args)
+                {
+                    out += "    " + arg.name + " (" + GetArgTypeName(arg.type) + (arg.required ? ", required" : "") +
+                           "): " + arg.description + "\n";
+                    engine::ArchiveValue& argItem = argList.Append(engine::ArchiveValue::MakeObject());
+                    argItem.Set("name", engine::ArchiveValue(arg.name));
+                    argItem.Set("type", engine::ArchiveValue(GetArgTypeName(arg.type)));
+                    argItem.Set("required", engine::ArchiveValue(arg.required));
+                    argItem.Set("description", engine::ArchiveValue(arg.description));
+                }
             }
             if (!options.jsonOutPath.empty())
             {
@@ -166,9 +190,16 @@ namespace husky::tools
         }
 
         // 知らないコマンドは、使い方の誤り(コマンド自身の失敗とは分ける)。
-        if (commands.Find(options.commandName) == nullptr)
+        const EditorCommand* command = commands.Find(options.commandName);
+        if (command == nullptr)
         {
             out += "Error: unknown command: " + options.commandName + " (see --list)\n";
+            return CliExitCode::UsageError;
+        }
+        // シーンを書き換えるコマンドには、相手にするシーンのファイルが要る。
+        if (command->modifiesScene && options.scenePath.empty())
+        {
+            out += "Error: " + options.commandName + " changes the scene, so it needs --scene <file>\n";
             return CliExitCode::UsageError;
         }
 
@@ -186,7 +217,37 @@ namespace husky::tools
             }
         }
 
-        const EditorCommandResult result = commands.Execute(options.commandName, app, commandArgs);
+        // 引数の形の誤り(足りない、種類が違う、知らない名前)も、使い方の誤り。実行する前に確かめる。
+        if (const std::string argError = ValidateCommandArgs(*command, commandArgs); !argError.empty())
+        {
+            out += "Error: " + argError + " (see --list)\n";
+            return CliExitCode::UsageError;
+        }
+
+        // --scene: シーンのファイルを読んでから実行する(無ければ、空のシーンから始めて新しく作る)。
+        const bool newScene = !options.scenePath.empty() && !platform::FileExists(options.scenePath.c_str());
+        if (!options.scenePath.empty() && !newScene && !app.LoadSceneFile(options.scenePath))
+        {
+            out += "FAILED: could not load the scene: " + options.scenePath + "\n";
+            return CliExitCode::CommandFailed;
+        }
+
+        EditorCommandResult result = commands.Execute(options.commandName, app, commandArgs);
+
+        // 成功して、シーンを書き換えるコマンドなら、保存する(失敗したときは、ファイルを変えない)。
+        if (result.succeeded && command->modifiesScene)
+        {
+            if (app.SaveSceneFile(options.scenePath))
+            {
+                result.details.push_back(std::string(newScene ? "created scene: " : "saved scene: ") + options.scenePath);
+            }
+            else
+            {
+                result.succeeded = false;
+                result.message += " (but could not save the scene: " + options.scenePath + ")";
+            }
+        }
+
         out += std::string(result.succeeded ? "OK: " : "FAILED: ") + result.message + "\n";
         for (const std::string& detail : result.details)
         {

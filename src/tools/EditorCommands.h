@@ -54,6 +54,29 @@ namespace husky::tools
         const engine::ArchiveValue& args;
     };
 
+    // 引数の値の種類。JSON で書ける基本の値だけ(CLI や AI から JSON で渡すため)。
+    enum class EditorArgType
+    {
+        Bool,   // true / false
+        Int,    // 整数
+        Float,  // 数(整数で書いてもよい: 100 と 100.0 は同じ)
+        String, // 文字列
+    };
+
+    // 画面や説明に出す、種類の名前("float" など)。
+    const char* GetArgTypeName(EditorArgType type);
+
+    // 引数1つの形。コマンドが「どんな引数を受け取るか」を、実行する前に分かるように書いておく。
+    // Execute が、実行の前にこの形で確かめる(足りない、種類が違う、知らない名前なら、実行せずに理由つきで失敗)。
+    // --list の説明や、AI に渡すツールの説明(どう呼べばよいか)にも、そのまま使う。
+    struct EditorCommandArg
+    {
+        std::string name;        // JSON のキー("x" など)
+        EditorArgType type = EditorArgType::String;
+        std::string description; // 何を渡すか(人と AI への説明)
+        bool required = true;    // false なら省略できる(省略したときの値は、description に書く)
+    };
+
     // コマンド1つ。
     struct EditorCommand
     {
@@ -70,7 +93,18 @@ namespace husky::tools
         // 「再生中はシーンを保存できない」のように、状態によって使えないコマンドに付ける。
         // 画面ではボタンを灰色にして、マウスを乗せると理由を出す。CLI や AI から呼んだときは、理由つきの失敗になる。
         std::function<const char*(engine::Application&)> whyUnavailable;
+        // 受け取る引数の形(無ければ空)。
+        std::vector<EditorCommandArg> args;
+        // シーンを書き換えるコマンドなら true。CLI は、シーンのファイル(--scene)を読んでから実行し、成功したら保存する。
+        bool modifiesScene = false;
+
+        // 省略できない引数があるか(画面のボタンは、引数を入力する欄ができるまで押せない)。
+        bool HasRequiredArgs() const;
     };
+
+    // args が、command の引数の形に合っているかを確かめる。合っていれば空の文字列、違えば人が読める理由
+    // ("Missing argument 'type' (string): ..." など)。args は Object か、引数が無ければ Null。
+    std::string ValidateCommandArgs(const EditorCommand& command, const engine::ArchiveValue& args);
 
     // コマンドの一覧。登録した順に並べる(画面にもこの順に出す)。
     class EditorCommandRegistry
@@ -126,6 +160,11 @@ namespace husky::tools
     // 表の問題(.meta が読めない、対になるアセットが無い、GUID が重なる)があれば、表は作ったうえで、失敗の結果を返す
     // (人に直してもらう必要があるため。ファイルの名前はログに出ている)。
     EditorCommand MakeRefreshAssetsCommand(std::string assetsDirectory);
+
+    // 「アクターを置く」コマンド(actor.spawn)を作る。引数: type(型の名前。Actor の子孫で、型の登録簿にあるもの)、
+    // x、y(位置。省略すると 0)。置くのはアクターだけで、見た目などのコンポーネントは付かない
+    // (決まった組み合わせで置くのは、将来のプレハブの役目)。シーンを書き換えるコマンド(modifiesScene)。
+    EditorCommand MakeSpawnActorCommand();
 }
 
 #endif

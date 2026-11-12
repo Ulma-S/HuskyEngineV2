@@ -76,6 +76,11 @@ int main()
     tools::EditorCommand saveScene = tools::MakeSaveSceneCommand({scenePath});
     saveScene.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(saveScene));
+    // アクターを置く(actor.spawn)。引数が要るので、画面に入力欄ができるまでは CLI から使う(ボタンは灰色)。
+    // 再生中に置いても Stop で消えるので、編集中だけにする。
+    tools::EditorCommand spawnActor = tools::MakeSpawnActorCommand();
+    spawnActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(spawnActor));
 
     // 起動時のアセットの準備も、ボタンと同じコマンドで行う(手順が1か所にしか無いので、起動時とボタンで食い違わない)。
     commands.Execute("asset.refresh", app);
