@@ -33,18 +33,16 @@ namespace husky::engine
         float height = 32.0f;
         render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
 
-        // 貼るテクスチャのアセット(TextureAsset を指すハンドル)。何も指さないか、まだ読めていなければ、
+        // 貼るテクスチャ(アセットの参照)。何も指さないか、読めなかったときは、
         // Application の既定のテクスチャ(DrawSprites の defaultTexture)を貼る。
-        // 【仮】プロパティには登録しない。そのため、
-        //   - 保存されない(ハンドルは実行中だけの値で、ファイルに書いても次の起動では意味が無い)
-        //   - 弱い参照なので、アセットを生かしておく力が無い(使う側が根に加えるなどして、生かしておくこと)
-        // A-4 で、ファイルに書けて、アセットを生かしておく AssetRef(中身は GUID)に替える。
-        core::ObjectHandle texture;
+        // 保存すると GUID の文字列になる。このコンポーネントがシーンにいる間は、テクスチャも GC に回収されない。
+        core::AssetRef<TextureAsset> texture;
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
-            HUSKY_PROPERTY(color) // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
+            HUSKY_PROPERTY(color)   // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
+            HUSKY_PROPERTY(texture) // アセットの参照。保存すると "3f2a9c1e-..." のような GUID の文字列になる
         HUSKY_REFLECTION_END()
     };
 
@@ -58,7 +56,7 @@ namespace husky::engine
     void ForEachSprite(Scene& scene, Function&& function)
     {
         scene.ForEachActor([&](Actor& actor) {
-            const SpriteComponent* spriteComponent = actor.GetComponent<SpriteComponent>();
+            SpriteComponent* spriteComponent = actor.GetComponent<SpriteComponent>();
             if (spriteComponent == nullptr) // 持っていない(GetComponent は Destroy 済みのものも返さない)
             {
                 return;
@@ -76,8 +74,9 @@ namespace husky::engine
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
     // テクスチャは、コンポーネントの texture(アセット)から引く。指していない、もう無い、読めていないときは、
     // defaultTexture(これもアセット)を貼る。それも無ければ、白い板になる。
+    // まだ読んでいないテクスチャは、ここで読む(loader.Resolve)ので、コンポーネントを書き換えることがある。
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
     // 動作スレッド: ゲームスレッドのみ
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, const AssetLoader& loader,
+    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
                      core::ObjectHandle defaultTexture);
 }

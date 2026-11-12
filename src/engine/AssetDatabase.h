@@ -65,6 +65,17 @@ namespace husky::engine
 
         std::size_t GetAssetCount() const { return m_paths.size(); }
 
+        // 表のアセットすべてについて、function(guid, 相対パス) を呼ぶ。並びは決まっていない(必要なら呼ぶ側で並べる)。
+        template <typename Function>
+        void ForEachAsset(Function&& function) const
+        {
+            // 「auto& [guid, path]」は構造化束縛(C++17): 組(pair)の2つを、名前を付けて取り出す。
+            for (const auto& [guid, path] : m_paths)
+            {
+                function(guid, path);
+            }
+        }
+
         // 最後に Scan したフォルダ(末尾は「/」)。
         const std::string& GetRootDirectory() const { return m_rootDirectory; }
 

@@ -66,6 +66,12 @@ namespace husky::engine::ObjectSerializer
             case PropertyType::Struct:
                 // 構造体: 中のメンバーを、入れ子のオブジェクトとして書く(オブジェクトのプロパティと同じ書き方を繰り返す)。
                 return PropertiesToValue(*property.GetStructType(), property.GetStructAddressAt(container), toId);
+            case PropertyType::AssetRef:
+            {
+                // アセットの参照: GUID の文字列だけを書く(ハンドルは実行中だけの値なので書かない)。何も指さなければ null。
+                const core::AssetReference& assetRef = *property.GetValuePtrAt<core::AssetReference>(container);
+                return assetRef.IsNull() ? ArchiveValue() : ArchiveValue(assetRef.guid.ToString());
+            }
             }
             ok = false;
             return ArchiveValue();
@@ -189,6 +195,20 @@ namespace husky::engine::ObjectSerializer
             }
             case PropertyType::Struct:
                 break; // 構造体は ReadMembers が中に入って読む
+            case PropertyType::AssetRef:
+            {
+                // GUID の文字列(null なら何も指さない)。アセットを読むのは、使うとき(AssetLoader::Resolve)。
+                core::Guid guid;
+                if (!value.IsNull()
+                    && (value.GetType() != ArchiveValue::Type::String || !core::Guid::Parse(value.AsString(), guid)))
+                {
+                    return "GUID の文字列ではありません";
+                }
+                core::AssetReference& assetRef = *property.GetValuePtrAt<core::AssetReference>(container);
+                assetRef.guid = guid;
+                assetRef.asset = {}; // 前に読んでいたアセットは、指す先が変わったので手放す
+                return {};
+            }
             }
             return "知らない種類のプロパティです";
         }

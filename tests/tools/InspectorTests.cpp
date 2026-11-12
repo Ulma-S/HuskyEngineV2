@@ -82,7 +82,7 @@ TEST_CASE("Inspector: すべての種類のプロパティを並べても、ImGu
     imgui.Frame([&] {
         ImGui::Begin("Test");
         changed = husky::tools::DrawProperties(chaser->GetType(), chaser, app.GetRegistry());
-        changed |= husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry());
+        changed |= husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase()); // テクスチャの選択の箱も
         ImGui::End();
     });
 

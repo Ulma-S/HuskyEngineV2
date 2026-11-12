@@ -41,7 +41,7 @@ namespace husky::engine
         int height = 720;
         // テクスチャを指していないスプライトに貼る、既定のテクスチャ。assets のフォルダからの相対パスで、
         // アセットの表(AssetDatabase)で GUID を引いて読む。
-        // (仮。スプライトがアセットとしてテクスチャを持てるようになったら(A-4)消す)。
+        // SpriteComponent::texture が何も指していないスプライトは、これを貼る(白い板ではなく、何か見えるように)。
         std::string defaultSpriteTexture = "textures/test_sprite.png";
     };
 

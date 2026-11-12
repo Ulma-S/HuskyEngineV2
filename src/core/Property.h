@@ -1,6 +1,7 @@
 // リフレクションのプロパティ。クラスのメンバー変数1つ分の情報(名前、型、オフセット、参照フラグ)。
 #pragma once
 
+#include "core/AssetRef.h"
 #include "core/Handle.h"
 
 #include <cstddef>
@@ -25,6 +26,7 @@ namespace husky::core
         ObjectHandle,      // ObjectHandle(ほかのオブジェクトへの参照)
         ObjectHandleArray, // std::vector<ObjectHandle>(ほかのオブジェクトへの参照の一覧)
         Struct,            // HUSKY_STRUCT_BEGIN で登録した構造体(中のメンバーも、それぞれプロパティとして持つ)
+        AssetRef,          // AssetRef<T>(アセットへの参照。保存すると GUID になる。AssetRef.h)
     };
 
     // --- 構造体のリフレクション(登録は StructReflection.h の HUSKY_STRUCT_BEGIN で行う) ---
@@ -57,6 +59,23 @@ namespace husky::core
         else
         {
             return nullptr;
+        }
+    }
+
+    // プロパティの「詳しい型」の型情報。HUSKY_PROPERTY が Property に渡す。
+    //   - 登録された構造体なら、その構造体の型情報(メンバーの一覧)
+    //   - AssetRef<T> なら、アセットの型 T の型情報(T::StaticType())
+    //   - それ以外(と、型を問わない AssetReference)は nullptr
+    template <typename T>
+    const TypeInfo* DetailTypeOf()
+    {
+        if constexpr (std::is_base_of_v<AssetReference, T> && !std::is_same_v<T, AssetReference>)
+        {
+            return &T::AssetType::StaticType();
+        }
+        else
+        {
+            return StructTypeOf<T>();
         }
     }
 
@@ -93,6 +112,11 @@ namespace husky::core
         {
             return PropertyType::Struct;
         }
+        else if constexpr (std::is_base_of_v<AssetReference, T>)
+        {
+            // AssetRef<TextureAsset> など(AssetReference の子)。型を問わない AssetReference そのものも、ここに入る。
+            return PropertyType::AssetRef;
+        }
         else
         {
             // sizeof(T) == 0 は常に偽。ただし T に依存した式なので、この行が選ばれたときだけエラーになる。
@@ -110,12 +134,12 @@ namespace husky::core
     class Property final
     {
     public:
-        // structType: type が Struct のときの、その構造体の型情報(それ以外は nullptr)。
-        Property(const char* name, PropertyType type, std::size_t offset, const TypeInfo* structType = nullptr)
+        // detailType: type が Struct ならその構造体の型情報、AssetRef ならアセットの型の型情報(それ以外は nullptr)。
+        Property(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr)
             : m_name(name)
             , m_type(type)
             , m_offset(offset)
-            , m_structType(structType)
+            , m_detailType(detailType)
         {
         }
 
@@ -126,9 +150,15 @@ namespace husky::core
         std::size_t GetOffset() const { return m_offset; }
 
         // type が Struct のとき、その構造体の型情報(メンバーの一覧)。それ以外は nullptr。
-        const TypeInfo* GetStructType() const { return m_structType; }
+        const TypeInfo* GetStructType() const { return m_type == PropertyType::Struct ? m_detailType : nullptr; }
 
-        // ほかのオブジェクトを直接参照するプロパティなら true(構造体の中のハンドルは、構造体のメンバーの側で true になる)。
+        // type が AssetRef のとき、アセットの型(TextureAsset など)の型情報。それ以外は nullptr。
+        // インスペクタが、選べるアセットを絞り込むのに使う。
+        const TypeInfo* GetAssetType() const { return m_type == PropertyType::AssetRef ? m_detailType : nullptr; }
+
+        // シーンの中のほかのオブジェクトを直接参照するプロパティなら true(構造体の中のハンドルは、構造体のメンバーの側で true になる)。
+        // シリアライザが「番号の対応表が要るか」を見分けるのに使う。AssetRef は GUID で保存するので含めない
+        // (GC がたどるかどうかは ForEachReferenceAt が決める。AssetRef の中のハンドルも、そちらでたどる)。
         bool IsReference() const
         {
             return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray;
@@ -204,16 +234,29 @@ namespace husky::core
         }
 
     private:
-        // T が、このプロパティの型と合うか。構造体なら、同じ構造体であることも確かめる(Color と Vector2 を取り違えないため)。
+        // T が、このプロパティの型と合うか。構造体なら同じ構造体か(Color と Vector2 を取り違えないため)、
+        // AssetRef なら同じアセットの型かも確かめる。
         template <typename T>
         bool Matches() const
         {
-            return PropertyTypeOf<T>() == m_type && StructTypeOf<T>() == m_structType;
+            if (PropertyTypeOf<T>() != m_type)
+            {
+                return false;
+            }
+            if constexpr (std::is_same_v<T, AssetReference>)
+            {
+                return true; // 型を問わないアセットの参照として読むときは、どのアセットの型でもよい(保存と GC が使う)
+            }
+            else
+            {
+                // AssetRef<TextureAsset> を AssetRef<SoundAsset> として読むような取り違えを防ぐ。
+                return DetailTypeOf<T>() == m_detailType;
+            }
         }
 
         const char* m_name;
         PropertyType m_type;
         std::size_t m_offset;
-        const TypeInfo* m_structType;
+        const TypeInfo* m_detailType; // 構造体の型か、アセットの型(GetStructType / GetAssetType)
     };
 }

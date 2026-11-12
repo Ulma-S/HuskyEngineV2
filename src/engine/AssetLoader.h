@@ -24,12 +24,15 @@
 #pragma once
 
 #include "core/Guid.h"
+#include "core/AssetRef.h"
 #include "core/ObjectRegistry.h"
+#include "core/TypeInfo.h"
 #include "engine/AssetDatabase.h"
 #include "engine/TextureAsset.h"
 #include "render/RenderDevice.h"
 
 #include <cstddef>
+#include <string_view>
 #include <unordered_map>
 
 namespace husky::engine
@@ -56,6 +59,16 @@ namespace husky::engine
 
         // ハンドルが指す TextureAsset を返す。もう無い、またはテクスチャのアセットでなければ nullptr。
         TextureAsset* ResolveTexture(core::ObjectHandle handle) const;
+
+        // アセットの参照(プロパティの AssetRef)が指すテクスチャを返す。何も指していなければ nullptr。
+        // まだ読んでいない、または指す GUID が変わった(インスペクタで選び直したなど)ときは、ここで読み、
+        // 読んだアセットのハンドルを reference.asset に書く(これで、参照している間は GC に回収されない)。
+        // 読めなかったときも「失敗」のアセットを返す(状態は IsLoaded で分かる)。
+        TextureAsset* Resolve(core::AssetRef<TextureAsset>& reference);
+
+        // relativePath のファイルを、assetType(TextureAsset など)のアセットとして読めるか(拡張子で見分ける)。
+        // インスペクタが、選べるアセットを絞り込むのに使う。
+        static bool CanLoadAs(const core::TypeInfo& assetType, std::string_view relativePath);
 
         // キャッシュにある(まだ回収されていない)テクスチャのアセットの数。確認とテスト用。
         std::size_t GetLoadedTextureCount() const { return m_textures.size(); }

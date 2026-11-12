@@ -1,6 +1,8 @@
 // SpriteComponent と ForEachSprite のテスト。GPU は使わない(何を描くかだけを確かめる)。
 #include "engine/SpriteComponent.h"
 
+#include "TestFolder.h"
+
 #include <doctest/doctest.h>
 
 #include <vector>
@@ -25,7 +27,7 @@ namespace
     std::vector<Sprite> CollectSprites(Scene& scene)
     {
         std::vector<Sprite> sprites;
-        ForEachSprite(scene, [&](const Sprite& sprite, const SpriteComponent&) { sprites.push_back(sprite); });
+        ForEachSprite(scene, [&](const Sprite& sprite, SpriteComponent&) { sprites.push_back(sprite); });
         return sprites;
     }
 }
@@ -99,23 +101,28 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     CHECK(sprites[0].x == 5.0f);
 }
 
-TEST_CASE("ForEachSprite: コンポーネントも一緒に渡す。テクスチャはプロパティではない(保存されない)")
+TEST_CASE("SpriteComponent: テクスチャは、テクスチャのアセットへの参照(AssetRef)のプロパティ")
+{
+    const husky::core::Property* texture = SpriteComponent::StaticType().FindProperty("texture");
+    REQUIRE(texture != nullptr);
+    CHECK(texture->GetType() == husky::core::PropertyType::AssetRef);
+    CHECK(texture->GetAssetType() == &husky::engine::TextureAsset::StaticType()); // インスペクタはこれで絞り込む
+    CHECK(texture->GetStructType() == nullptr);
+    CHECK_FALSE(texture->IsReference()); // シーンの中のオブジェクトへの参照ではない(保存に番号の対応表は要らない)
+}
+
+TEST_CASE("ForEachSprite: コンポーネントも一緒に渡す(描画層のテクスチャは、DrawSprites がアセットから引く)")
 {
     ObjectRegistry registry;
     Scene* scene = CreateRootScene(registry);
+    SpriteComponent* sprite = scene->Spawn<Actor>()->AddComponent<SpriteComponent>();
+    sprite->texture.guid = husky::tests::MakeGuid(3, 2);
 
-    Actor* withTexture = scene->Spawn<Actor>();
-    withTexture->AddComponent<SpriteComponent>()->texture = husky::core::ObjectHandle{3, 2};
-    scene->Spawn<Actor>()->AddComponent<SpriteComponent>(); // テクスチャを指さない
-
-    std::vector<husky::core::ObjectHandle> textures;
-    ForEachSprite(*scene, [&](const Sprite& sprite, const SpriteComponent& component) {
-        CHECK(sprite.texture.IsNull()); // 描画層のテクスチャを引くのは DrawSprites の役目
-        textures.push_back(component.texture);
+    int count = 0;
+    ForEachSprite(*scene, [&](const Sprite& drawn, SpriteComponent& component) {
+        CHECK(drawn.texture.IsNull());
+        CHECK(&component == sprite);
+        ++count;
     });
-    REQUIRE(textures.size() == 2);
-    CHECK(textures[0] == husky::core::ObjectHandle{3, 2});
-    CHECK(textures[1].IsNull());
-
-    CHECK(SpriteComponent::StaticType().FindProperty("texture") == nullptr);
+    CHECK(count == 1);
 }

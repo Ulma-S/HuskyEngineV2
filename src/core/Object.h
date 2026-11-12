@@ -77,13 +77,13 @@ public:                                                                         
 //   #member: 名前の文字列("hp")。
 //   decltype(ThisType::member): メンバーの型(std::int32_t など)。対応していない型ならコンパイルエラー。
 //   offsetof(ThisType, member): オブジェクトの先頭から、このメンバーまでのバイト数。
-//   StructTypeOf: メンバーが登録された構造体なら、その構造体の型情報(それ以外は nullptr)。
+//   DetailTypeOf: メンバーが登録された構造体ならその型情報、AssetRef<T> なら T の型情報(それ以外は nullptr)。
 // 構造体の登録(HUSKY_STRUCT_BEGIN)の中でも、同じマクロをそのまま使う。
 #define HUSKY_PROPERTY(member)                                                                    \
     info.AddProperty(#member,                                                                    \
                      ::husky::core::PropertyTypeOf<decltype(ThisType::member)>(),                \
                      offsetof(ThisType, member),                                                 \
-                     ::husky::core::StructTypeOf<decltype(ThisType::member)>());
+                     ::husky::core::DetailTypeOf<decltype(ThisType::member)>());
 
 // メンバー関数1つをメソッドとして登録する。
 //   &ThisType::method: メンバー関数のアドレス。同じ名前の関数が複数ある(オーバーロード)と、

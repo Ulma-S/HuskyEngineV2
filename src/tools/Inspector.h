@@ -20,8 +20,10 @@ namespace husky::tools
     // 型 type のプロパティを、container(その型のオブジェクトか構造体の先頭のアドレス)について、編集できる形で並べる。
     // 値は Property を通して読み書きする(オフセットを直接触らない)。ハンドルは、指している相手の名前を表示するだけ。
     // registry: ハンドルが指す相手を引くのに使う。
+    // assets: アセットの参照(AssetRef)を選ぶときの、アセットの一覧。nullptr なら、GUID を表示するだけで選べない。
     // 戻り値: このフレームで、どれかの値が書き換えられたら true。
-    bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry);
+    bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
+                        const engine::AssetDatabase* assets = nullptr);
 
     class SceneInspector
     {

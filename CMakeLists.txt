@@ -368,6 +368,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/SceneSerializerTests.cpp
         tests/engine/AssetDatabaseTests.cpp
         tests/engine/AssetLoaderTests.cpp
+        tests/engine/AssetRefTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/render/SpriteBatchTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp

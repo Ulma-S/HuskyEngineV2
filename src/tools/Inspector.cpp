@@ -5,14 +5,17 @@
 
 #include "core/Property.h"
 #include "engine/Actor.h"
+#include "engine/AssetLoader.h"
 #include "engine/Component.h"
 #include "engine/RenderReflection.h" // render::Color の型情報(色は色の選び方で編集するため)
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui::InputText(std::string*)
 
+#include <algorithm> // std::sort
 #include <cstdint>
 #include <string>
+#include <utility>   // std::pair
 #include <vector>
 
 namespace husky::tools
@@ -42,8 +45,67 @@ namespace husky::tools
             return object->GetType().GetName();
         }
 
+        // アセットの参照を、選択肢の箱(コンボボックス)で並べる。選べるのは、assetType として読めるアセットだけ。
+        // 選び直したら GUID だけを書き換え、読んであったアセットのハンドルは手放す(描くときに、ローダが新しい GUID で読む)。
+        bool DrawAssetRef(const char* name, core::AssetReference& reference, const core::TypeInfo& assetType,
+                          const engine::AssetDatabase* assets)
+        {
+            // 今の値の表示: 表にあればパス、無ければ GUID(ファイルが消えた、.meta が壊れたなど)。
+            // ふだん(何も指さない、表にある)は、文字列を作らずに、ある文字列をそのまま使う(毎フレームの確保を避ける)。
+            const std::string* currentPath = assets != nullptr ? assets->FindPath(reference.guid) : nullptr;
+            std::string missing; // 表に無いときだけ作る
+            const char* preview = "(none)";
+            if (currentPath != nullptr)
+            {
+                preview = currentPath->c_str();
+            }
+            else if (!reference.IsNull())
+            {
+                missing = "(missing) " + reference.guid.ToString();
+                preview = missing.c_str();
+            }
+            if (assets == nullptr)
+            {
+                ImGui::Text("%s: %s", name, preview);
+                return false;
+            }
+
+            bool changed = false;
+            // BeginCombo: 箱が開いているときだけ true を返す。中身を作ったら EndCombo で閉じる。
+            // 一覧を集めて並べ替えるのは、箱が開いている間だけ(閉じているときは何もしないので、毎フレームの負担が無い)。
+            if (ImGui::BeginCombo(name, preview))
+            {
+                if (ImGui::Selectable("(none)", reference.IsNull()))
+                {
+                    reference.guid = {};
+                    reference.asset = {};
+                    changed = true;
+                }
+                std::vector<std::pair<std::string, core::Guid>> choices; // (パス, GUID)。パスの順に並べるため
+                assets->ForEachAsset([&](const core::Guid& guid, const std::string& path) {
+                    if (engine::AssetLoader::CanLoadAs(assetType, path))
+                    {
+                        choices.emplace_back(path, guid);
+                    }
+                });
+                std::sort(choices.begin(), choices.end());
+                for (const auto& [path, guid] : choices)
+                {
+                    if (ImGui::Selectable(path.c_str(), guid == reference.guid) && guid != reference.guid)
+                    {
+                        reference.guid = guid;
+                        reference.asset = {};
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
         // プロパティ1つを、型に合った部品(チェックボックス、数の入力、文字の入力など)で並べる。
-        bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry)
+        bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
+                          const engine::AssetDatabase* assets)
         {
             const char* name = property.GetName();
             switch (property.GetType())
@@ -87,23 +149,27 @@ namespace husky::tools
                 bool changed = false;
                 if (ImGui::TreeNode(name))
                 {
-                    changed = DrawProperties(*property.GetStructType(), structAddress, registry);
+                    changed = DrawProperties(*property.GetStructType(), structAddress, registry, assets);
                     ImGui::TreePop();
                 }
                 return changed;
             }
+            case PropertyType::AssetRef:
+                return DrawAssetRef(name, *property.GetValuePtrAt<core::AssetReference>(container),
+                                    *property.GetAssetType(), assets);
             }
             return false;
         }
     }
 
-    bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry)
+    bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
+                        const engine::AssetDatabase* assets)
     {
         bool changed = false;
         type.ForEachProperty([&](const Property& property) {
             // PushID: ImGui は部品を「名前」で見分けるので、同じ名前(x など)が別の場所にあっても混ざらないように、区切りを付ける。
             ImGui::PushID(property.GetName());
-            changed |= DrawProperty(property, container, registry);
+            changed |= DrawProperty(property, container, registry, assets);
             ImGui::PopID();
         });
         return changed;
@@ -154,7 +220,7 @@ namespace husky::tools
             else
             {
                 ImGui::SeparatorText(selected->GetType().GetName());
-                DrawProperties(selected->GetType(), selected, registry);
+                DrawProperties(selected->GetType(), selected, registry, &app.GetAssetDatabase());
                 if (ImGui::Button("Destroy"))
                 {
                     selected->Destroy(); // フレームの終わりに消える(弱い参照なので、選択は自然に外れる)
@@ -171,7 +237,7 @@ namespace husky::tools
                     ImGui::PushID(static_cast<int>(i));
                     if (ImGui::CollapsingHeader(component->GetType().GetName(), ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        DrawProperties(component->GetType(), component, registry);
+                        DrawProperties(component->GetType(), component, registry, &app.GetAssetDatabase());
                     }
                     ImGui::PopID();
                 }

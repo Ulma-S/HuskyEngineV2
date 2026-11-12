@@ -154,7 +154,9 @@ namespace
     }
 
     // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
-    void SpawnInitialActors(engine::Scene& scene)
+    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ市松模様(checker.png)を指す。
+    // テクスチャが違うので、描画命令は 2 回になる。
+    void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
     {
         SpawnBouncers(scene, BouncerCount);
         if (PlayerActor* player = scene.Spawn<PlayerActor>())
@@ -163,6 +165,11 @@ namespace
             {
                 sprite->width = PlayerSize;
                 sprite->height = PlayerSize; // 色は既定の白(テクスチャのまま)
+                // アセットは GUID で指す。読むのは、描くとき(DrawSprites)。
+                if (const husky::core::Guid* checker = assets.FindGuid("textures/checker.png"))
+                {
+                    sprite->texture.guid = *checker;
+                }
             }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
             player->y = (ScreenHeight - PlayerSize) / 2.0f;
@@ -200,7 +207,7 @@ int main()
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
         std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
-        SpawnInitialActors(app.GetScene());
+        SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
     }
 
 #if HUSKY_DEVELOPMENT
@@ -223,25 +230,6 @@ int main()
         inspector.Draw(application);
     });
 #endif
-
-    // プレイヤーだけに、別のテクスチャ(市松模様の checker.png)を貼る。
-    // 跳ね回るアクター(既定のテクスチャ)とテクスチャが違うので、描画命令は 2 回になる。
-    // ここは Run の前なので、まだ GPU が無い。ローダはファイルだけを読んでおき、Run の中で GPU に送る。
-    // 【仮】スプライトのテクスチャは弱い参照なので、根に加えて生かしておく(A-4 で、プロパティの AssetRef に替える)。
-    if (const husky::core::Guid* checkerGuid = app.GetAssetDatabase().FindGuid("textures/checker.png"))
-    {
-        const husky::core::ObjectHandle checker = app.GetAssetLoader().LoadTexture(*checkerGuid);
-        app.GetRegistry().AddRoot(checker);
-        app.GetScene().ForEachActor([checker](engine::Actor& actor) {
-            if (actor.IsA<PlayerActor>())
-            {
-                if (SpriteComponent* sprite = actor.GetComponent<SpriteComponent>())
-                {
-                    sprite->texture = checker;
-                }
-            }
-        });
-    }
 
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。

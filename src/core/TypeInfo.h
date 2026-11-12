@@ -54,10 +54,10 @@ namespace husky::core
         }
 
         // プロパティを1つ登録する。HUSKY_PROPERTY マクロから呼ばれる。
-        // structType: 構造体のプロパティのときの、その構造体の型情報(それ以外は nullptr)。
-        void AddProperty(const char* name, PropertyType type, std::size_t offset, const TypeInfo* structType = nullptr)
+        // detailType: 構造体なら構造体の型情報、AssetRef ならアセットの型の型情報(それ以外は nullptr。DetailTypeOf)。
+        void AddProperty(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr)
         {
-            m_properties.emplace_back(name, type, offset, structType); // emplace_back: 引数から、その場で要素を作って末尾に足す
+            m_properties.emplace_back(name, type, offset, detailType); // emplace_back: 引数から、その場で要素を作って末尾に足す
         }
 
         // この型で登録したプロパティだけを返す(親の型のものは含まない)。
@@ -147,7 +147,12 @@ namespace husky::core
         else if (const void* structAddress = GetStructAddressAt(container))
         {
             // 構造体: 中のメンバーを1つずつ、同じようにたどる(構造体の中の構造体も、ここを繰り返して奥までたどる)。
-            m_structType->ForEachProperty([&](const Property& member) { member.ForEachReferenceAt(structAddress, function); });
+            GetStructType()->ForEachProperty([&](const Property& member) { member.ForEachReferenceAt(structAddress, function); });
+        }
+        else if (const AssetReference* assetRef = GetValuePtrAt<AssetReference>(container))
+        {
+            // アセットの参照: 読み込んだアセットのハンドルをたどる。これで、参照している間はアセットが回収されない。
+            function(assetRef->asset);
         }
     }
 }

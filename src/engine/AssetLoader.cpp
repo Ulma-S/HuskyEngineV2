@@ -108,6 +108,34 @@ namespace husky::engine
         return m_registry.Resolve<TextureAsset>(handle);
     }
 
+    bool AssetLoader::CanLoadAs(const core::TypeInfo& assetType, std::string_view relativePath)
+    {
+        if (assetType.IsA(TextureAsset::StaticType()))
+        {
+            // テクスチャとして読めるのは、今は PNG だけ(1段目の ReadTextureSource が PNG を読むため)。
+            constexpr std::string_view Png = ".png";
+            return relativePath.size() >= Png.size() && relativePath.substr(relativePath.size() - Png.size()) == Png;
+        }
+        return false;
+    }
+
+    TextureAsset* AssetLoader::Resolve(core::AssetRef<TextureAsset>& reference)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        // 前に読んだアセットが、まだ生きていて、同じ GUID なら、それを使う(毎フレーム呼ばれるので、ここは速く済ませる)。
+        TextureAsset* asset = ResolveTexture(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        {
+            return asset;
+        }
+        reference.asset = LoadTexture(reference.guid);
+        return ResolveTexture(reference.asset);
+    }
+
     void AssetLoader::ReadTexture(TextureAsset& asset)
     {
         asset.m_state = AssetState::Loading;
