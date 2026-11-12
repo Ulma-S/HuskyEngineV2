@@ -86,6 +86,13 @@ namespace husky::engine
         // 直前の GC で回収した数(ログ用)。
         std::size_t GetCollectedLastGc() const { return m_collectedLastGc; }
 
+        // シーンのファイル(JSON)を読み、中のアクターを今のシーンの後ろに足す(今いるアクターは消さない)。
+        // 型の名前は GetTypeRegistry() で探すので、ゲームの型は先に登録しておくこと。
+        // path: ファイルのパス。exe の隣の assets を読むときは platform::GetExecutableDirectory() を前に付ける。
+        // 戻り値: ファイルを読めて、JSON として正しければ true(中の警告はログに出す。警告があっても true)。
+        // ウィンドウも GPU も使わないので、テストからも呼べる。
+        bool LoadSceneFile(const std::string& path);
+
         // platform を初期化し、ウィンドウと描画を用意して、終了が要求されるまでゲームループを回す。
         // 閉じるボタンか Escape で終わる。戻り値: プロセスの終了コード(0 が正常)。
         int Run(const ApplicationDesc& desc);

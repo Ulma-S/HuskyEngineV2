@@ -9,14 +9,17 @@
 #include "engine/Input.h"
 #include "engine/Scene.h"
 #include "engine/SpriteComponent.h"
+#include "platform/FileSystem.h"
 #include "render/RenderDevice.h"
 
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
+#include <string>
 
 namespace
 {
     namespace engine = husky::engine;
+    namespace platform = husky::platform;
     namespace render = husky::render;
 
     constexpr int ScreenWidth = 1280;
@@ -168,7 +171,14 @@ int main()
     app.GetTypeRegistry().Register<BouncerActor>();
     app.GetTypeRegistry().Register<PlayerActor>();
 
-    SpawnInitialActors(app.GetScene());
+    // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
+    // ファイルは、ビルドのたびに exe の隣へコピーされる assets の中にある。
+    const std::string scenePath = platform::GetExecutableDirectory() + "assets/scenes/main.json";
+    if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
+    {
+        std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
+        SpawnInitialActors(app.GetScene());
+    }
 
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。

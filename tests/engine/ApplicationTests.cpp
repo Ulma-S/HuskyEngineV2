@@ -3,7 +3,10 @@
 // FrameClock は dt を上限(既定 0.1 秒)で切り詰めるので、固定する dt はそれ以下にする。
 #include "core/MemoryTracker.h"
 #include "engine/Application.h"
+#include "engine/JsonFormat.h"
+#include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
+#include "platform/FileSystem.h"
 
 #include <doctest/doctest.h>
 
@@ -171,4 +174,52 @@ TEST_CASE("Application: engine の型を、型の登録簿に登録済み")
 
     husky::core::Object* sprite = types.Create("SpriteComponent", app.GetRegistry());
     CHECK(husky::core::Cast<husky::engine::SpriteComponent>(sprite) != nullptr);
+}
+
+TEST_CASE("Application: LoadSceneFile は、保存したシーンのファイルを読み込み、今のシーンの後ろに足す")
+{
+    // 保存する側: アクター1つ(色付きのスプライト付き)をファイルに書く。
+    const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_scene.json";
+    {
+        Application source;
+        Walker* walker = source.GetScene().Spawn<Walker>();
+        walker->name = "ファイルから";
+        walker->AddComponent<husky::engine::SpriteComponent>()->color = {0.25f, 0.5f, 0.75f, 1.0f};
+        source.GetTypeRegistry().Register<Walker>();
+
+        std::string text;
+        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetScene()).value, text));
+        REQUIRE(husky::platform::WriteTextFile(path.c_str(), text));
+    }
+
+    // 読み込む側: 型を登録してから読み込む。
+    Application app;
+    app.GetTypeRegistry().Register<Walker>();
+    app.GetScene().Spawn<Walker>(); // 先にいるアクターは消えない
+    REQUIRE(app.LoadSceneFile(path));
+
+    REQUIRE(app.GetScene().actors.size() == 2);
+    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetScene().actors[1]);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->name == "ファイルから");
+    CHECK(loaded->GetComponent<husky::engine::SpriteComponent>()->color.b == 0.75f);
+
+    // 読み込んだアクターも、普通に更新される
+    app.GetClock().SetFixedDelta(0.1);
+    app.StepFrame(0, NoEvents);
+    CHECK(loaded->x == doctest::Approx(10.0f));
+
+    husky::platform::RemoveFile(path.c_str());
+}
+
+TEST_CASE("Application: LoadSceneFile は、無いファイルや壊れた JSON では false を返し、シーンを変えない")
+{
+    Application app;
+    CHECK_FALSE(app.LoadSceneFile(husky::platform::GetExecutableDirectory() + "husky_no_such_scene.json"));
+
+    const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_broken_scene.json";
+    REQUIRE(husky::platform::WriteTextFile(path.c_str(), "{ \"objects\": [ "));
+    CHECK_FALSE(app.LoadSceneFile(path));
+    CHECK(app.GetScene().actors.empty());
+    husky::platform::RemoveFile(path.c_str());
 }

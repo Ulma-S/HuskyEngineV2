@@ -3,6 +3,9 @@
 
 #include "core/MemoryTracker.h"
 #include "engine/EngineTypes.h"
+#include "engine/JsonFormat.h"
+#include "engine/SceneSerializer.h"
+#include "platform/FileSystem.h"
 #include "engine/SpriteComponent.h"
 #include "platform/Image.h"
 #include "platform/Platform.h"
@@ -52,6 +55,31 @@ namespace husky::engine
             m_secondsSinceGc = 0.0;
         }
         return dt;
+    }
+
+    bool Application::LoadSceneFile(const std::string& path)
+    {
+        // ファイル → 文字列 → 値の木 → オブジェクト、の順に変換する(どこで失敗しても、ログに理由を出して false)。
+        std::string text;
+        if (!platform::ReadTextFile(path.c_str(), text))
+        {
+            return false; // 理由は platform がログに出している
+        }
+        ArchiveValue file;
+        std::string error;
+        if (!JsonFormat::Read(text, file, &error))
+        {
+            std::printf("シーンのファイルを読めません(%s): %s\n", path.c_str(), error.c_str());
+            return false;
+        }
+        const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *m_scene, m_types);
+        for (const std::string& warning : report.warnings)
+        {
+            std::printf("シーンの読み込みの警告(%s): %s\n", path.c_str(), warning.c_str());
+        }
+        std::printf("シーンを読み込みました(%s): アクター %zu、オブジェクト %zu、警告 %zu\n", path.c_str(),
+                    report.addedActorCount, report.createdCount, report.warnings.size());
+        return true;
     }
 
     int Application::Run(const ApplicationDesc& desc)
