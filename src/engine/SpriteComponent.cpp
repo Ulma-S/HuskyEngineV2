@@ -3,13 +3,26 @@
 
 namespace husky::engine
 {
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, render::TextureHandle defaultTexture)
+    namespace
     {
-        // render::Sprite sprite は、ForEachSprite が渡したものの写し(値渡し)。書き換えても元のコンポーネントは変わらない。
-        ForEachSprite(scene, [&](render::Sprite sprite) {
+        // アセットのハンドルから、描画層のテクスチャを引く。読めていないアセットや、もう無いアセットなら、何も指さない。
+        render::TextureHandle FindTexture(const AssetLoader& loader, core::ObjectHandle textureAsset)
+        {
+            const TextureAsset* asset = loader.ResolveTexture(textureAsset);
+            return (asset != nullptr && asset->IsLoaded()) ? asset->GetTexture() : render::TextureHandle{};
+        }
+    }
+
+    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, const AssetLoader& loader,
+                     core::ObjectHandle defaultTexture)
+    {
+        // 既定のテクスチャは、スプライトごとに引き直さず、最初に1回だけ引く。
+        const render::TextureHandle fallback = FindTexture(loader, defaultTexture);
+        ForEachSprite(scene, [&](render::Sprite& sprite, const SpriteComponent& component) {
+            sprite.texture = FindTexture(loader, component.texture);
             if (sprite.texture.IsNull())
             {
-                sprite.texture = defaultTexture;
+                sprite.texture = fallback;
             }
             renderDevice.DrawSprite(sprite);
         });

@@ -25,7 +25,7 @@ namespace
     std::vector<Sprite> CollectSprites(Scene& scene)
     {
         std::vector<Sprite> sprites;
-        ForEachSprite(scene, [&](const Sprite& sprite) { sprites.push_back(sprite); });
+        ForEachSprite(scene, [&](const Sprite& sprite, const SpriteComponent&) { sprites.push_back(sprite); });
         return sprites;
     }
 }
@@ -99,19 +99,23 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     CHECK(sprites[0].x == 5.0f);
 }
 
-TEST_CASE("ForEachSprite: コンポーネントのテクスチャをそのまま渡す。テクスチャはプロパティではない(保存されない)")
+TEST_CASE("ForEachSprite: コンポーネントも一緒に渡す。テクスチャはプロパティではない(保存されない)")
 {
     ObjectRegistry registry;
     Scene* scene = CreateRootScene(registry);
 
     Actor* withTexture = scene->Spawn<Actor>();
-    withTexture->AddComponent<SpriteComponent>()->texture = husky::render::TextureHandle{3, 2};
+    withTexture->AddComponent<SpriteComponent>()->texture = husky::core::ObjectHandle{3, 2};
     scene->Spawn<Actor>()->AddComponent<SpriteComponent>(); // テクスチャを指さない
 
-    const std::vector<Sprite> sprites = CollectSprites(*scene);
-    REQUIRE(sprites.size() == 2);
-    CHECK(sprites[0].texture == husky::render::TextureHandle{3, 2});
-    CHECK(sprites[1].texture.IsNull()); // 何も指さない(描くときに Application の既定のテクスチャになる)
+    std::vector<husky::core::ObjectHandle> textures;
+    ForEachSprite(*scene, [&](const Sprite& sprite, const SpriteComponent& component) {
+        CHECK(sprite.texture.IsNull()); // 描画層のテクスチャを引くのは DrawSprites の役目
+        textures.push_back(component.texture);
+    });
+    REQUIRE(textures.size() == 2);
+    CHECK(textures[0] == husky::core::ObjectHandle{3, 2});
+    CHECK(textures[1].IsNull());
 
     CHECK(SpriteComponent::StaticType().FindProperty("texture") == nullptr);
 }

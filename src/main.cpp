@@ -10,7 +10,6 @@
 #include "engine/Scene.h"
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
-#include "platform/Image.h"
 #include "render/RenderDevice.h"
 
 #if HUSKY_DEVELOPMENT
@@ -18,8 +17,6 @@
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #endif
 
-#include <cstddef>
-#include <cstdint>
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
 #include <functional>
@@ -156,29 +153,6 @@ namespace
         }
     }
 
-    // 市松模様(2色が交互に並ぶ模様)の画像を、コードで作る。size x size ピクセルで、cell ピクセルごとに色が変わる。
-    // 【仮】テクスチャをアセットのファイルから読めるようになったら(A-3)、ファイルに置き換える。
-    platform::Image MakeCheckerImage(int size, int cell)
-    {
-        platform::Image image;
-        image.width = size;
-        image.height = size;
-        image.pixels.resize(static_cast<std::size_t>(size) * size * 4);
-        for (int y = 0; y < size; ++y)
-        {
-            for (int x = 0; x < size; ++x)
-            {
-                const bool light = ((x / cell) + (y / cell)) % 2 == 0;
-                std::uint8_t* pixel = &image.pixels[(static_cast<std::size_t>(y) * size + x) * 4];
-                pixel[0] = light ? 255 : 40;  // R
-                pixel[1] = light ? 220 : 60;  // G
-                pixel[2] = light ? 120 : 140; // B
-                pixel[3] = 255;               // A(不透明)
-            }
-        }
-        return image;
-    }
-
     // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
     void SpawnInitialActors(engine::Scene& scene)
     {
@@ -250,11 +224,15 @@ int main()
     });
 #endif
 
-    // 描画の準備ができたら、プレイヤーだけに別のテクスチャ(市松模様)を貼る。
+    // プレイヤーだけに、別のテクスチャ(市松模様の checker.png)を貼る。
     // 跳ね回るアクター(既定のテクスチャ)とテクスチャが違うので、描画命令は 2 回になる。
-    app.SetRenderStartCallback([](engine::Application& application, render::RenderDevice& renderDevice) {
-        const render::TextureHandle checker = renderDevice.CreateTexture(MakeCheckerImage(32, 8));
-        application.GetScene().ForEachActor([checker](engine::Actor& actor) {
+    // ここは Run の前なので、まだ GPU が無い。ローダはファイルだけを読んでおき、Run の中で GPU に送る。
+    // 【仮】スプライトのテクスチャは弱い参照なので、根に加えて生かしておく(A-4 で、プロパティの AssetRef に替える)。
+    if (const husky::core::Guid* checkerGuid = app.GetAssetDatabase().FindGuid("textures/checker.png"))
+    {
+        const husky::core::ObjectHandle checker = app.GetAssetLoader().LoadTexture(*checkerGuid);
+        app.GetRegistry().AddRoot(checker);
+        app.GetScene().ForEachActor([checker](engine::Actor& actor) {
             if (actor.IsA<PlayerActor>())
             {
                 if (SpriteComponent* sprite = actor.GetComponent<SpriteComponent>())
@@ -263,7 +241,7 @@ int main()
                 }
             }
         });
-    });
+    }
 
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。

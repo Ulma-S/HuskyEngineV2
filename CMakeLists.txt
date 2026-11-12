@@ -211,6 +211,7 @@ add_library(husky_engine STATIC
     src/engine/Actor.cpp
     src/engine/Application.cpp
     src/engine/AssetDatabase.cpp
+    src/engine/AssetLoader.cpp
     src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
@@ -354,6 +355,7 @@ add_custom_command(TARGET HuskyEngineV2 POST_BUILD
 if(HUSKY_BUILD_TESTS)
     add_executable(HuskyTests
         tests/TestMain.cpp
+        tests/TestFolder.h
         ${HUSKY_GLOBAL_NEW_SOURCE} # ゲームと同じく、すべての new を MemoryTracker に通す
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
@@ -365,6 +367,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
         tests/engine/AssetDatabaseTests.cpp
+        tests/engine/AssetLoaderTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/render/SpriteBatchTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp
@@ -384,6 +387,8 @@ if(HUSKY_BUILD_TESTS)
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
+    # テストで共通に使うヘッダ(TestFolder.h など)を、#include "TestFolder.h" で読めるようにする。
+    target_include_directories(HuskyTests PRIVATE tests)
     # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。
     target_link_libraries(HuskyTests PRIVATE $<$<CONFIG:Debug>:husky_tools> $<$<CONFIG:Debug>:husky_imgui>)
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。

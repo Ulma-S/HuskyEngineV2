@@ -84,7 +84,10 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
 - ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。最初の実装は同期でよい。
-- ローダ内部は「元ファイルを読む」「実行用データにする」の2段にする。2段目は最初は素通し。
+  - ローダは`engine::AssetLoader`(`Application::GetAssetLoader`)。テクスチャは`LoadTexture(guid)`で、GC管理の`TextureAsset`を指すハンドル(弱い参照)を返す。失敗しても状態が`Failed`のアセットを返す。同じGUIDは、生きている間は同じアセットを返す。
+  - アセットを生かしておくのは、使う側の強い参照(根、またはプロパティ)。どこからも指されなければGCで回収され、そのときGPUのテクスチャも手放す。
+  - GPU(`RenderDevice`)は`Application::Run`の中でしか無いので、ローダは`SetRenderDevice`で付け外しする。GPUが無いときはファイルだけを読んで「読めた」にし、GPUが付いたときにGPUへ送る。
+- ローダ内部は「元ファイルを読む」「実行用データにする」の2段にする(`ReadTextureSource` / `CookTexture`)。2段目は最初は素通し。
 - シリアライズはJSON。リフレクションの走査は、アーカイブのインターフェース越しに行う。
   - 2段に分ける: (1)オブジェクト ⇄ `engine::ArchiveValue`(形式に依存しない値の木)、(2)`ArchiveValue` ⇄ 文字列(`engine::JsonFormat`)。リフレクションの走査は(1)だけが行い、形式やライブラリを知らない。別の形式(バイナリなど)は(2)を足して対応する。
   - 外部ライブラリの内部の確保は、差し替え口があれば`MemoryTracker`へ流す(yyjsonは`yyjson_alc`で対応済み)。

@@ -15,6 +15,7 @@
 //   }
 #pragma once
 
+#include "engine/AssetLoader.h"
 #include "engine/Scene.h"
 #include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
 #include "render/RenderDevice.h"
@@ -32,10 +33,13 @@ namespace husky::engine
         float height = 32.0f;
         render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
 
-        // 貼るテクスチャ。何も指さなければ、Application の既定のテクスチャ(DrawSprites の defaultTexture)を貼る。
-        // 【仮】プロパティには登録しない(保存されない)。ハンドルは実行中だけの値で、ファイルに書いても次の起動では意味が無いため。
-        // A-4 で、ファイルに書ける AssetRef<Texture>(中身は GUID)に替える。
-        render::TextureHandle texture;
+        // 貼るテクスチャのアセット(TextureAsset を指すハンドル)。何も指さないか、まだ読めていなければ、
+        // Application の既定のテクスチャ(DrawSprites の defaultTexture)を貼る。
+        // 【仮】プロパティには登録しない。そのため、
+        //   - 保存されない(ハンドルは実行中だけの値で、ファイルに書いても次の起動では意味が無い)
+        //   - 弱い参照なので、アセットを生かしておく力が無い(使う側が根に加えるなどして、生かしておくこと)
+        // A-4 で、ファイルに書けて、アセットを生かしておく AssetRef(中身は GUID)に替える。
+        core::ObjectHandle texture;
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
@@ -45,7 +49,8 @@ namespace husky::engine
     };
 
     // シーンの生きているアクターのうち、SpriteComponent を持つものについて、
-    // 描くスプライト(render::Sprite)を作り、function(sprite) を一覧の順に呼ぶ。
+    // 描くスプライト(render::Sprite)を作り、function(sprite, spriteComponent) を一覧の順に呼ぶ。
+    // sprite のテクスチャは空のまま渡す(アセットから描画層のテクスチャを引くのは、DrawSprites の役目)。
     // 1つのアクターが SpriteComponent を複数持っていても、使うのは最初の1つだけ。
     // 描画(DrawSprites)とテストの両方で使うために、「何を描くか」の部分だけを取り出している。
     // 動作スレッド: ゲームスレッドのみ
@@ -64,14 +69,15 @@ namespace husky::engine
             sprite.width = spriteComponent->width;
             sprite.height = spriteComponent->height;
             sprite.color = spriteComponent->color;
-            sprite.texture = spriteComponent->texture;
-            function(sprite);
+            function(sprite, *spriteComponent);
         });
     }
 
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
-    // テクスチャを指していないスプライトには、defaultTexture を貼る。
+    // テクスチャは、コンポーネントの texture(アセット)から引く。指していない、もう無い、読めていないときは、
+    // defaultTexture(これもアセット)を貼る。それも無ければ、白い板になる。
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
     // 動作スレッド: ゲームスレッドのみ
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, render::TextureHandle defaultTexture);
+    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, const AssetLoader& loader,
+                     core::ObjectHandle defaultTexture);
 }

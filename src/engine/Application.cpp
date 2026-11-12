@@ -18,7 +18,8 @@ namespace husky::engine
     // コンストラクタの「: m_registry(...)」は、メンバーの初期化の書き方(C# のフィールド初期化子にあたる)。
     // { } の中が走る前に、メンバーは宣言した順に作られている。
     Application::Application(std::size_t objectCapacityBytes)
-        : m_registry(objectCapacityBytes)
+        : m_loader(m_assets, m_registry) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
+        , m_registry(objectCapacityBytes)
     {
         RegisterEngineTypes(m_types); // engine の型(Scene、Actor、SpriteComponent など)を、名前から作れるようにする
 
@@ -136,21 +137,14 @@ namespace husky::engine
                 // RenderDevice は Window を使っているので、この順番でないといけない。
                 render::RenderDevice renderDevice;
 
-                // テクスチャは2段で用意する: ① PNG を CPU のメモリに読む(platform) → ② GPU に送る(render)
-                platform::Image image;
-                if (renderDevice.Initialize(window) && platform::LoadPng(desc.testTexturePath.c_str(), image))
+                if (renderDevice.Initialize(window))
                 {
-                    m_defaultSpriteTexture = renderDevice.CreateTexture(image);
-                }
-                if (!m_defaultSpriteTexture.IsNull())
-                {
-                    if (m_renderStartCallback)
-                    {
-                        m_renderStartCallback(*this, renderDevice);
-                    }
+                    // ローダに GPU を付ける。Run より前に読んだテクスチャも、ここで GPU に送られる。
+                    m_loader.SetRenderDevice(&renderDevice);
+                    LoadDefaultSpriteTexture(desc.defaultSpriteTexture);
                     RunLoop(renderDevice);
-                    // renderDevice と一緒に、テクスチャも無くなる。古いハンドルを残さない。
-                    m_defaultSpriteTexture = {};
+                    // RenderDevice を壊す前に、ローダから外す(すべての GPU のテクスチャを手放す)。
+                    m_loader.SetRenderDevice(nullptr);
                 }
                 else
                 {
@@ -161,6 +155,23 @@ namespace husky::engine
 
         platform::Shutdown();
         return exitCode;
+    }
+
+    void Application::LoadDefaultSpriteTexture(const std::string& relativePath)
+    {
+        if (!m_defaultSpriteTexture.IsNull())
+        {
+            return; // 前の Run で読んだものがある(根に加えてあるので、回収されずに残っている)
+        }
+        const core::Guid* guid = m_assets.FindGuid(relativePath);
+        if (guid == nullptr)
+        {
+            std::printf("既定のテクスチャがアセットの表にありません(%s)。テクスチャ無しで描きます\n", relativePath.c_str());
+            return;
+        }
+        m_defaultSpriteTexture = m_loader.LoadTexture(*guid);
+        // ローダが返すハンドルは弱い参照なので、根に加えて、GC に回収されないようにする。
+        m_registry.AddRoot(m_defaultSpriteTexture);
     }
 
     void Application::RunLoop(render::RenderDevice& renderDevice)
@@ -216,7 +227,7 @@ namespace husky::engine
             if (renderDevice.BeginFrame(m_clearColor))
             {
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
-                DrawSprites(*m_scene, renderDevice, m_defaultSpriteTexture);
+                DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
 #if HUSKY_DEVELOPMENT
                 // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。
                 if (m_devUiCallback)

@@ -1,0 +1,103 @@
+// AssetLoader(アセットのローダ)と TextureAsset のテスト。GPU は使わない(ファイルを読むところまでを確かめる)。
+// Application を使う(アセットの表、ローダ、レジストリを、正しい順番で持っているため)。
+#include "engine/AssetLoader.h"
+
+#include "engine/Application.h"
+#include "TestFolder.h"
+
+#include <doctest/doctest.h>
+
+#include <string>
+
+using husky::core::Guid;
+using husky::core::ObjectHandle;
+using husky::engine::Application;
+using husky::engine::AssetState;
+using husky::engine::TextureAsset;
+using husky::tests::MakeGuid;
+using husky::tests::TestFolder;
+
+namespace
+{
+    // PNG として正しい、最小の画像(1x1 の白)のバイト列は長いので、ここでは本物の画像を、
+    // ビルドのたびに exe の隣へコピーされる assets から借りる。
+    const char* const TestSpritePath = "textures/test_sprite.png"; // 32x32
+
+    // exe の隣の assets で表を作り、test_sprite.png の GUID を返す。
+    Guid ScanBuiltAssets(Application& app)
+    {
+        REQUIRE(app.GetAssetDatabase().Scan(husky::platform::GetExecutableDirectory() + "assets"));
+        const Guid* guid = app.GetAssetDatabase().FindGuid(TestSpritePath);
+        REQUIRE(guid != nullptr);
+        return *guid;
+    }
+}
+
+TEST_CASE("AssetLoader: GUID からテクスチャを読む。GPU が無いときは、ファイルを読んで大きさが分かれば「読めた」")
+{
+    Application app;
+    const Guid guid = ScanBuiltAssets(app);
+
+    const ObjectHandle handle = app.GetAssetLoader().LoadTexture(guid);
+    const TextureAsset* texture = app.GetAssetLoader().ResolveTexture(handle);
+    REQUIRE(texture != nullptr);
+    CHECK(texture->GetState() == AssetState::Loaded);
+    CHECK(texture->GetGuid() == guid);
+    CHECK(texture->GetWidth() == 32);
+    CHECK(texture->GetHeight() == 32);
+    CHECK(texture->GetTexture().IsNull()); // GPU が無いので、描画層のテクスチャはまだ無い
+}
+
+TEST_CASE("AssetLoader: 同じ GUID を2回読むと、同じアセットを返す(2回読まない)")
+{
+    Application app;
+    const Guid guid = ScanBuiltAssets(app);
+    const ObjectHandle first = app.GetAssetLoader().LoadTexture(guid);
+    const ObjectHandle second = app.GetAssetLoader().LoadTexture(guid);
+    CHECK(first == second);
+    CHECK(app.GetAssetLoader().GetLoadedTextureCount() == 1);
+}
+
+TEST_CASE("AssetLoader: 読めないときも、ハンドルは返す。状態が「失敗」になる")
+{
+    TestFolder folder("husky_test_loader_failed");
+    folder.WriteAsset("textures/broken.png", MakeGuid(7, 7)); // 中身が PNG ではない("dummy")
+
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+
+    // 表に無い GUID
+    const ObjectHandle unknown = app.GetAssetLoader().LoadTexture(MakeGuid(1, 2));
+    REQUIRE_FALSE(unknown.IsNull());
+    CHECK(app.GetAssetLoader().ResolveTexture(unknown)->GetState() == AssetState::Failed);
+
+    // ファイルが壊れている
+    const ObjectHandle broken = app.GetAssetLoader().LoadTexture(MakeGuid(7, 7));
+    REQUIRE_FALSE(broken.IsNull());
+    const TextureAsset* texture = app.GetAssetLoader().ResolveTexture(broken);
+    CHECK(texture->GetState() == AssetState::Failed);
+    CHECK_FALSE(texture->IsLoaded());
+    CHECK(texture->GetWidth() == 0);
+}
+
+TEST_CASE("AssetLoader: どこからも強く指されていないアセットは GC で回収され、次に読むと新しく作る")
+{
+    Application app;
+    const Guid guid = ScanBuiltAssets(app);
+    auto& loader = app.GetAssetLoader();
+
+    const ObjectHandle first = loader.LoadTexture(guid);
+    CHECK(app.GetRegistry().CollectGarbage() >= 1); // 根にもプロパティにも指されていない → 回収
+    CHECK(loader.ResolveTexture(first) == nullptr);
+    CHECK(loader.GetLoadedTextureCount() == 0);   // キャッシュからも外れる(TextureAsset のデストラクタが外す)
+
+    const ObjectHandle second = loader.LoadTexture(guid);
+    CHECK(second != first); // 新しく作った(古いハンドルは世代が違うので、取り違えない)
+    REQUIRE(loader.ResolveTexture(second) != nullptr);
+
+    // 根に加えれば、GC でも回収されない。
+    app.GetRegistry().AddRoot(second);
+    app.GetRegistry().CollectGarbage();
+    CHECK(loader.ResolveTexture(second) != nullptr);
+    CHECK(loader.LoadTexture(guid) == second);
+}

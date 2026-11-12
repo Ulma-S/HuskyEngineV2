@@ -16,7 +16,8 @@ namespace husky::platform
     };
 
     // PNG ファイルを読み込み、outImage に入れる。
-    // path: exe のあるフォルダからの相対パス(例: "assets/textures/test_sprite.png")。
+    // path: ファイルのパス。FileSystem.h の関数と同じく、渡したパスをそのまま使う
+    //   (exe の隣のファイルを読むときは、呼ぶ側が GetExecutableDirectory() を前に付ける)。
     //   区切りは「/」で書く(Windows でも動く。パスを Windows 固有の書き方にしないため)。
     // 戻り値: 成功したら true。
     // 動作スレッド: どこでもよい

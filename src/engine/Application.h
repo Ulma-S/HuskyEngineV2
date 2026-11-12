@@ -17,6 +17,7 @@
 #include "core/ObjectRegistry.h"
 #include "core/TypeRegistry.h"
 #include "engine/AssetDatabase.h"
+#include "engine/AssetLoader.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
@@ -38,9 +39,10 @@ namespace husky::engine
         std::string title = "HuskyEngineV2";
         int width = 1280;  // ウィンドウの中の大きさ(ピクセル)
         int height = 720;
-        // テクスチャを指していないスプライトに貼る、既定のテクスチャ
+        // テクスチャを指していないスプライトに貼る、既定のテクスチャ。assets のフォルダからの相対パスで、
+        // アセットの表(AssetDatabase)で GUID を引いて読む。
         // (仮。スプライトがアセットとしてテクスチャを持てるようになったら(A-4)消す)。
-        std::string testTexturePath = "assets/textures/test_sprite.png";
+        std::string defaultSpriteTexture = "textures/test_sprite.png";
     };
 
     // 動作スレッド: ゲームスレッド(= メインスレッド)のみ
@@ -68,18 +70,14 @@ namespace husky::engine
         Scene& GetScene() { return *m_scene; }
         // アセットのデータベース(GUID → ファイルのパス)。中身は、ゲームが Run の前に Scan で作る。
         AssetDatabase& GetAssetDatabase() { return m_assets; }
+        // アセットのローダ。Run の前にも読める(GPU のテクスチャは、Run の中で描画の準備ができたときに作られる)。
+        AssetLoader& GetAssetLoader() { return m_loader; }
         const Input& GetInput() const { return m_input; }
         // テストで dt を固定する(FrameClock::SetFixedDelta)ときなどに使う。
         FrameClock& GetClock() { return m_clock; }
 
         // ゲーム固有の毎フレームの処理を渡す。空の関数(nullptr)を渡すと外せる。
         void SetUpdateCallback(UpdateCallback callback) { m_updateCallback = std::move(callback); }
-
-        // Run の中で、描画の準備ができた直後(最初のフレームの前)に1回だけ呼ぶ関数の型。
-        // GPU を使う用意(テクスチャを作るなど)は、ウィンドウと RenderDevice ができてからでないとできないので、ここで行う。
-        // 【仮】テクスチャをアセットとして読めるようになったら(A-3)、アセットのローダが受け持つ。
-        using RenderStartCallback = std::function<void(Application&, render::RenderDevice&)>;
-        void SetRenderStartCallback(RenderStartCallback callback) { m_renderStartCallback = std::move(callback); }
 
         // 画面を塗りつぶす色(背景色)。
         void SetClearColor(const render::Color& color) { m_clearColor = color; }
@@ -127,6 +125,8 @@ namespace husky::engine
     private:
         // ウィンドウと描画の用意ができた後の、ゲームループ本体。
         void RunLoop(render::RenderDevice& renderDevice);
+        // desc.defaultSpriteTexture を読み、根に加える(読めなければ、テクスチャ無しで描く)。
+        void LoadDefaultSpriteTexture(const std::string& relativePath);
 
         // メンバーは、宣言した順に作られ、逆の順に壊される(C++ の決まり)。
         // m_input をレジストリより先に宣言しているので、シーン(レジストリの中)が m_input を借りている間に、
@@ -135,12 +135,14 @@ namespace husky::engine
         FrameClock m_clock;
         Input m_input;
         AssetDatabase m_assets;
+        // ローダは、作ったアセット(レジストリの中)より長く生きる必要がある(アセットが回収されるときにローダを呼ぶ)ので、
+        // レジストリより先に宣言する(先に作られ、後に壊される)。
+        AssetLoader m_loader;
         core::ObjectRegistry m_registry;
         Scene* m_scene = nullptr; // m_registry が持ち主。ここは借りているだけ
 
         UpdateCallback m_updateCallback;
-        RenderStartCallback m_renderStartCallback;
-        render::TextureHandle m_defaultSpriteTexture; // desc.testTexturePath から作る(Run の中で)
+        core::ObjectHandle m_defaultSpriteTexture; // 既定のテクスチャのアセット(Run の中で読み、根に加える)
         render::Color m_clearColor = {0.10f, 0.12f, 0.20f, 1.0f}; // 紺
 
         double m_secondsSinceGc = 0.0;

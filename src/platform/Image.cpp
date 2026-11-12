@@ -4,22 +4,18 @@
 #include <SDL3/SDL.h>
 
 #include <cstring> // std::memcpy
-#include <string>
 
 namespace husky::platform
 {
     bool LoadPng(const char* path, Image& outImage)
     {
-        // exe のあるフォルダ(末尾に区切り文字が付いている)。アセットはビルド時にここへコピーしてある。
-        // 作業フォルダ(起動のしかたで変わる)ではなく、exe の場所を基準にするのがポイント。
-        const char* basePath = SDL_GetBasePath();
-        const std::string fullPath = std::string(basePath != nullptr ? basePath : "") + path;
-
         // PNG を読み込む。SDL_Surface は SDL の「CPU 上の画像」。
-        SDL_Surface* loaded = SDL_LoadPNG(fullPath.c_str());
+        // (以前は、ここで exe のフォルダを前に付けていた。アセットのパスは AssetDatabase が exe の隣の assets から
+        //  作るようになったので、ほかのファイルの関数と同じく、渡されたパスをそのまま使う)
+        SDL_Surface* loaded = SDL_LoadPNG(path);
         if (loaded == nullptr)
         {
-            SDL_Log("SDL_LoadPNG に失敗しました (%s): %s", fullPath.c_str(), SDL_GetError());
+            SDL_Log("SDL_LoadPNG に失敗しました (%s): %s", path, SDL_GetError());
             return false;
         }
 
