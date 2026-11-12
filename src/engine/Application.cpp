@@ -209,7 +209,16 @@ namespace husky::engine
             {
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
                 DrawSprites(*m_scene, renderDevice);
+#if HUSKY_DEVELOPMENT
+                // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。
+                if (m_devUiCallback)
+                {
+                    renderDevice.BeginDevUiFrame();
+                    m_devUiCallback(*this);
+                }
+#endif
                 renderDevice.EndFrame();
+                m_lastRenderStats = renderDevice.GetLastFrameStats();
             }
         }
     }

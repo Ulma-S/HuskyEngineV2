@@ -86,6 +86,31 @@ FetchContent_Declare(yyjson
 )
 FetchContent_MakeAvailable(yyjson)
 
+# --- 依存ライブラリ: Dear ImGui(開発用の UI。2026-11-12 にユーザーと相談して追加) ---
+# 開発ビルド(Debug)だけでリンクし、製品(Release)には入れない(CLAUDE.md: ImGui のコードをリリースビルドに含めない)。
+# ImGui のリポジトリには CMakeLists.txt が無いので、FetchContent でソースを取ってくるだけにして、
+# 使うファイルを自分で並べてライブラリ(husky_imgui)にする。
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.92.9b  # バージョンを固定する(出たばかりの最新版は避け、一つ前の系統の修正版にする)
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+add_library(husky_imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    # SDL3 とつなぐ公式の部品(バックエンド)。入力は imgui_impl_sdl3、描画は SDL_GPU 用の imgui_impl_sdlgpu3。
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
+)
+# SYSTEM: ImGui のヘッダを外部のヘッダとして扱い、その中の警告は出さない。
+target_include_directories(husky_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+# バックエンドは SDL3 を使う。ImGui を直接使ってよいのは、render(つなぎ込み)と tools(画面)だけ。
+target_link_libraries(husky_imgui PRIVATE SDL3::SDL3)
+
 # --- 自分のコード全部に共通するコンパイル設定 ---
 # function は CMake の関数。ターゲット名を受け取り、同じ設定をまとめて付ける。
 # モジュールが増えても、設定を1か所で管理できる。
@@ -268,7 +293,19 @@ target_include_directories(husky_render PRIVATE "${HUSKY_SHADER_OUTPUT_DIR}")
 target_link_libraries(husky_render
     PUBLIC  husky_platform
     PRIVATE SDL3::SDL3
+            husky_core # ImGui のメモリを MemoryTracker に通すため
+            # 開発ビルドだけ、ImGui をつなぐ(ジェネレータ式: Debug のときだけ husky_imgui になり、Release では空になる)
+            $<$<CONFIG:Debug>:husky_imgui>
 )
+
+# --- tools モジュール(開発用の UI とエディタの機能。開発ビルドだけ) ---
+# engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
+add_library(husky_tools STATIC
+    src/tools/DebugWindow.cpp
+)
+husky_set_compile_options(husky_tools)
+target_include_directories(husky_tools PUBLIC src)
+target_link_libraries(husky_tools PUBLIC husky_engine PRIVATE $<$<CONFIG:Debug>:husky_imgui>)
 
 # --- 実行ファイル ---
 # src/main.cpp をコンパイルして HuskyEngineV2.exe を作る。
@@ -285,6 +322,8 @@ target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
 target_link_libraries(HuskyEngineV2 PRIVATE husky_engine husky_render husky_platform)
+# tools(開発用の UI)は、開発ビルドだけリンクする。製品(Release)には入らない。
+target_link_libraries(HuskyEngineV2 PRIVATE $<$<CONFIG:Debug>:husky_tools>)
 
 # ビルドのたびに、assets フォルダを exe の隣へコピーする。
 # プログラムは exe の場所を基準にアセットを読むので、どこから起動しても同じパスで見つかる。

@@ -12,14 +12,22 @@
 #include "platform/FileSystem.h"
 #include "render/RenderDevice.h"
 
+#if HUSKY_DEVELOPMENT
+#include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
+#endif
+
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
+#include <functional>
 #include <string>
 
 namespace
 {
     namespace engine = husky::engine;
     namespace platform = husky::platform;
+#if HUSKY_DEVELOPMENT
+    namespace tools = husky::tools;
+#endif
     namespace render = husky::render;
 
     constexpr int ScreenWidth = 1280;
@@ -180,11 +188,32 @@ int main()
         SpawnInitialActors(app.GetScene());
     }
 
+#if HUSKY_DEVELOPMENT
+    // 【開発ビルドだけ】今のシーンを保存する(エディタの役目)。F5 と、デバッグの窓のボタンの両方から使う。
+    //   1. ソースの assets/scenes/main.json  … 残しておくため(次のビルドで exe の隣にもコピーされる)
+    //   2. exe の隣の assets/scenes/main.json … ビルドし直さなくても、次の起動から読まれるように
+    // [&app, scenePath]: app は参照で(main の終わりまで生きている)、scenePath はコピーして持つ。
+    const std::function<void()> saveScene = [&app, scenePath]() {
+        app.SaveSceneFile(std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json");
+        app.SaveSceneFile(scenePath);
+    };
+
+    // 開発用の UI: 毎フレーム、tools のデバッグの窓を作る。
+    tools::DebugWindowActions debugActions;
+    debugActions.saveScene = saveScene;
+    app.SetDevUiCallback([debugActions](engine::Application& application) {
+        tools::DrawDebugWindow(application, debugActions);
+    });
+#endif
+
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。
     // mutable を付けると、ラムダ式の中でその変数を書き換えられる(付けないと const 扱いになる)。
-    // [colorIndex = 0, scenePath] の scenePath は、外の変数 scenePath をコピーして持つという意味。
-    app.SetUpdateCallback([colorIndex = 0, scenePath](engine::Application& application, double) mutable {
+#if HUSKY_DEVELOPMENT
+    app.SetUpdateCallback([colorIndex = 0, saveScene](engine::Application& application, double) mutable {
+#else
+    app.SetUpdateCallback([colorIndex = 0](engine::Application& application, double) mutable {
+#endif
         static const husky::render::Color colors[] = {
             {0.10f, 0.12f, 0.20f, 1.0f}, // 紺
             {0.20f, 0.45f, 0.30f, 1.0f}, // 緑
@@ -197,16 +226,11 @@ int main()
         }
 
 #if HUSKY_DEVELOPMENT
-        // 【開発ビルドだけ】F5 で、今のシーンを保存する(エディタの役目。後で ImGui のエディタ(tools)に移す)。
-        //   1. ソースの assets/scenes/main.json  … 残しておくため(次のビルドで exe の隣にもコピーされる)
-        //   2. exe の隣の assets/scenes/main.json … ビルドし直さなくても、次の起動から読まれるように
+        // 【開発ビルドだけ】F5 で、今のシーンを保存する(デバッグの窓のボタンと同じ)。
         if (application.GetInput().WasPressed(engine::Key::F5))
         {
-            application.SaveSceneFile(std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json");
-            application.SaveSceneFile(scenePath);
+            saveScene();
         }
-#else
-        (void)scenePath; // 製品では使わない(未使用の警告を消す)
 #endif
     });
 

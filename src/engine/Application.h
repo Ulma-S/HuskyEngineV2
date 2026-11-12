@@ -93,7 +93,16 @@ namespace husky::engine
         // ウィンドウも GPU も使わないので、テストからも呼べる。
         bool LoadSceneFile(const std::string& path);
 
+        // 直前のフレームの描画の集計(スプライト数、描画命令の数など)。Run の中で毎フレーム更新される。
+        const render::FrameStats& GetLastRenderStats() const { return m_lastRenderStats; }
+
 #if HUSKY_DEVELOPMENT
+        // 【開発ビルドだけ】開発用の UI を作る関数を渡す。毎フレーム、描画の途中(スプライトを積んだ後)に呼ばれる。
+        // この関数の中では ImGui の関数(ImGui::Begin など)を使ってよい。UI の中身は tools モジュールが作る。
+        // engine は tools を知らない(依存の向きは tools → engine)ので、関数として受け取る。
+        using DevUiCallback = std::function<void(Application&)>;
+        void SetDevUiCallback(DevUiCallback callback) { m_devUiCallback = std::move(callback); }
+
         // 【開発ビルドだけ】今のシーンを、シーンのファイル(JSON、読みやすい形)に保存する。
         // 保存はエディタの役目なので、製品(Release)にはコードごと入らない。
         // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
@@ -123,5 +132,10 @@ namespace husky::engine
 
         double m_secondsSinceGc = 0.0;
         std::size_t m_collectedLastGc = 0;
+        render::FrameStats m_lastRenderStats;
+
+#if HUSKY_DEVELOPMENT
+        DevUiCallback m_devUiCallback;
+#endif
     };
 }

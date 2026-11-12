@@ -19,6 +19,17 @@ namespace husky::platform
     // 動作スレッド: メインスレッド
     void Shutdown();
 
+#if HUSKY_DEVELOPMENT
+    // 【開発ビルドだけ】OS のイベントを、開発用の UI(ImGui)にも渡すための口。描画層(render)が登録する。
+    // platform は ImGui を知らない。登録された関数に、イベントを1つずつ渡すだけ。
+    //   nativeEvent: 中身は SDL_Event*(ヘッダに SDL の型を出さないため void* にしている)
+    //   戻り値: true なら「UI がキーボードを使っている」ので、キーを押した入力はゲームに渡さない
+    //           (キーを離した入力は渡す。押したままの状態でゲームに残らないようにするため)
+    // nullptr を渡すと外せる。
+    using NativeEventHook = bool (*)(const void* nativeEvent);
+    void SetNativeEventHook(NativeEventHook hook);
+#endif
+
     // OS から届いたイベント(閉じるボタン、キー入力など)を、溜まっている分すべて処理する。
     // 毎フレーム1回呼ぶ。
     // outKeyEvents: このフレームに起きたキーイベントを、起きた順に入れて返す(最初に中身を空にする)。

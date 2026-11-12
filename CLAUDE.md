@@ -23,7 +23,7 @@
 - ビルド: CMake。依存はvcpkgかFetchContent。パスはWindows固有にしない。
 - 数学: glmなどの既存ライブラリ。自前では作らない。
 - JSON: yyjson(0.12.0、FetchContent)。使うのは`engine/JsonFormat.cpp`の中だけ(PRIVATEでリンク)。替えるときはそのファイルだけを書き直す。
-- 開発用UI: Dear ImGui(開発ビルドのみ)。
+- 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。
 - 依存ライブラリを追加するときは、先にユーザーへ相談する。
 
 ## モジュール構成と依存方向

@@ -75,6 +75,13 @@ namespace husky::render
         // BeginFrame と EndFrame の間で呼ぶ。
         void DrawSprite(const Sprite& sprite);
 
+#if HUSKY_DEVELOPMENT
+        // 【開発ビルドだけ】開発用の UI(ImGui)の1フレームを始める。BeginFrame が成功した後、EndFrame の前に呼ぶ。
+        // これを呼んでから EndFrame までの間に、ImGui の関数(ImGui::Begin など)で窓を作れる。
+        // 作った UI は、EndFrame でスプライトより手前に描かれる。呼ばなければ、UI は描かれない。
+        void BeginDevUiFrame();
+#endif
+
         // 溜めたスプライトをまとめて GPU に送り、1回の描画命令で描いて、画面に出す。
         void EndFrame();
 

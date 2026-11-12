@@ -28,7 +28,19 @@ namespace husky::platform
             default:                  return Key::Unknown;
             }
         }
+
+#if HUSKY_DEVELOPMENT
+        // 開発用の UI にイベントを渡す関数(描画層が SetNativeEventHook で登録する)。
+        NativeEventHook g_nativeEventHook = nullptr;
+#endif
     }
+
+#if HUSKY_DEVELOPMENT
+    void SetNativeEventHook(NativeEventHook hook)
+    {
+        g_nativeEventHook = hook;
+    }
+#endif
 
     bool Initialize()
     {
@@ -61,6 +73,19 @@ namespace husky::platform
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
+            // 開発ビルドだけ: まず開発用の UI に渡す。UI がキーボードを使っているなら、キーを押した入力はゲームに渡さない。
+            bool uiWantsKeyboard = false;
+#if HUSKY_DEVELOPMENT
+            if (g_nativeEventHook != nullptr)
+            {
+                uiWantsKeyboard = g_nativeEventHook(&event);
+            }
+#endif
+            if (uiWantsKeyboard && event.type == SDL_EVENT_KEY_DOWN)
+            {
+                continue;
+            }
+
             switch (event.type)
             {
             case SDL_EVENT_QUIT:

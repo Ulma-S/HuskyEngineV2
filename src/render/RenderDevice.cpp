@@ -6,6 +6,15 @@
 
 #include <SDL3/SDL.h>
 
+#if HUSKY_DEVELOPMENT
+// 開発用の UI(Dear ImGui)。本体と、SDL3 につなぐ公式の部品(入力: imgui_impl_sdl3、描画: imgui_impl_sdlgpu3)。
+#include "core/MemoryTracker.h"
+#include "platform/Platform.h" // SetNativeEventHook
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_sdlgpu3.h>
+#endif
+
 #include <cstddef> // std::size_t, offsetof
 #include <cstdint>
 #include <cstring> // std::memcpy
@@ -120,6 +129,13 @@ namespace husky::render
 
         FrameStats lastFrameStats; // 直前のフレームの集計
 
+#if HUSKY_DEVELOPMENT
+        bool devUiReady = false;      // ImGui の準備ができたか
+        bool devUiFrameBegun = false; // このフレームで BeginDevUiFrame が呼ばれたか
+        bool InitializeDevUi();
+        void ShutdownDevUi();
+#endif
+
         bool CreateSpritePipeline();
         bool CreateSpriteBuffers();
         bool CreateSampler();
@@ -133,6 +149,9 @@ namespace husky::render
                 // GPU は CPU より遅れて動いているので、まだリソースを使っている途中かもしれない。
                 // 全部終わるまで待ってから解放する。
                 SDL_WaitForGPUIdle(device);
+#if HUSKY_DEVELOPMENT
+                ShutdownDevUi(); // ImGui の GPU のリソースも、デバイスより先に片付ける
+#endif
 
                 if (pointSampler != nullptr)
                 {
@@ -377,6 +396,79 @@ namespace husky::render
         SDL_EndGPUCopyPass(copyPass);
     }
 
+#if HUSKY_DEVELOPMENT
+    namespace
+    {
+        // ImGui のメモリの確保を、エンジンの入口(MemoryTracker)に通す(user_data は使わない)。
+        void* DevUiAllocate(std::size_t size, void* /*userData*/)
+        {
+            return core::TrackedAllocate(size, 16);
+        }
+        void DevUiFree(void* pointer, void* /*userData*/)
+        {
+            core::TrackedFree(pointer);
+        }
+
+        // platform から届く OS のイベントを ImGui に渡す(platform::SetNativeEventHook に登録する)。
+        // 戻り値: ImGui がキーボードを使っているなら true(キーを押した入力はゲームに渡さない)。
+        bool ForwardEventToDevUi(const void* nativeEvent)
+        {
+            const SDL_Event* event = static_cast<const SDL_Event*>(nativeEvent);
+            ImGui_ImplSDL3_ProcessEvent(event);
+            return ImGui::GetIO().WantCaptureKeyboard;
+        }
+    }
+
+    bool RenderDevice::Impl::InitializeDevUi()
+    {
+        // 1. ImGui 本体。メモリの確保の関数は、コンテキスト(ImGui の状態の入れ物)を作る前に設定する。
+        IMGUI_CHECKVERSION(); // ヘッダとライブラリの版が合っているかを確かめる
+        ImGui::SetAllocatorFunctions(DevUiAllocate, DevUiFree);
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr; // 窓の位置を imgui.ini に保存しない(作業フォルダにファイルを作らないため)
+        ImGui::StyleColorsDark();
+
+        // 2. 入力(SDL3)と描画(SDL_GPU)につなぐ。
+        if (!ImGui_ImplSDL3_InitForSDLGPU(window))
+        {
+            SDL_Log("ImGui_ImplSDL3_InitForSDLGPU に失敗しました");
+            ImGui::DestroyContext();
+            return false;
+        }
+        ImGui_ImplSDLGPU3_InitInfo info;
+        info.Device = device;
+        info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window); // 画面と同じ形式で描く
+        info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+        if (!ImGui_ImplSDLGPU3_Init(&info))
+        {
+            SDL_Log("ImGui_ImplSDLGPU3_Init に失敗しました");
+            ImGui_ImplSDL3_Shutdown();
+            ImGui::DestroyContext();
+            return false;
+        }
+
+        // 3. OS のイベントを ImGui にも渡してもらう。
+        platform::SetNativeEventHook(ForwardEventToDevUi);
+        devUiReady = true;
+        return true;
+    }
+
+    void RenderDevice::Impl::ShutdownDevUi()
+    {
+        if (!devUiReady)
+        {
+            return;
+        }
+        // 作った順の逆に片付ける。
+        platform::SetNativeEventHook(nullptr);
+        ImGui_ImplSDLGPU3_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+        devUiReady = false;
+    }
+#endif
+
     void RenderDevice::Impl::ResetFrame()
     {
         commandBuffer = nullptr;
@@ -442,7 +534,18 @@ namespace husky::render
         }
         m_impl->window = sdlWindow;
 
-        return m_impl->CreateSpritePipeline() && m_impl->CreateSpriteBuffers() && m_impl->CreateSampler();
+        if (!(m_impl->CreateSpritePipeline() && m_impl->CreateSpriteBuffers() && m_impl->CreateSampler()))
+        {
+            return false;
+        }
+#if HUSKY_DEVELOPMENT
+        // 開発用の UI は、用意できなくてもゲームは動かせるので、失敗してもログを出すだけにする。
+        if (!m_impl->InitializeDevUi())
+        {
+            SDL_Log("開発用の UI(ImGui)を用意できませんでした。UI なしで続けます");
+        }
+#endif
+        return true;
     }
 
     bool RenderDevice::LoadTestTexture(const platform::Image& image)
@@ -586,12 +689,40 @@ namespace husky::render
         m_impl->vertices.push_back({left,  bottom, 0.0f, 1.0f, c.r, c.g, c.b, c.a}); // 3: 左下
     }
 
+#if HUSKY_DEVELOPMENT
+    void RenderDevice::BeginDevUiFrame()
+    {
+        if (!m_impl->devUiReady || m_impl->commandBuffer == nullptr || m_impl->devUiFrameBegun)
+        {
+            return; // UI が無い、BeginFrame が成功していない、または、このフレームではもう始めている
+        }
+        // 描画の部品 → 入力の部品 → ImGui 本体、の順に「新しいフレーム」を伝える(ImGui の決まった手順)。
+        ImGui_ImplSDLGPU3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        m_impl->devUiFrameBegun = true;
+    }
+#endif
+
     void RenderDevice::EndFrame()
     {
         if (m_impl->commandBuffer == nullptr)
         {
             return; // BeginFrame が成功していない
         }
+
+#if HUSKY_DEVELOPMENT
+        // 開発用の UI: 作った窓を、描くためのデータ(三角形の一覧)にまとめ、GPU に送る。
+        // ImGui の SDL_GPU 用の部品の決まりで、送る処理(Prepare)は描画パスを始める「前」に呼ぶ。
+        ImDrawData* devUiDrawData = nullptr;
+        if (m_impl->devUiFrameBegun)
+        {
+            ImGui::Render();
+            devUiDrawData = ImGui::GetDrawData();
+            ImGui_ImplSDLGPU3_PrepareDrawData(devUiDrawData, m_impl->commandBuffer);
+            m_impl->devUiFrameBegun = false;
+        }
+#endif
 
         const Uint32 spriteCount = static_cast<Uint32>(m_impl->vertices.size()) / VerticesPerSprite;
         const bool canDraw = spriteCount > 0 && m_impl->testTexture != nullptr;
@@ -649,6 +780,13 @@ namespace husky::render
                 SDL_DrawGPUIndexedPrimitives(renderPass, spriteCount * IndicesPerSprite, 1, 0, 0, 0);
                 ++drawCallCount;
             }
+#if HUSKY_DEVELOPMENT
+            // 開発用の UI を、スプライトの後に(手前に)描く。描画命令の数(drawCallCount)には数えない。
+            if (devUiDrawData != nullptr)
+            {
+                ImGui_ImplSDLGPU3_RenderDrawData(devUiDrawData, m_impl->commandBuffer, renderPass);
+            }
+#endif
             SDL_EndGPURenderPass(renderPass);
         }
 
