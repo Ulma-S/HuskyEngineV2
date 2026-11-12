@@ -102,14 +102,23 @@ add_library(husky_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    # std::string を ImGui::InputText でそのまま編集できるようにする小さな部品(インスペクタで使う)
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
     # SDL3 とつなぐ公式の部品(バックエンド)。入力は imgui_impl_sdl3、描画は SDL_GPU 用の imgui_impl_sdlgpu3。
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
 )
 # SYSTEM: ImGui のヘッダを外部のヘッダとして扱い、その中の警告は出さない。
-target_include_directories(husky_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_include_directories(husky_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${imgui_SOURCE_DIR}/misc/cpp)
 # バックエンドは SDL3 を使う。ImGui を直接使ってよいのは、render(つなぎ込み)と tools(画面)だけ。
 target_link_libraries(husky_imgui PRIVATE SDL3::SDL3)
+# ASan のビルドでは、ImGui も ASan 付きでコンパイルする。
+# ASan 付きの MSVC の std::string / std::vector は、範囲外を見つけるための印(注釈)を持つ作りに変わる。
+# imgui_stdlib.cpp は std::string を使うので、ImGui だけ ASan なしだと、同じ型が2通りの作りで混ざってしまい、
+# リンカが「annotate_string の不一致」で止める(混ざると、メモリの扱いが食い違って危険なため)。
+if(HUSKY_ENABLE_ASAN AND MSVC)
+    target_compile_options(husky_imgui PRIVATE /fsanitize=address /Zi)
+endif()
 
 # --- 自分のコード全部に共通するコンパイル設定 ---
 # function は CMake の関数。ターゲット名を受け取り、同じ設定をまとめて付ける。
@@ -302,6 +311,7 @@ target_link_libraries(husky_render
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
 add_library(husky_tools STATIC
     src/tools/DebugWindow.cpp
+    src/tools/Inspector.cpp
 )
 husky_set_compile_options(husky_tools)
 target_include_directories(husky_tools PUBLIC src)
@@ -352,6 +362,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
         tests/platform/FileSystemTests.cpp
+        tests/tools/InspectorTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/core/HandleTableTests.cpp
@@ -366,6 +377,8 @@ if(HUSKY_BUILD_TESTS)
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
+    # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。
+    target_link_libraries(HuskyTests PRIVATE $<$<CONFIG:Debug>:husky_tools> $<$<CONFIG:Debug>:husky_imgui>)
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
     # _BUT_WITH_ALL_ASSERTS: 例外なしでも REQUIRE(失敗したら打ち切る確認)を使えるようにする。
     #   例外で「そのテストだけ」を抜けられないので、REQUIRE が失敗するとテストの実行全体がそこで止まる

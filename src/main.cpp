@@ -14,6 +14,7 @@
 
 #if HUSKY_DEVELOPMENT
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
+#include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #endif
 
 #include <cstdio> // std::printf
@@ -201,8 +202,11 @@ int main()
     // 開発用の UI: 毎フレーム、tools のデバッグの窓を作る。
     tools::DebugWindowActions debugActions;
     debugActions.saveScene = saveScene;
-    app.SetDevUiCallback([debugActions](engine::Application& application) {
+    // インスペクタは「選んでいるアクター」を覚えておくので、main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
+    tools::SceneInspector inspector;
+    app.SetDevUiCallback([debugActions, &inspector](engine::Application& application) {
         tools::DrawDebugWindow(application, debugActions);
+        inspector.Draw(application);
     });
 #endif
 
