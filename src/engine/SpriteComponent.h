@@ -16,6 +16,7 @@
 #pragma once
 
 #include "engine/AssetLoader.h"
+#include "engine/PixelRect.h"
 #include "engine/Scene.h"
 #include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
 #include "render/RenderDevice.h"
@@ -37,12 +38,16 @@ namespace husky::engine
         // Application の既定のテクスチャ(DrawSprites の defaultTexture)を貼る。
         // 保存すると GUID の文字列になる。このコンポーネントがシーンにいる間は、テクスチャも GC に回収されない。
         core::AssetRef<TextureAsset> texture;
+        // テクスチャのどの範囲を貼るか(ピクセル単位。画像の左上が (0, 0))。大きさが 0 なら、画像の全体を貼る。
+        // 1 枚の画像に並べた絵(スプライトシート)から、1 つを切り出すのに使う。既定のテクスチャを貼るときは使わない。
+        PixelRect region;
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
             HUSKY_PROPERTY(color)   // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
             HUSKY_PROPERTY(texture) // アセットの参照。保存すると "3f2a9c1e-..." のような GUID の文字列になる
+            HUSKY_PROPERTY(region)  // 構造体(PixelRect.h で登録)
         HUSKY_REFLECTION_END()
     };
 
@@ -70,6 +75,11 @@ namespace husky::engine
             function(sprite, *spriteComponent);
         });
     }
+
+    // ピクセル単位の範囲 region を、大きさ textureWidth x textureHeight の画像の UV(0〜1)にして、sprite に書く。
+    // region が空(大きさ 0)か、画像の大きさが分からない(0)なら、画像の全体(0〜1)にする。
+    // 動作スレッド: どこでもよい
+    void ApplyRegion(const PixelRect& region, int textureWidth, int textureHeight, render::Sprite& sprite);
 
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
     // テクスチャは、コンポーネントの texture(アセット)から引く。指していない、もう無い、読めていないときは、

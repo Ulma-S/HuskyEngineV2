@@ -1,6 +1,8 @@
 // SpriteComponent と ForEachSprite のテスト。GPU は使わない(何を描くかだけを確かめる)。
 #include "engine/SpriteComponent.h"
 
+#include "engine/ObjectSerializer.h"
+
 #include "TestFolder.h"
 
 #include <doctest/doctest.h>
@@ -125,4 +127,49 @@ TEST_CASE("ForEachSprite: コンポーネントも一緒に渡す(描画層の�
         ++count;
     });
     CHECK(count == 1);
+}
+
+TEST_CASE("ApplyRegion: ピクセルの範囲を、画像の大きさで割って UV(0〜1)にする")
+{
+    Sprite sprite;
+    husky::engine::ApplyRegion({32, 0, 32, 16}, 64, 64, sprite); // 64x64 の右上の 32x16
+    CHECK(sprite.u0 == 0.5f);
+    CHECK(sprite.v0 == 0.0f);
+    CHECK(sprite.u1 == 1.0f);
+    CHECK(sprite.v1 == 0.25f);
+}
+
+TEST_CASE("ApplyRegion: 範囲が空、または画像の大きさが分からなければ、画像の全体")
+{
+    Sprite sprite;
+    sprite.u0 = 0.5f; // 前の値が残っていても、全体に戻す
+    husky::engine::ApplyRegion({}, 64, 64, sprite);
+    CHECK(sprite.u0 == 0.0f);
+    CHECK(sprite.v0 == 0.0f);
+    CHECK(sprite.u1 == 1.0f);
+    CHECK(sprite.v1 == 1.0f);
+
+    husky::engine::ApplyRegion({0, 0, 16, 16}, 0, 0, sprite);
+    CHECK(sprite.u1 == 1.0f);
+}
+
+TEST_CASE("SpriteComponent: 範囲(region)は構造体のプロパティで、保存して読み戻せる")
+{
+    using husky::engine::ArchiveValue;
+    namespace ObjectSerializer = husky::engine::ObjectSerializer;
+
+    ObjectRegistry registry;
+    auto* sprite = registry.Create<SpriteComponent>();
+    sprite->region = {32, 32, 16, 8};
+    const ArchiveValue saved = ObjectSerializer::Write(*sprite);
+    const ArchiveValue* region = saved.Find("properties")->Find("region");
+    REQUIRE(region != nullptr);
+    CHECK(region->Find("width")->AsInt() == 16);
+
+    auto* copy = registry.Create<SpriteComponent>();
+    CHECK(ObjectSerializer::ReadProperties(saved, *copy).warnings.empty());
+    CHECK(copy->region.x == 32);
+    CHECK(copy->region.y == 32);
+    CHECK(copy->region.width == 16);
+    CHECK(copy->region.height == 8);
 }

@@ -768,9 +768,10 @@ namespace husky::render
         }
 
         // スプライトの四隅を、画面上の位置として頂点に書く(バッチ描画では、位置は CPU 側で決めてしまう)。
-        //   0 ---- 1      UV: (0,0) ---- (1,0)
-        //   |      |          |            |
-        //   3 ---- 2          (0,1) ---- (1,1)
+        // UV は、スプライトが指定した範囲(既定は全体: u0 = v0 = 0、u1 = v1 = 1)。
+        //   0 ---- 1      UV: (u0,v0) ---- (u1,v0)
+        //   |      |          |                |
+        //   3 ---- 2          (u0,v1) ---- (u1,v1)
         const float left = sprite.x;
         const float top = sprite.y;
         const float right = sprite.x + sprite.width;
@@ -782,10 +783,10 @@ namespace husky::render
         AddSpriteToBatches(m_impl->batches, sprite.texture, spriteIndex);
 
         // push_back は vector の末尾に1つ足す(C# の List.Add)。
-        m_impl->vertices.push_back({left,  top,    0.0f, 0.0f, c.r, c.g, c.b, c.a}); // 0: 左上
-        m_impl->vertices.push_back({right, top,    1.0f, 0.0f, c.r, c.g, c.b, c.a}); // 1: 右上
-        m_impl->vertices.push_back({right, bottom, 1.0f, 1.0f, c.r, c.g, c.b, c.a}); // 2: 右下
-        m_impl->vertices.push_back({left,  bottom, 0.0f, 1.0f, c.r, c.g, c.b, c.a}); // 3: 左下
+        m_impl->vertices.push_back({left,  top,    sprite.u0, sprite.v0, c.r, c.g, c.b, c.a}); // 0: 左上
+        m_impl->vertices.push_back({right, top,    sprite.u1, sprite.v0, c.r, c.g, c.b, c.a}); // 1: 右上
+        m_impl->vertices.push_back({right, bottom, sprite.u1, sprite.v1, c.r, c.g, c.b, c.a}); // 2: 右下
+        m_impl->vertices.push_back({left,  bottom, sprite.u0, sprite.v1, c.r, c.g, c.b, c.a}); // 3: 左下
     }
 
 #if HUSKY_DEVELOPMENT

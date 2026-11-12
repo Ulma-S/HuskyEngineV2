@@ -155,8 +155,8 @@ namespace
     }
 
     // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
-    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ市松模様(checker.png)を指す。
-    // テクスチャが違うので、描画命令は 2 回になる。
+    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、4 つの図形を並べた画像(shapes.png、
+    // 64x64)から、右下のひし形(32x32)を切り出して貼る。テクスチャが違うので、描画命令は 2 回になる。
     void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
     {
         SpawnBouncers(scene, BouncerCount);
@@ -167,9 +167,10 @@ namespace
                 sprite->width = PlayerSize;
                 sprite->height = PlayerSize; // 色は既定の白(テクスチャのまま)
                 // アセットは GUID で指す。読むのは、描くとき(DrawSprites)。
-                if (const husky::core::Guid* checker = assets.FindGuid("textures/checker.png"))
+                if (const husky::core::Guid* shapes = assets.FindGuid("textures/shapes.png"))
                 {
-                    sprite->texture.guid = *checker;
+                    sprite->texture.guid = *shapes;
+                    sprite->region = {32, 32, 32, 32}; // x, y, 幅, 高さ(ピクセル)
                 }
             }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
