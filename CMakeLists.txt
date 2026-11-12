@@ -73,6 +73,19 @@ if(HUSKY_BUILD_TESTS)
     FetchContent_MakeAvailable(doctest)
 endif()
 
+# --- 依存ライブラリ: yyjson(JSON の読み書き。2026-11-12 にユーザーと相談して追加) ---
+# C で書かれた速い JSON ライブラリ。例外を使わない。MIT ライセンス。
+# 使うのは engine の JsonFormat.cpp の中だけ(PRIVATE でリンクする)。ほかのコードは yyjson を知らないので、
+# 別のライブラリに替えるときは JsonFormat.cpp だけを書き直せばよい。
+set(YYJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(yyjson
+    GIT_REPOSITORY https://github.com/ibireme/yyjson.git
+    GIT_TAG        0.12.0   # バージョンを固定する(出たばかりの最新版は避ける)
+    GIT_SHALLOW    TRUE
+    SYSTEM                  # yyjson の中の警告は出さない
+)
+FetchContent_MakeAvailable(yyjson)
+
 # --- 自分のコード全部に共通するコンパイル設定 ---
 # function は CMake の関数。ターゲット名を受け取り、同じ設定をまとめて付ける。
 # モジュールが増えても、設定を1か所で管理できる。
@@ -157,6 +170,8 @@ add_library(husky_engine STATIC
     src/engine/Application.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
+    src/engine/ArchiveValue.cpp
+    src/engine/JsonFormat.cpp
     src/engine/Scene.cpp
     src/engine/SpriteComponent.cpp
 )
@@ -174,6 +189,8 @@ target_include_directories(husky_engine PUBLIC src)
 # husky_render は、このファイルの下のほうで定義している。CMake はターゲットの名前を最後にまとめて解決するので、
 # 定義より前に名前を書いてもよい。
 target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render)
+# yyjson は JsonFormat.cpp の中だけで使うので PRIVATE。engine を使う側(exe やテスト)には yyjson のヘッダが見えない。
+target_link_libraries(husky_engine PRIVATE yyjson)
 
 # --- シェーダの変換 ---
 # HLSL で書いたシェーダを、ビルドの途中で DXC(Vulkan SDK に付属)に変換させる。
@@ -278,6 +295,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ComponentTests.cpp
         tests/engine/SpriteComponentTests.cpp
         tests/engine/ApplicationTests.cpp
+        tests/engine/JsonFormatTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
