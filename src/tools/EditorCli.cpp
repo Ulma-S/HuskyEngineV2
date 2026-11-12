@@ -107,7 +107,8 @@ namespace husky::tools
         }
     }
 
-    int RunEditorCli(const std::vector<std::string>& args, const std::string& defaultAssetsDirectory, std::string& out)
+    int RunEditorCli(const std::vector<std::string>& args, const std::string& defaultAssetsDirectory, std::string& out,
+                     const std::function<void(engine::Application&)>& setupApplication)
     {
         CliOptions options;
         std::string error;
@@ -132,6 +133,10 @@ namespace husky::tools
 
         // 画面の無いエディタ: ウィンドウも GPU も作らない Application(テストと同じ形)。
         engine::Application app;
+        if (setupApplication)
+        {
+            setupApplication(app); // ゲームの型の登録など
+        }
         EditorCommandRegistry commands;
         commands.SetLogResults(false); // 結果は CLI が out に出す(ログと二重に出さない)
         RegisterCliCommands(commands, assetsDirectory);

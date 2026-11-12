@@ -24,6 +24,9 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "engine/Application.h"
+
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -42,7 +45,10 @@ namespace husky::tools
     // defaultAssetsDirectory: --assets が無いときのアセットのフォルダ。
     // out: 人が読む出力(呼んだ側が画面に出す)。コマンドのログは、これとは別に printf で直接出る。
     // 戻り値: 終了コード(CliExitCode)。
-    int RunEditorCli(const std::vector<std::string>& args, const std::string& defaultAssetsDirectory, std::string& out);
+    // setupApplication: Application を作った直後に呼ぶ関数(空でもよい)。ゲームの型の登録(game::RegisterGameTypes)を渡す。
+    //   tools はゲームを知らない(ゲームがエンジンを使う向きだけにする)ので、CLI の exe から関数として受け取る。
+    int RunEditorCli(const std::vector<std::string>& args, const std::string& defaultAssetsDirectory, std::string& out,
+                     const std::function<void(engine::Application&)>& setupApplication = {});
 }
 
 #endif

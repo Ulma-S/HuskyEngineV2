@@ -316,6 +316,16 @@ target_link_libraries(husky_render
             $<$<CONFIG:Debug>:husky_imgui>
 )
 
+# --- ゲームのコード(このゲームの型、型の登録、最初の配置。src/game) ---
+# エンジンの部品(付け外しするもの)ではなく、エンジンを使う側(アプリケーション)の本体。engine に依存する。
+# 起動する exe(HuskyEngineV2)と、エディタ(HuskyEditorCli)の両方がリンクする(エディタもゲームの型を知る必要があるため)。
+add_library(husky_game STATIC
+    src/game/Game.cpp
+)
+husky_set_compile_options(husky_game)
+target_include_directories(husky_game PUBLIC src)
+target_link_libraries(husky_game PUBLIC husky_engine)
+
 # --- tools モジュール(開発用の UI とエディタの機能。開発ビルドだけ) ---
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
 add_library(husky_tools STATIC
@@ -339,7 +349,7 @@ husky_set_compile_options(HuskyEditorCli)
 husky_copy_asan_runtime(HuskyEditorCli)
 # 既定のアセットのフォルダ(ソースの assets)を教える。ゲームと同じく、開発ビルドだけ。
 target_compile_definitions(HuskyEditorCli PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
-target_link_libraries(HuskyEditorCli PRIVATE husky_platform $<$<CONFIG:Debug>:husky_tools>)
+target_link_libraries(HuskyEditorCli PRIVATE husky_platform $<$<CONFIG:Debug>:husky_tools> $<$<CONFIG:Debug>:husky_game>)
 
 # --- 実行ファイル ---
 # src/main.cpp をコンパイルして HuskyEngineV2.exe を作る。
@@ -355,7 +365,7 @@ husky_copy_asan_runtime(HuskyEngineV2)
 target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
-target_link_libraries(HuskyEngineV2 PRIVATE husky_engine husky_render husky_platform)
+target_link_libraries(HuskyEngineV2 PRIVATE husky_game husky_engine husky_render husky_platform)
 # tools(開発用の UI)は、開発ビルドだけリンクする。製品(Release)には入らない。
 target_link_libraries(HuskyEngineV2 PRIVATE $<$<CONFIG:Debug>:husky_tools>)
 
@@ -404,6 +414,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/StructReflectionTests.cpp
         tests/core/GuidTests.cpp
         tests/core/JobSystemTests.cpp
+        tests/game/GameTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
@@ -415,7 +426,7 @@ if(HUSKY_BUILD_TESTS)
     )
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
-    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine doctest::doctest)
+    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine husky_game doctest::doctest)
     # テストで共通に使うヘッダ(TestFolder.h など)を、#include "TestFolder.h" で読めるようにする。
     target_include_directories(HuskyTests PRIVATE tests)
     # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。

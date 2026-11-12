@@ -1,0 +1,53 @@
+// ゲームのコード(src/game)のテスト。ゲームの exe とエディタが使う「型の登録」と「最初の配置」を確かめる。
+#include "game/Game.h"
+
+#include "engine/Application.h"
+#include "engine/SceneSerializer.h"
+#include "engine/SpriteComponent.h"
+#include "game/GameActors.h"
+
+#include <doctest/doctest.h>
+
+using husky::engine::Application;
+
+TEST_CASE("Game: ゲームの型を登録すると、名前から作れる")
+{
+    Application app;
+    CHECK(app.GetTypeRegistry().Find("BouncerActor") == nullptr);
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    CHECK(app.GetTypeRegistry().Find("BouncerActor") != nullptr);
+    CHECK(app.GetTypeRegistry().Find("PlayerActor") != nullptr);
+}
+
+TEST_CASE("Game: 最初の配置は、跳ね回るアクターとプレイヤー。毎回同じ配置で、保存して別のアプリで読み戻せる")
+{
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    husky::game::SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
+    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 1);
+
+    // 一覧の最後(一番手前)がプレイヤー
+    const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
+    REQUIRE(player != nullptr);
+    CHECK(player->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+
+    // 乱数の種が固定なので、2回作っても最初の跳ね回るアクターは同じ位置
+    Application other;
+    husky::game::RegisterGameTypes(other.GetTypeRegistry());
+    husky::game::SpawnInitialActors(other.GetScene(), other.GetAssetDatabase());
+    const auto* first = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    const auto* otherFirst = other.GetRegistry().Resolve<husky::game::BouncerActor>(other.GetScene().actors.front());
+    REQUIRE(first != nullptr);
+    REQUIRE(otherFirst != nullptr);
+    CHECK(first->x == otherFirst->x);
+    CHECK(first->vy == otherFirst->vy);
+
+    // ゲームの型を登録したアプリなら、保存したシーンを読み戻せる(エディタがシーンを扱うときと同じ)
+    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetScene());
+    Application loaded;
+    husky::game::RegisterGameTypes(loaded.GetTypeRegistry());
+    const husky::engine::SceneSerializer::ReadReport report =
+        husky::engine::SceneSerializer::Read(saved.value, loaded.GetScene(), loaded.GetTypeRegistry());
+    CHECK(report.warnings.empty());
+    CHECK(loaded.GetScene().actors.size() == app.GetScene().actors.size());
+}

@@ -30,7 +30,7 @@
 
 ## モジュール構成と依存方向
 
-core / engine / platform / tools / game の5つに分け、依存は一方向にする。
+エンジンの部品(core / platform / render / engine / tools)と、エンジンを使う側のアプリケーション(game)に分け、依存は一方向にする(2026-11-12、ユーザーの指摘で game を「モジュール」から「アプリケーション」に改めた)。
 
 - core: 型、メモリ、リフレクション、GC、世代付きハンドル、ジョブ。他のモジュールを一切参照しない。
 - engine: シーン、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platform、render(描画層)に依存する。
@@ -42,7 +42,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - エディタのコマンドは`tools/EditorCommands.h`(`EditorCommand`と`EditorCommandRegistry`)。1つのコマンドは、機械向けの名前(`"scene.save"`のように「対象.動作」。一度決めたら変えない)と、人向けの表示名・説明・ショートカットを両方持つ。引数は`ArchiveValue`(JSONと同じ形)、結果は人が読む1行(`message`)と細かい内容(`details`)。ボタンもショートカット(`HandleShortcuts`)も、名前で`Execute`を呼ぶだけ。新しいエディタの操作は、まずコマンドとして作る。人も使うので、説明と結果の表示(成功か失敗かと理由)を必ず付ける。今あるのは`scene.save`(F5)と`asset.refresh`(`.meta`を作り、スプライトシートを整え、アセットの表を作り直す。起動時もこれを呼ぶ)。毎フレーム動く画面とショートカットのコードも、温まった後はメモリを確保しない(使い回す入れ物を使う。MSVCのDebugのSTLは空の`std::vector`でも確保する)。
   - 編集モード(`tools/EditorPlayMode.h`。2026-11-12): 開発ビルドは編集の状態(EDIT)で起動し、シーンの`Tick`を止める(`Application::SetSceneTickEnabled`。描画、アセット、GC、開発用のUIは動く)。`editor.play`でシーンをメモリの`ArchiveValue`に控えて再生し、`editor.stop`で控えから読み直して戻す。`editor.pause` / `editor.step`(コマ送り。`RequestSceneStep`)もある。シーンの保存は編集中だけ(`whyUnavailable`)。製品とテストは、ずっと再生のまま。コマンドの`whyUnavailable`(今は使えない理由。文字列の定数を返す)があると、画面ではボタンが灰色になり、理由はマウスを乗せると出る。
   - エディタのCLI(`HuskyEditorCli.exe`。中身は`tools/EditorCli.h`の`RunEditorCli`。2026-11-12): 画面を開かずにコマンドを名前で1回だけ実行する(Unityの`-batchmode`、UEのコマンドレットにあたる)。`--list`、`<コマンド> [引数のJSON]`、`--assets <フォルダ>`(既定はソースの`assets`)、`--json-out <ファイル>`(結果のJSON。エンジンのログも標準出力に出るので、今はファイルに書く)。終了コードは0 = 成功、1 = コマンドの失敗、2 = 使い方の誤り。CLIに登録するのは、動いているゲームが要らないコマンドだけ(今は`asset.refresh`)。開発ビルドだけで使える。
-- game: ゲーム固有のコード。engineに依存する。
+- game(アプリケーション): このゲームのコード。エンジンの部品のように付け外しするものではない。engineに依存し、エンジンはgameを知らない。中は2つに分ける: ゲームのコード(`src/game/`、静的ライブラリ`husky_game`。型、ロジック、`game::RegisterGameTypes`、`game::SpawnInitialActors`)と、起動するexe(`src/main.cpp`。ウィンドウを開いて動かすだけ)。エディタ(`HuskyEditorCli`など)もゲームのコードをリンクし、ゲームの型を登録する(シーンの`"type"`から作れるように。toolsはゲームを知らないので、exeから関数で渡す)。UnityやUEと同じ形で、将来のホットリロードではゲームのコードがDLLになる。
 
 ## オブジェクトモデル
 

@@ -4,6 +4,7 @@
 #include "platform/Platform.h"
 
 #if HUSKY_DEVELOPMENT
+#include "game/Game.h" // このゲームの型(エディタもゲームのコードを読み込む)
 #include "tools/EditorCli.h"
 #endif
 
@@ -27,7 +28,10 @@ int main(int argc, char** argv)
     }
     std::string out;
     // アセットのフォルダの既定は、ソースの assets(開発ビルドのゲームと同じ)。
-    const int exitCode = husky::tools::RunEditorCli(args, std::string(HUSKY_SOURCE_DIR) + "assets", out);
+    // このゲーム用のエディタなので、ゲームの型を登録する(シーンの "type": "BouncerActor" を作れるように)。
+    const int exitCode = husky::tools::RunEditorCli(
+        args, std::string(HUSKY_SOURCE_DIR) + "assets", out,
+        [](husky::engine::Application& app) { husky::game::RegisterGameTypes(app.GetTypeRegistry()); });
     std::fputs(out.c_str(), stdout);
     return exitCode;
 #else
