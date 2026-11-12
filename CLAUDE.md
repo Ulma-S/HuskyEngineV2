@@ -41,6 +41,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - エディタの操作は、ImGuiの中に直接書かず、関数(将来の「エディタのコマンド」)として外に置く。ImGui、コマンドラインツール、MCP(AIから使う)が同じ操作を呼べるようにするため(設計メモ「AIから使いやすいエディタ」)。
   - エディタのコマンドは`tools/EditorCommands.h`(`EditorCommand`と`EditorCommandRegistry`)。1つのコマンドは、機械向けの名前(`"scene.save"`のように「対象.動作」。一度決めたら変えない)と、人向けの表示名・説明・ショートカットを両方持つ。引数は`ArchiveValue`(JSONと同じ形)、結果は人が読む1行(`message`)と細かい内容(`details`)。ボタンもショートカット(`HandleShortcuts`)も、名前で`Execute`を呼ぶだけ。新しいエディタの操作は、まずコマンドとして作る。人も使うので、説明と結果の表示(成功か失敗かと理由)を必ず付ける。今あるのは`scene.save`(F5)と`asset.refresh`(`.meta`を作り、スプライトシートを整え、アセットの表を作り直す。起動時もこれを呼ぶ)。毎フレーム動く画面とショートカットのコードも、温まった後はメモリを確保しない(使い回す入れ物を使う。MSVCのDebugのSTLは空の`std::vector`でも確保する)。
   - 編集モード(`tools/EditorPlayMode.h`。2026-11-12): 開発ビルドは編集の状態(EDIT)で起動し、シーンの`Tick`を止める(`Application::SetSceneTickEnabled`。描画、アセット、GC、開発用のUIは動く)。`editor.play`でシーンをメモリの`ArchiveValue`に控えて再生し、`editor.stop`で控えから読み直して戻す。`editor.pause` / `editor.step`(コマ送り。`RequestSceneStep`)もある。シーンの保存は編集中だけ(`whyUnavailable`)。製品とテストは、ずっと再生のまま。コマンドの`whyUnavailable`(今は使えない理由。文字列の定数を返す)があると、画面ではボタンが灰色になり、理由はマウスを乗せると出る。
+  - エディタのCLI(`HuskyEditorCli.exe`。中身は`tools/EditorCli.h`の`RunEditorCli`。2026-11-12): 画面を開かずにコマンドを名前で1回だけ実行する(Unityの`-batchmode`、UEのコマンドレットにあたる)。`--list`、`<コマンド> [引数のJSON]`、`--assets <フォルダ>`(既定はソースの`assets`)、`--json-out <ファイル>`(結果のJSON。エンジンのログも標準出力に出るので、今はファイルに書く)。終了コードは0 = 成功、1 = コマンドの失敗、2 = 使い方の誤り。CLIに登録するのは、動いているゲームが要らないコマンドだけ(今は`asset.refresh`)。開発ビルドだけで使える。
 - game: ゲーム固有のコード。engineに依存する。
 
 ## オブジェクトモデル
@@ -137,6 +138,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 生成: `cmake --preset vs2022`(`build/vs2022/`に.slnができる)
   - ビルド: `cmake --build --preset debug`(または`release`)
   - 実行: `build/vs2022/Debug/HuskyEngineV2.exe`
+  - エディタのCLI: `build/vs2022/Debug/HuskyEditorCli.exe --list`、`build/vs2022/Debug/HuskyEditorCli.exe asset.refresh`(コミットの前に流すと、`.meta`の抜けやGUIDの重なりが分かる)
 - テスト(doctest、ヘッドレス。ビルドの後に実行):
   - `ctest --preset debug`(または`release`)
   - ビルドが失敗しても、ctestは前回の古いexeを実行して「passed」と出す。必ずビルドの成功を確かめてからテスト結果を見る。

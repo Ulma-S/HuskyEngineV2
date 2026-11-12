@@ -78,10 +78,14 @@ namespace husky::tools
         }
 
         // 人が後から追えるように、ログにも出す(画面の窓を閉じていても分かる)。
-        std::printf("コマンド %s: %s %s\n", name.c_str(), result.succeeded ? "成功" : "失敗", result.message.c_str());
-        for (const std::string& detail : result.details)
+        if (m_logResults)
         {
-            std::printf("  %s\n", detail.c_str());
+            std::printf("コマンド %s: %s %s\n", name.c_str(), result.succeeded ? "成功" : "失敗",
+                        result.message.c_str());
+            for (const std::string& detail : result.details)
+            {
+                std::printf("  %s\n", detail.c_str());
+            }
         }
         m_lastCommandName = name;
         m_lastResult = result;

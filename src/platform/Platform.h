@@ -19,6 +19,12 @@ namespace husky::platform
     // 動作スレッド: メインスレッド
     void Shutdown();
 
+    // コンソール(コマンドプロンプトなど)に出す文字を UTF-8 として表示させる。エンジンのログは UTF-8 の日本語なので、
+    // Windows の既定(日本語版では Shift_JIS)のままだと文字化けする。コンソールで使う exe(エディタの CLI)の最初に呼ぶ。
+    // Windows 以外では、もともと UTF-8 なので何もしない。Initialize の前に呼んでよい。
+    // 動作スレッド: メインスレッド
+    void EnableUtf8ConsoleOutput();
+
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】OS のイベントを、開発用の UI(ImGui)にも渡すための口。描画層(render)が登録する。
     // platform は ImGui を知らない。登録された関数に、イベントを1つずつ渡すだけ。

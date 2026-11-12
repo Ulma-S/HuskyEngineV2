@@ -320,6 +320,7 @@ target_link_libraries(husky_render
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
 add_library(husky_tools STATIC
     src/tools/DebugWindow.cpp
+    src/tools/EditorCli.cpp
     src/tools/EditorCommands.cpp
     src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
@@ -327,6 +328,18 @@ add_library(husky_tools STATIC
 husky_set_compile_options(husky_tools)
 target_include_directories(husky_tools PUBLIC src)
 target_link_libraries(husky_tools PUBLIC husky_engine PRIVATE $<$<CONFIG:Debug>:husky_imgui>)
+
+# --- エディタの CLI(HuskyEditorCli.exe。画面を開かずに、エディタのコマンドを1回だけ実行する) ---
+# 中身は tools::RunEditorCli。開発ビルドだけで使える(Release のビルドでは「使えない」と出して終わる)。
+add_executable(HuskyEditorCli
+    src/tools/EditorCliMain.cpp
+    ${HUSKY_GLOBAL_NEW_SOURCE} # ゲームとテストと同じく、すべての new を MemoryTracker に通す
+)
+husky_set_compile_options(HuskyEditorCli)
+husky_copy_asan_runtime(HuskyEditorCli)
+# 既定のアセットのフォルダ(ソースの assets)を教える。ゲームと同じく、開発ビルドだけ。
+target_compile_definitions(HuskyEditorCli PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
+target_link_libraries(HuskyEditorCli PRIVATE husky_platform $<$<CONFIG:Debug>:husky_tools>)
 
 # --- 実行ファイル ---
 # src/main.cpp をコンパイルして HuskyEngineV2.exe を作る。
@@ -384,6 +397,7 @@ if(HUSKY_BUILD_TESTS)
         tests/render/SpriteBatchTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
+        tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp

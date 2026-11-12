@@ -1,0 +1,211 @@
+// EditorCli.h の実装。製品(Release)では中身が空になる。
+#include "tools/EditorCli.h"
+
+#if HUSKY_DEVELOPMENT
+
+#include "engine/Application.h"
+#include "engine/ArchiveValue.h"
+#include "engine/JsonFormat.h"
+#include "platform/FileSystem.h"
+#include "tools/EditorCommands.h"
+
+#include <utility> // std::move
+
+namespace husky::tools
+{
+    namespace
+    {
+        const char* const HelpText =
+            "HuskyEditorCli - run an editor command without opening the editor\n"
+            "\n"
+            "Usage:\n"
+            "  HuskyEditorCli --help                    Show this help\n"
+            "  HuskyEditorCli --list                    List the commands you can run\n"
+            "  HuskyEditorCli <command> [args-json]     Run a command (args: a JSON object)\n"
+            "\n"
+            "Options:\n"
+            "  --assets <folder>      The assets folder (default: the source assets folder)\n"
+            "  --json-out <file>      Also write the result as JSON to <file> (for CI and AI)\n"
+            "\n"
+            "Exit code: 0 = success, 1 = the command failed, 2 = usage error\n";
+
+        // コマンドラインを読んだ結果。
+        struct CliOptions
+        {
+            bool help = false;
+            bool list = false;
+            std::string assetsDirectory;
+            std::string jsonOutPath;
+            std::string commandName;
+            std::string argsJson;
+        };
+
+        // 引数を読む。誤りがあれば、理由を error に書いて false。
+        bool ParseArgs(const std::vector<std::string>& args, CliOptions& options, std::string& error)
+        {
+            std::size_t positional = 0; // オプションでない引数の数(1 つ目がコマンドの名前、2 つ目が引数の JSON)
+            for (std::size_t i = 0; i < args.size(); ++i)
+            {
+                const std::string& arg = args[i];
+                if (arg == "--help" || arg == "-h")
+                {
+                    options.help = true;
+                }
+                else if (arg == "--list")
+                {
+                    options.list = true;
+                }
+                else if (arg == "--assets" || arg == "--json-out")
+                {
+                    if (i + 1 >= args.size())
+                    {
+                        error = arg + " needs a value";
+                        return false;
+                    }
+                    (arg == "--assets" ? options.assetsDirectory : options.jsonOutPath) = args[++i];
+                }
+                else if (arg.size() >= 2 && arg[0] == '-' && arg[1] == '-')
+                {
+                    error = "Unknown option: " + arg;
+                    return false;
+                }
+                else if (positional == 0)
+                {
+                    options.commandName = arg;
+                    ++positional;
+                }
+                else if (positional == 1)
+                {
+                    options.argsJson = arg;
+                    ++positional;
+                }
+                else
+                {
+                    error = "Too many arguments: " + arg + " (put all arguments in one JSON object)";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // CLI で使えるコマンドを登録する(動いているゲームが要らないものだけ)。
+        void RegisterCliCommands(EditorCommandRegistry& commands, const std::string& assetsDirectory)
+        {
+            commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
+        }
+
+        // value を JSON にして path に書く。書けなければ、理由を out に足して false。
+        bool WriteJsonFile(const engine::ArchiveValue& value, const std::string& path, std::string& out)
+        {
+            std::string text;
+            if (!engine::JsonFormat::Write(value, text, true) || !platform::WriteTextFile(path.c_str(), text))
+            {
+                out += "Could not write the JSON result: " + path + "\n";
+                return false;
+            }
+            return true;
+        }
+    }
+
+    int RunEditorCli(const std::vector<std::string>& args, const std::string& defaultAssetsDirectory, std::string& out)
+    {
+        CliOptions options;
+        std::string error;
+        if (!ParseArgs(args, options, error))
+        {
+            out += "Error: " + error + "\n\n" + HelpText;
+            return CliExitCode::UsageError;
+        }
+        if (options.help)
+        {
+            out += HelpText;
+            return CliExitCode::Success;
+        }
+        if (!options.list && options.commandName.empty())
+        {
+            out += std::string("Error: no command given\n\n") + HelpText;
+            return CliExitCode::UsageError;
+        }
+
+        const std::string assetsDirectory =
+            options.assetsDirectory.empty() ? defaultAssetsDirectory : options.assetsDirectory;
+
+        // 画面の無いエディタ: ウィンドウも GPU も作らない Application(テストと同じ形)。
+        engine::Application app;
+        EditorCommandRegistry commands;
+        commands.SetLogResults(false); // 結果は CLI が out に出す(ログと二重に出さない)
+        RegisterCliCommands(commands, assetsDirectory);
+
+        // --list: コマンドの名前と説明を並べる。
+        if (options.list)
+        {
+            engine::ArchiveValue list = engine::ArchiveValue::MakeArray();
+            for (const EditorCommand& command : commands.GetCommands())
+            {
+                out += command.name + "  (" + command.label + ")\n    " + command.description + "\n";
+                engine::ArchiveValue& item = list.Append(engine::ArchiveValue::MakeObject());
+                item.Set("name", engine::ArchiveValue(command.name));
+                item.Set("label", engine::ArchiveValue(command.label));
+                item.Set("description", engine::ArchiveValue(command.description));
+            }
+            if (!options.jsonOutPath.empty())
+            {
+                engine::ArchiveValue root = engine::ArchiveValue::MakeObject();
+                root.Set("commands", std::move(list));
+                if (!WriteJsonFile(root, options.jsonOutPath, out))
+                {
+                    return CliExitCode::CommandFailed;
+                }
+            }
+            return CliExitCode::Success;
+        }
+
+        // 知らないコマンドは、使い方の誤り(コマンド自身の失敗とは分ける)。
+        if (commands.Find(options.commandName) == nullptr)
+        {
+            out += "Error: unknown command: " + options.commandName + " (see --list)\n";
+            return CliExitCode::UsageError;
+        }
+
+        // 引数: JSON のオブジェクト。省略したら空。
+        engine::ArchiveValue commandArgs;
+        if (!options.argsJson.empty())
+        {
+            std::string parseError;
+            if (!engine::JsonFormat::Read(options.argsJson, commandArgs, &parseError) ||
+                commandArgs.GetType() != engine::ArchiveValue::Type::Object)
+            {
+                out += "Error: the arguments must be a JSON object, like {\"name\": 1}";
+                out += parseError.empty() ? "\n" : " (" + parseError + ")\n";
+                return CliExitCode::UsageError;
+            }
+        }
+
+        const EditorCommandResult result = commands.Execute(options.commandName, app, commandArgs);
+        out += std::string(result.succeeded ? "OK: " : "FAILED: ") + result.message + "\n";
+        for (const std::string& detail : result.details)
+        {
+            out += "  " + detail + "\n";
+        }
+
+        if (!options.jsonOutPath.empty())
+        {
+            engine::ArchiveValue root = engine::ArchiveValue::MakeObject();
+            root.Set("command", engine::ArchiveValue(options.commandName));
+            root.Set("succeeded", engine::ArchiveValue(result.succeeded));
+            root.Set("message", engine::ArchiveValue(result.message));
+            engine::ArchiveValue& details = root.Set("details", engine::ArchiveValue::MakeArray());
+            for (const std::string& detail : result.details)
+            {
+                details.Append(engine::ArchiveValue(detail));
+            }
+            if (!WriteJsonFile(root, options.jsonOutPath, out))
+            {
+                return CliExitCode::CommandFailed;
+            }
+        }
+        return result.succeeded ? CliExitCode::Success : CliExitCode::CommandFailed;
+    }
+}
+
+#endif

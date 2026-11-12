@@ -102,10 +102,14 @@ namespace husky::tools
         const std::string& GetLastCommandName() const { return m_lastCommandName; }
         const EditorCommandResult& GetLastResult() const { return m_lastResult; }
 
+        // 実行の結果をログに出すか(既定は出す)。結果を自分で出す入口(CLI)は、二重に出ないように止める。
+        void SetLogResults(bool enabled) { m_logResults = enabled; }
+
     private:
         std::vector<EditorCommand> m_commands;
         std::string m_lastCommandName;
         EditorCommandResult m_lastResult;
+        bool m_logResults = true;
     };
 
     // 「シーンを保存する」コマンド(scene.save、F5)を作る。今のシーンを、paths のすべてに同じ内容で書く。

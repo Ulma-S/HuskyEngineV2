@@ -5,6 +5,14 @@
 
 #include <SDL3/SDL.h>
 
+#ifdef _WIN32
+// Windows の API(コンソールの文字コードの設定)。使ってよいのは platform の中だけ。
+// WIN32_LEAN_AND_MEAN: あまり使わない部分を読み込まない。NOMINMAX: min / max というマクロを作らせない(std::min と衝突するため)。
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 namespace husky::platform
 {
     // 無名 namespace: この中のものは、この .cpp の中からしか見えない(C# の private static に近い)。
@@ -67,6 +75,13 @@ namespace husky::platform
     void Shutdown()
     {
         SDL_Quit();
+    }
+
+    void EnableUtf8ConsoleOutput()
+    {
+#ifdef _WIN32
+        SetConsoleOutputCP(CP_UTF8); // コンソールが無い(ファイルへ書き出している)ときは、失敗しても困らない
+#endif
     }
 
     bool ProcessEvents(std::vector<KeyEvent>& outKeyEvents)
