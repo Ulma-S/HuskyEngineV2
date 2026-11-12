@@ -12,9 +12,11 @@
 
 #include "core/Guid.h"
 #include "core/Object.h"
+#include "engine/SpriteSlices.h"
 #include "render/RenderDevice.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace husky::engine
 {
@@ -46,6 +48,21 @@ namespace husky::engine
         // 描画層のテクスチャ。描画の準備ができていない(GPU が無い、テストなど)ときは、何も指さないハンドル。
         render::TextureHandle GetTexture() const { return m_texture; }
 
+        // 切り出しの一覧(.meta の "sprites")。書いていなければ空。読み終わる(IsLoaded)までは空。
+        const std::vector<SpriteSlice>& GetSlices() const { return m_slices; }
+        // ID で切り出しを探す。無ければ nullptr。
+        const SpriteSlice* FindSlice(std::int32_t id) const
+        {
+            for (const SpriteSlice& slice : m_slices)
+            {
+                if (slice.id == id)
+                {
+                    return &slice;
+                }
+            }
+            return nullptr; // 切り出しは多くても数十なので、先頭から順に探す
+        }
+
     private:
         // 中身を書くのは AssetLoader だけ(friend: private なメンバーを触らせる)。
         friend class AssetLoader;
@@ -55,6 +72,7 @@ namespace husky::engine
         int m_width = 0;
         int m_height = 0;
         render::TextureHandle m_texture;
+        std::vector<SpriteSlice> m_slices;
         AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ。ローダはこのオブジェクトより長く生きる)
     };
 }

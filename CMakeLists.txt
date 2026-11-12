@@ -224,6 +224,7 @@ add_library(husky_engine STATIC
     src/engine/Scene.cpp
     src/engine/SceneSerializer.cpp
     src/engine/SpriteComponent.cpp
+    src/engine/SpriteSlices.cpp
 )
 husky_set_compile_options(husky_engine)
 target_include_directories(husky_engine PUBLIC src)
@@ -372,6 +373,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetDatabaseTests.cpp
         tests/engine/AssetLoaderTests.cpp
         tests/engine/AssetRefTests.cpp
+        tests/engine/SpriteSlicesTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp
         tests/render/SpriteBatchTests.cpp

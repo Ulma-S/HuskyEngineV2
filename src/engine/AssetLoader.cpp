@@ -1,6 +1,8 @@
 // AssetLoader.h と TextureAsset.h の実装。
 #include "engine/AssetLoader.h"
 
+#include "engine/JsonFormat.h"
+#include "platform/FileSystem.h"
 #include "platform/Image.h"
 
 #include <cstdio>  // std::printf
@@ -14,6 +16,20 @@ namespace husky::engine
         bool ReadTextureSource(const std::string& path, platform::Image& outImage)
         {
             return platform::LoadPng(path.c_str(), outImage); // 失敗の理由は platform がログに出す
+        }
+
+        // インポートの設定: 画像の隣の .meta から、切り出しの一覧を読む(ジョブの中で呼ぶ。ファイルと JSON を読むだけ)。
+        // .meta が読めない、切り出しが無いなら、空の一覧(画像の全体だけを使う)。
+        std::vector<SpriteSlice> ReadTextureSlices(const std::string& imagePath, std::vector<std::string>& outWarnings)
+        {
+            std::string text;
+            ArchiveValue meta;
+            if (!platform::ReadTextFile((imagePath + std::string(AssetDatabase::MetaSuffix)).c_str(), text)
+                || !JsonFormat::Read(text, meta))
+            {
+                return {};
+            }
+            return ReadSpriteSlices(meta, &outWarnings);
         }
 
         // 2段目「実行用のデータにする」: 今は素通し(受け取った画像を、そのまま返す)。
@@ -200,13 +216,14 @@ namespace husky::engine
         PendingTextureLoad* record = load.get(); // ジョブには、記録の場所(ポインタ1つ)だけを渡す
         m_pending.push_back(std::move(load));
 
-        // 3〜4. ジョブ(ワーカースレッド): 記録のパスを読み、記録の image と succeeded に書く。ほかは触らない。
+        // 3〜4. ジョブ(ワーカースレッド): 記録のパスを読み、記録の image、succeeded、slices、warnings に書く。ほかは触らない。
         m_jobs.Schedule(
             [record] {
                 record->succeeded = ReadTextureSource(record->path, record->image);
                 if (record->succeeded)
                 {
                     record->image = CookTexture(std::move(record->image));
+                    record->slices = ReadTextureSlices(record->path, record->warnings);
                 }
             },
             record->counter);
@@ -227,6 +244,23 @@ namespace husky::engine
         }
         asset->m_width = load.image.width;
         asset->m_height = load.image.height;
+
+        // 切り出し: ジョブが .meta から読んだもの。画像からはみ出すものは、注意を出して使わない。
+        for (const std::string& warning : load.warnings)
+        {
+            std::printf("アセット: 切り出しを読めません(%s): %s\n", load.path.c_str(), warning.c_str());
+        }
+        asset->m_slices.clear();
+        for (SpriteSlice& slice : load.slices)
+        {
+            const PixelRect& rect = slice.rect;
+            if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > asset->m_width || rect.y + rect.height > asset->m_height)
+            {
+                std::printf("アセット: 切り出し「%s」が画像からはみ出しています(%s)\n", slice.name.c_str(), load.path.c_str());
+                continue;
+            }
+            asset->m_slices.push_back(std::move(slice));
+        }
 
         // 5. GPU に送る(描画の準備ができていれば)
         if (m_device != nullptr)

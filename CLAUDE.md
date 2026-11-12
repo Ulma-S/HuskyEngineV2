@@ -89,6 +89,8 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 読むのは使うとき(`AssetLoader::Resolve`)。GUIDが変わっていれば読み直す。インスペクタやファイルからはGUIDだけを書き換える。
   - `Property::IsReference`はシーンの中のオブジェクトへの参照(保存に番号の対応表が要るもの)だけで、`AssetRef`は含まない。
   - GUIDは、アセットの隣の`.meta`(`enemy.png.meta`、中身は`{"guid": "..."}`)に書く。`.meta`はアセットと一緒にgitで管理し、ファイルを動かすときは一緒に動かす。
+  - テクスチャの`.meta`には、切り出し方(`"sprites": [{"id", "name", "x", "y", "width", "height"}]`)を書ける(`engine/SpriteSlices.h`)。切り出しは「画像のGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDは画像の中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。
+  - IDの無い切り出し(手で書き足したもの)には、開発ビルドが起動時にIDを振って`.meta`に書き戻す(`AssignMissingSliceIdsInFolder`。ソースとexeの隣の両方)。切り出しは、テクスチャを読むジョブが`.meta`から読み、`TextureAsset::GetSlices`で引ける。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
 - ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。読み込みは非同期(ジョブ)。

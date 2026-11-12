@@ -102,7 +102,7 @@ namespace husky::engine
         friend class TextureAsset; // 回収されるときに OnTextureDestroyed を呼べるようにする
 
         // 読み込み中の記録。ジョブとゲームスレッドの受け渡し場所。
-        // ジョブが書くのは image と succeeded だけで、ゲームスレッドは counter が「終わった」になってから読む
+        // ジョブが書くのは image、succeeded、slices、warnings だけで、ゲームスレッドは counter が「終わった」になってから読む
         // (JobCounter の release / acquire で、ジョブが書いた値が見える)。それまで、どちらも触らない。
         struct PendingTextureLoad
         {
@@ -111,6 +111,8 @@ namespace husky::engine
             std::string path;         // 読むファイル(ゲームスレッドが、積む前に表で引いておく。表はジョブから触らない)
             platform::Image image;    // ジョブが書く: 読んだ画像
             bool succeeded = false;   // ジョブが書く: 読めたか
+            std::vector<SpriteSlice> slices;     // ジョブが書く: .meta の切り出しの一覧
+            std::vector<std::string> warnings;   // ジョブが書く: 切り出しを読んだときの注意(Finish がログに出す)
             core::JobCounter counter; // ジョブの完了の印
         };
 
