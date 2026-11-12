@@ -162,6 +162,12 @@ int main()
 {
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
     engine::Application app;
+
+    // ゲームの型を、名前から作れるように登録する(engine の型は Application が登録済み)。
+    // シーンをファイルから読み込むときに、"type": "BouncerActor" から本物のオブジェクトを作るのに使う。
+    app.GetTypeRegistry().Register<BouncerActor>();
+    app.GetTypeRegistry().Register<PlayerActor>();
+
     SpawnInitialActors(app.GetScene());
 
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。

@@ -159,3 +159,16 @@ TEST_CASE("Application: 温まった後は、GC を回すフレームも含め�
 
     CHECK(after - before == 0);
 }
+
+TEST_CASE("Application: engine の型を、型の登録簿に登録済み")
+{
+    Application app;
+    husky::core::TypeRegistry& types = app.GetTypeRegistry();
+    CHECK(types.Find("Scene") != nullptr);
+    CHECK(types.Find("Actor") != nullptr);
+    CHECK(types.Find("Component") != nullptr);
+    CHECK(types.Find("SpriteComponent") != nullptr);
+
+    husky::core::Object* sprite = types.Create("SpriteComponent", app.GetRegistry());
+    CHECK(husky::core::Cast<husky::engine::SpriteComponent>(sprite) != nullptr);
+}

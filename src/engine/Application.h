@@ -4,6 +4,7 @@
 //
 // 使い方:
 //   Application app;
+//   app.GetTypeRegistry().Register<Player>();          // ファイルから作れるように、ゲームの型を登録する
 //   app.GetScene().Spawn<Player>();                   // 最初のアクターを置く(ウィンドウを開く前でもよい)
 //   app.SetUpdateCallback([](Application& a, double dt) { ... });  // ゲーム固有の毎フレームの処理(無くてもよい)
 //   ApplicationDesc desc;
@@ -14,6 +15,7 @@
 #pragma once
 
 #include "core/ObjectRegistry.h"
+#include "core/TypeRegistry.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
@@ -59,6 +61,8 @@ namespace husky::engine
         Application& operator=(const Application&) = delete;
 
         core::ObjectRegistry& GetRegistry() { return m_registry; }
+        // 型の登録簿(名前からオブジェクトを作る)。engine の型は登録済み。ゲームの型は、Run の前にゲームが登録する。
+        core::TypeRegistry& GetTypeRegistry() { return m_types; }
         Scene& GetScene() { return *m_scene; }
         const Input& GetInput() const { return m_input; }
         // テストで dt を固定する(FrameClock::SetFixedDelta)ときなどに使う。
@@ -93,6 +97,7 @@ namespace husky::engine
         // メンバーは、宣言した順に作られ、逆の順に壊される(C++ の決まり)。
         // m_input をレジストリより先に宣言しているので、シーン(レジストリの中)が m_input を借りている間に、
         // m_input が先に壊れることはない。
+        core::TypeRegistry m_types; // 型の登録簿(オブジェクトより長く生きるように、レジストリより先に宣言する)
         FrameClock m_clock;
         Input m_input;
         core::ObjectRegistry m_registry;

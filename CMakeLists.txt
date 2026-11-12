@@ -168,6 +168,7 @@ target_link_libraries(husky_platform PRIVATE SDL3::SDL3)
 add_library(husky_engine STATIC
     src/engine/Actor.cpp
     src/engine/Application.cpp
+    src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
     src/engine/ArchiveValue.cpp
@@ -298,6 +299,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ApplicationTests.cpp
         tests/engine/JsonFormatTests.cpp
         tests/engine/ObjectSerializerTests.cpp
+        tests/core/TypeRegistryTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp

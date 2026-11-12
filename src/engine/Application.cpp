@@ -2,6 +2,7 @@
 #include "engine/Application.h"
 
 #include "core/MemoryTracker.h"
+#include "engine/EngineTypes.h"
 #include "engine/SpriteComponent.h"
 #include "platform/Image.h"
 #include "platform/Platform.h"
@@ -16,6 +17,8 @@ namespace husky::engine
     Application::Application(std::size_t objectCapacityBytes)
         : m_registry(objectCapacityBytes)
     {
+        RegisterEngineTypes(m_types); // engine の型(Scene、Actor、SpriteComponent など)を、名前から作れるようにする
+
         // シーンは、レジストリの中で一番最初に作るので、容量が極端に小さくない限り作れる。
         m_scene = m_registry.Create<Scene>();
         m_registry.AddRoot(m_scene->GetHandle());
