@@ -1,9 +1,11 @@
-#include "engine/CameraFollowComponent.h"
+#include "game/CameraFollowComponent.h"
 
 #include "engine/Actor.h"
 
-namespace husky::engine
+namespace husky::game
 {
+    using engine::Actor; // この .cpp の中だけで、engine::Actor を Actor と書けるようにする
+
     void CameraFollowComponent::Tick(double dt)
     {
         (void)dt; // すぐに追いつく(遅れて滑らかに追う動きは、要るようになったら足す)

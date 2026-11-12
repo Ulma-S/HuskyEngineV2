@@ -1,5 +1,5 @@
 // CameraFollowComponent(相手を追いかける)のテスト。
-#include "engine/CameraFollowComponent.h"
+#include "game/CameraFollowComponent.h"
 
 #include "engine/Actor.h"
 #include "engine/Application.h"
@@ -11,7 +11,7 @@
 
 using husky::engine::Actor;
 using husky::engine::Application;
-using husky::engine::CameraFollowComponent;
+using husky::game::CameraFollowComponent;
 using husky::platform::KeyEvent;
 
 namespace

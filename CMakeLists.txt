@@ -242,7 +242,6 @@ add_library(husky_engine STATIC
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
     src/engine/CameraComponent.cpp
-    src/engine/CameraFollowComponent.cpp
     src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
@@ -349,6 +348,7 @@ target_link_libraries(husky_render
 # エンジンの部品(付け外しするもの)ではなく、エンジンを使う側(アプリケーション)の本体。engine に依存する。
 # 起動する exe(HuskyEngineV2)と、エディタ(HuskyEditorCli)の両方がリンクする(エディタもゲームの型を知る必要があるため)。
 add_library(husky_game STATIC
+    src/game/CameraFollowComponent.cpp
     src/game/Game.cpp
 )
 husky_set_compile_options(husky_game)
@@ -432,7 +432,6 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
         tests/engine/CameraTests.cpp
-        tests/engine/CameraFollowComponentTests.cpp
         tests/engine/TransformTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp
@@ -447,6 +446,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/GuidTests.cpp
         tests/core/JobSystemTests.cpp
         tests/game/GameTests.cpp
+        tests/game/CameraFollowComponentTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp

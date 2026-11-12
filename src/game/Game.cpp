@@ -2,7 +2,7 @@
 #include "game/Game.h"
 
 #include "engine/CameraComponent.h"
-#include "engine/CameraFollowComponent.h"
+#include "game/CameraFollowComponent.h"
 #include "engine/Input.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
@@ -104,6 +104,7 @@ namespace husky::game
     {
         types.Register<BouncerActor>();
         types.Register<PlayerActor>();
+        types.Register<CameraFollowComponent>();
     }
 
     void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
@@ -149,7 +150,7 @@ namespace husky::game
 
         if (camera != nullptr && player != nullptr)
         {
-            if (engine::CameraFollowComponent* follow = camera->AddComponent<engine::CameraFollowComponent>())
+            if (game::CameraFollowComponent* follow = camera->AddComponent<game::CameraFollowComponent>())
             {
                 follow->target = player->GetHandle();
                 // プレイヤーの位置は左下の角なので、大きさの半分だけずらして、プレイヤーの真ん中を画面の真ん中に映す。

@@ -3,7 +3,7 @@
 
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
-#include "engine/CameraFollowComponent.h"
+#include "game/CameraFollowComponent.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 #include "game/GameActors.h"
@@ -36,7 +36,7 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     // カメラはプレイヤーを追いかけ、最初からプレイヤーの真ん中を映す位置にいる
     const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
     REQUIRE(camera != nullptr);
-    const auto* follow = camera->GetOwner()->GetComponent<husky::engine::CameraFollowComponent>();
+    const auto* follow = camera->GetOwner()->GetComponent<husky::game::CameraFollowComponent>();
     REQUIRE(follow != nullptr);
     CHECK(follow->target == player->GetHandle());
     CHECK(camera->GetOwner()->transform.position.x ==
@@ -66,7 +66,7 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     // 読み戻しても、カメラはプレイヤーを指したまま(ハンドルは番号の対応表で保存される)
     const husky::engine::CameraComponent* loadedCamera = husky::engine::FindSceneCamera(loaded.GetScene());
     REQUIRE(loadedCamera != nullptr);
-    const auto* loadedFollow = loadedCamera->GetOwner()->GetComponent<husky::engine::CameraFollowComponent>();
+    const auto* loadedFollow = loadedCamera->GetOwner()->GetComponent<husky::game::CameraFollowComponent>();
     REQUIRE(loadedFollow != nullptr);
     CHECK(loaded.GetRegistry().Resolve<husky::game::PlayerActor>(loadedFollow->target) != nullptr);
 }
