@@ -40,6 +40,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースの assets)に保存する(コマンド`scene.save`。中身は`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。
   - エディタの操作は、ImGuiの中に直接書かず、関数(将来の「エディタのコマンド」)として外に置く。ImGui、コマンドラインツール、MCP(AIから使う)が同じ操作を呼べるようにするため(設計メモ「AIから使いやすいエディタ」)。
   - エディタのコマンドは`tools/EditorCommands.h`(`EditorCommand`と`EditorCommandRegistry`)。1つのコマンドは、機械向けの名前(`"scene.save"`のように「対象.動作」。一度決めたら変えない)と、人向けの表示名・説明・ショートカットを両方持つ。引数は`ArchiveValue`(JSONと同じ形)、結果は人が読む1行(`message`)と細かい内容(`details`)。ボタンもショートカット(`HandleShortcuts`)も、名前で`Execute`を呼ぶだけ。新しいエディタの操作は、まずコマンドとして作る。人も使うので、説明と結果の表示(成功か失敗かと理由)を必ず付ける。今あるのは`scene.save`(F5)と`asset.refresh`(`.meta`を作り、スプライトシートを整え、アセットの表を作り直す。起動時もこれを呼ぶ)。毎フレーム動く画面とショートカットのコードも、温まった後はメモリを確保しない(使い回す入れ物を使う。MSVCのDebugのSTLは空の`std::vector`でも確保する)。
+  - 編集モード(`tools/EditorPlayMode.h`。2026-11-12): 開発ビルドは編集の状態(EDIT)で起動し、シーンの`Tick`を止める(`Application::SetSceneTickEnabled`。描画、アセット、GC、開発用のUIは動く)。`editor.play`でシーンをメモリの`ArchiveValue`に控えて再生し、`editor.stop`で控えから読み直して戻す。`editor.pause` / `editor.step`(コマ送り。`RequestSceneStep`)もある。シーンの保存は編集中だけ(`whyUnavailable`)。製品とテストは、ずっと再生のまま。コマンドの`whyUnavailable`(今は使えない理由。文字列の定数を返す)があると、画面ではボタンが灰色になり、理由はマウスを乗せると出る。
 - game: ゲーム固有のコード。engineに依存する。
 
 ## オブジェクトモデル

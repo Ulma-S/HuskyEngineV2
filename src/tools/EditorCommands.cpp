@@ -50,14 +50,27 @@ namespace husky::tools
         return nullptr;
     }
 
+    const char* EditorCommandRegistry::GetUnavailableReason(const EditorCommand& command, engine::Application& app)
+    {
+        return command.whyUnavailable ? command.whyUnavailable(app) : nullptr;
+    }
+
     EditorCommandResult EditorCommandRegistry::Execute(const std::string& name, engine::Application& app,
                                                        const engine::ArchiveValue& args)
     {
         EditorCommandResult result;
         if (const EditorCommand* command = Find(name))
         {
-            EditorCommandContext context{app, args};
-            result = command->execute(context);
+            const char* reason = GetUnavailableReason(*command, app);
+            if (reason == nullptr)
+            {
+                EditorCommandContext context{app, args};
+                result = command->execute(context);
+            }
+            else
+            {
+                result = EditorCommandResult::Failure(command->label + " is not available now: " + reason);
+            }
         }
         else
         {

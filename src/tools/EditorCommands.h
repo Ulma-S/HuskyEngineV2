@@ -61,8 +61,15 @@ namespace husky::tools
         std::string label;       // 人向けの名前(画面に出す。英語。日本語のフォントを入れるまで)
         std::string description; // 何をするか(人へのツールチップ、AI への説明)
         engine::Key shortcut = engine::Key::Unknown; // ショートカットのキー。Unknown なら無し
+        // 画面でボタンを並べるときのまとまり。登録の順で前のコマンドと同じ group なら、同じ行に並べる("play" の4つなど)。
+        std::string group;
         // 実行する関数。std::function は C# の Func<> にあたる(ラムダ式で、必要なもの(保存先など)を持たせて書ける)。
         std::function<EditorCommandResult(EditorCommandContext&)> execute;
+        // 今は使えない理由を返す関数(使えるなら nullptr)。空の関数なら、いつでも使える。
+        // 理由は文字列の定数("Stop playing first" など)で返す(画面が毎フレーム聞くので、std::string を作って確保しないように)。
+        // 「再生中はシーンを保存できない」のように、状態によって使えないコマンドに付ける。
+        // 画面ではボタンを灰色にして、マウスを乗せると理由を出す。CLI や AI から呼んだときは、理由つきの失敗になる。
+        std::function<const char*(engine::Application&)> whyUnavailable;
     };
 
     // コマンドの一覧。登録した順に並べる(画面にもこの順に出す)。
@@ -77,7 +84,10 @@ namespace husky::tools
 
         const std::vector<EditorCommand>& GetCommands() const { return m_commands; }
 
-        // 名前でコマンドを実行する。見つからなければ、失敗の結果を返す(落ちない)。
+        // command が今は使えない理由。使えるなら nullptr。
+        static const char* GetUnavailableReason(const EditorCommand& command, engine::Application& app);
+
+        // 名前でコマンドを実行する。見つからない、または今は使えない(whyUnavailable)なら、失敗の結果を返す(落ちない)。
         // 結果はログに出し、「最後の結果」として覚える(画面に出すため)。
         // args: 引数(既定は空)。
         EditorCommandResult Execute(const std::string& name, engine::Application& app,

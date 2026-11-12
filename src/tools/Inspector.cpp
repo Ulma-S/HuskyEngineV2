@@ -333,8 +333,11 @@ namespace husky::tools
         engine::Scene& scene = app.GetScene();
         core::ObjectRegistry& registry = app.GetRegistry();
 
-        ImGui::SetNextWindowPos(ImVec2(16.0f, 300.0f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(360.0f, 400.0f), ImGuiCond_FirstUseEver);
+        // 最初は画面の右上に出す(左上のデバッグの窓は、コマンドが増えると下へ伸びるので、その下に置くと重なる)。
+        const float width = 360.0f;
+        const float x = ImGui::GetIO().DisplaySize.x - width - 16.0f;
+        ImGui::SetNextWindowPos(ImVec2(x > 16.0f ? x : 16.0f, 16.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(width, 400.0f), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Scene"))
         {
             // --- アクターの一覧 ---

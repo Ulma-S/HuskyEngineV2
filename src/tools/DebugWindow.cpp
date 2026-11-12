@@ -23,10 +23,21 @@ namespace husky::tools
             // (温まった後のフレームは確保 0 回、という決まりを守るため)。static にして使い回すと、
             // clear や assign をしても確保済みの容量は残るので、2フレーム目からは確保しない。ゲームスレッドだけで使う。
             static std::string text;
+            const EditorCommand* previous = nullptr;
             for (const EditorCommand& command : commands.GetCommands())
             {
+                // 前のコマンドと同じまとまり(group)なら、同じ行に並べる(Play / Pause / Step / Stop など)。
+                if (previous != nullptr && !command.group.empty() && command.group == previous->group)
+                {
+                    ImGui::SameLine();
+                }
+                previous = &command;
+
                 // ボタンを区別する ID は、機械向けの名前にする(表示名が同じコマンドがあっても、押し間違えないように)。
                 ImGui::PushID(command.name.c_str());
+                // 今は使えないコマンドは、ボタンを灰色にして押せなくする(BeginDisabled と EndDisabled の間)。
+                const char* unavailable = EditorCommandRegistry::GetUnavailableReason(command, app);
+                ImGui::BeginDisabled(unavailable != nullptr);
                 // ボタンの文字: "Save scene (F5)"。
                 text.assign(command.label);
                 if (command.shortcut != engine::Key::Unknown)
@@ -42,15 +53,21 @@ namespace husky::tools
                 }
                 // マウスを乗せると、何をするかと、CLI や AI から呼ぶときの名前を出す。
                 // 説明が長くても読めるように、文字の大きさの 30 倍ほどの幅で折り返す。名前は控えめな色で下に添える。
-                if (ImGui::IsItemHovered())
+                // 灰色のボタンにも乗せられるように AllowWhenDisabled を付け、使えない理由も出す。
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 {
                     ImGui::BeginTooltip();
                     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
                     ImGui::TextUnformatted(command.description.c_str());
+                    if (unavailable != nullptr)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Not available: %s", unavailable);
+                    }
                     ImGui::TextDisabled("[%s]", command.name.c_str());
                     ImGui::PopTextWrapPos();
                     ImGui::EndTooltip();
                 }
+                ImGui::EndDisabled();
                 ImGui::PopID();
             }
             if (clicked != nullptr)
@@ -78,7 +95,7 @@ namespace husky::tools
         }
     }
 
-    void DrawDebugWindow(engine::Application& app, EditorCommandRegistry* commands)
+    void DrawDebugWindow(engine::Application& app, EditorCommandRegistry* commands, const EditorPlayMode* playMode)
     {
         // 最初に出す位置(ImGuiCond_FirstUseEver: 初めて出すときだけ。その後はマウスで動かした位置のまま)。
         ImGui::SetNextWindowPos(ImVec2(16.0f, 16.0f), ImGuiCond_FirstUseEver);
@@ -88,6 +105,16 @@ namespace husky::tools
         // Begin が false を返したら、窓が畳まれている。中身は作らない。End は、どちらの場合も必ず呼ぶ(ImGui の決まり)。
         if (ImGui::Begin("Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
+            // 一番上に、今の状態(編集中か、再生中か)を色つきで出す。再生中の変更は Stop で消えるので、見落とさないように。
+            if (playMode != nullptr)
+            {
+                const EditorPlayMode::State state = playMode->GetState();
+                const ImVec4 color = state == EditorPlayMode::State::Edit      ? ImVec4(0.6f, 0.8f, 1.0f, 1.0f)
+                                     : state == EditorPlayMode::State::Playing ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f)
+                                                                               : ImVec4(1.0f, 0.75f, 0.3f, 1.0f);
+                ImGui::TextColored(color, "Mode: %s", EditorPlayMode::GetStateName(state));
+            }
+
             const ImGuiIO& io = ImGui::GetIO();
             ImGui::Text("FPS: %.1f (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
 

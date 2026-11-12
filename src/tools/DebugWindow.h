@@ -13,13 +13,16 @@
 
 #include "engine/Application.h"
 #include "tools/EditorCommands.h"
+#include "tools/EditorPlayMode.h"
 
 namespace husky::tools
 {
     // デバッグの窓を作る。毎フレーム、開発用の UI のフレームの中で呼ぶ。
-    // commands: 「Editor commands」の欄に、登録されたコマンドをボタンで並べ、最後に実行した結果を出す。
+    // commands: 「Editor commands」の欄に、登録されたコマンドをボタンで並べ(使えないものは灰色)、最後に実行した結果を出す。
     //           ボタンは名前でコマンドを呼ぶだけ(何をするかは、コマンドの側にある)。nullptr なら、欄を出さない。
-    void DrawDebugWindow(engine::Application& app, EditorCommandRegistry* commands);
+    // playMode: 一番上に、今の状態(EDIT / PLAYING / PAUSED)を出す。nullptr なら出さない。
+    void DrawDebugWindow(engine::Application& app, EditorCommandRegistry* commands,
+                         const EditorPlayMode* playMode = nullptr);
 
     // キーの、人に見せる名前("F5" など)。ショートカットの表示に使う。
     const char* GetKeyDisplayName(engine::Key key);

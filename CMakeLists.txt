@@ -321,6 +321,7 @@ target_link_libraries(husky_render
 add_library(husky_tools STATIC
     src/tools/DebugWindow.cpp
     src/tools/EditorCommands.cpp
+    src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
 )
 husky_set_compile_options(husky_tools)
@@ -384,6 +385,7 @@ if(HUSKY_BUILD_TESTS)
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
         tests/tools/EditorCommandsTests.cpp
+        tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/core/GuidTests.cpp

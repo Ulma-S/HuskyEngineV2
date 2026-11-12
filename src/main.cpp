@@ -18,6 +18,7 @@
 #if HUSKY_DEVELOPMENT
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
+#include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #endif
 
@@ -25,6 +26,7 @@
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
 #include <string>
+#include <utility> // std::move
 
 namespace
 {
@@ -223,12 +225,20 @@ int main()
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
     // main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
+    // 編集モード(Play / Stop)は、コマンドより先に作る。コマンドが playMode を覚えるので、C++ のルール
+    // 「後に作ったものから先に壊れる」により、コマンドの一覧が先に壊れ、playMode を使う人が残らない。
+    tools::EditorPlayMode playMode;
     tools::EditorCommandRegistry commands;
+    // 再生・一時停止・コマ送り・停止(editor.play / pause / step / stop)。画面では1行に並ぶ。
+    playMode.RegisterCommands(commands);
     // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
     // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
     // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。
-    commands.Register(tools::MakeSaveSceneCommand({scenePath}));
+    // 再生中は保存できないようにする(動いた後の位置などを、うっかり編集の結果として保存しないように)。
+    tools::EditorCommand saveScene = tools::MakeSaveSceneCommand({scenePath});
+    saveScene.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(saveScene));
 
     // 起動時のアセットの準備も、ボタンと同じコマンドで行う(手順が1か所にしか無いので、起動時とボタンで食い違わない)。
     commands.Execute("asset.refresh", app);
@@ -249,11 +259,14 @@ int main()
     }
 
 #if HUSKY_DEVELOPMENT
-    // 開発用の UI: 毎フレーム、tools のデバッグの窓(コマンドのボタンつき)とインスペクタを作る。
+    // 【開発ビルドだけ】編集の状態で始める(Unity と同じ)。置いたものは、Play を押すまで動かない。
+    playMode.EnterEditMode(app);
+
+    // 開発用の UI: 毎フレーム、tools のデバッグの窓(状態とコマンドのボタンつき)とインスペクタを作る。
     // インスペクタは「選んでいるアクター」を覚えておくので、これも main の中に1つだけ作り、参照で渡す。
     tools::SceneInspector inspector;
-    app.SetDevUiCallback([&commands, &inspector](engine::Application& application) {
-        tools::DrawDebugWindow(application, &commands);
+    app.SetDevUiCallback([&commands, &inspector, &playMode](engine::Application& application) {
+        tools::DrawDebugWindow(application, &commands, &playMode);
         inspector.Draw(application);
     });
 #endif

@@ -48,7 +48,13 @@ namespace husky::engine
         {
             m_updateCallback(*this, dt);
         }
-        m_scene->Tick(dt);
+        // シーンの更新を止めている間(エディタの編集中、一時停止中)は、アクターとコンポーネントの Tick を呼ばない。
+        // ただし、コマ送りを頼まれたフレームだけは、止めていても 1 回進める。
+        if (m_sceneTickEnabled || m_sceneStepRequested)
+        {
+            m_scene->Tick(dt);
+            m_sceneStepRequested = false;
+        }
 
         // 4. フレームの終わり: 破棄の確定と、必要なら GC。
         //    この順番が大事: Destroy 済みのアクターを一覧から外す → 破棄を確定する → (たまに)GC。
