@@ -1,10 +1,14 @@
 // プレハブ(engine/Prefab.h)のテスト。アクターから作り、JSON を通して、何度でも置けることを確かめる。
 #include "core/ObjectRegistry.h"
+#include "engine/Application.h"
+#include "engine/AssetLoader.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
 #include "engine/Scene.h"
 #include "engine/SpriteComponent.h"
+
+#include "TestFolder.h"
 
 #include <doctest/doctest.h>
 
@@ -147,4 +151,59 @@ TEST_CASE("Prefab: アクターが1つでない値は、何も作らずに断る
 
     Actor* outside = registry.Create<Actor>(); // シーンに入れていない
     CHECK(!Prefab::Write(*outside).ok);
+}
+
+TEST_CASE("PrefabAsset: .prefab を GUID で読むと値の木が手に入り、そこから置ける。同じ GUID は同じアセット")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_load");
+    folder.Write("prefabs/coin.prefab", R"({ "version": 1, "objects": [
+        { "id": 0, "type": "Actor", "properties": { "name": "Coin", "components": [1] } },
+        { "id": 1, "type": "SpriteComponent", "properties": { "width": 24 } }
+    ], "actors": [0] })");
+    const husky::core::Guid guid = husky::tests::MakeGuid(0x5b1c2d3e4f504a6bull, 0x8c9d0e1f2a3b4c5dull);
+    folder.Write("prefabs/coin.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(guid));
+
+    husky::engine::Application app; // ワーカー 0 本(同期実行)
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    husky::engine::AssetLoader& loader = app.GetAssetLoader();
+
+    const ObjectHandle handle = loader.LoadPrefab(guid);
+    const husky::engine::PrefabAsset* prefab = loader.ResolvePrefab(handle);
+    REQUIRE(prefab != nullptr);
+    CHECK(prefab->GetState() == husky::engine::AssetState::Loading); // すぐには読み終わらない(ジョブで読む)
+    CHECK(loader.LoadPrefab(guid) == handle);                        // 読み込み中でも、同じアセットを返す
+
+    loader.WaitForAllLoads();
+    REQUIRE(prefab->IsLoaded());
+    CHECK(loader.GetLoadedPrefabCount() == 1);
+
+    const Prefab::InstantiateResult placed = Prefab::Instantiate(prefab->GetData(), app.GetScene(), app.GetTypeRegistry());
+    CHECK(placed.warnings.empty());
+    REQUIRE(placed.actor != nullptr);
+    CHECK(placed.actor->name == "Coin");
+    REQUIRE(placed.actor->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(placed.actor->GetComponent<SpriteComponent>()->width == 24.0f);
+
+    CHECK(husky::engine::AssetLoader::CanLoadAs(husky::engine::PrefabAsset::StaticType(), "prefabs/coin.prefab"));
+    CHECK_FALSE(husky::engine::AssetLoader::CanLoadAs(husky::engine::PrefabAsset::StaticType(), "sprites/a.spritesheet"));
+}
+
+TEST_CASE("PrefabAsset: JSON として読めないファイルや、表に無い GUID は「失敗」になる")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_broken");
+    const husky::core::Guid broken = husky::tests::MakeGuid(0x5b1c2d3e4f504a6bull, 0x8c9d0e1f2a3b4c5eull);
+    folder.Write("broken.prefab", "{ not json");
+    folder.Write("broken.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(broken));
+
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    husky::engine::AssetLoader& loader = app.GetAssetLoader();
+    const husky::engine::PrefabAsset* brokenPrefab = loader.ResolvePrefab(loader.LoadPrefab(broken));
+    const husky::engine::PrefabAsset* missing =
+        loader.ResolvePrefab(loader.LoadPrefab(husky::tests::MakeGuid(1, 2)));
+    loader.WaitForAllLoads();
+    REQUIRE(brokenPrefab != nullptr);
+    REQUIRE(missing != nullptr);
+    CHECK(brokenPrefab->GetState() == husky::engine::AssetState::Failed);
+    CHECK(missing->GetState() == husky::engine::AssetState::Failed);
 }

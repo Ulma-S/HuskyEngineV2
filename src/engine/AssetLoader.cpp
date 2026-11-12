@@ -1,4 +1,4 @@
-// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h の実装。
+// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h、PrefabAsset.h の実装。
 #include "engine/AssetLoader.h"
 
 #include "engine/JsonFormat.h"
@@ -58,6 +58,25 @@ namespace husky::engine
             return true;
         }
 
+        // ---- プレハブ(ジョブの中で呼ぶ) ----
+
+        // .prefab(JSON)を読んで、値の木にする。形(アクターが1つか)は、置くとき(Prefab::Instantiate)に確かめる。
+        bool ReadPrefab(const std::string& path, ArchiveValue& outData, std::vector<std::string>& outWarnings)
+        {
+            std::string text;
+            std::string error;
+            if (!platform::ReadTextFile(path.c_str(), text))
+            {
+                return false; // 理由は platform がログに出す
+            }
+            if (!JsonFormat::Read(text, outData, &error))
+            {
+                outWarnings.push_back("JSON として読めません: " + error);
+                return false;
+            }
+            return true;
+        }
+
         bool EndsWith(std::string_view text, std::string_view suffix)
         {
             return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
@@ -77,6 +96,14 @@ namespace husky::engine
         if (m_loader != nullptr)
         {
             m_loader->OnSpriteSheetDestroyed(*this);
+        }
+    }
+
+    PrefabAsset::~PrefabAsset()
+    {
+        if (m_loader != nullptr)
+        {
+            m_loader->OnPrefabDestroyed(*this);
         }
     }
 
@@ -184,6 +211,10 @@ namespace husky::engine
         if (assetType.IsA(SpriteSheetAsset::StaticType()))
         {
             return EndsWith(relativePath, ".spritesheet");
+        }
+        if (assetType.IsA(PrefabAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".prefab");
         }
         return false;
     }
@@ -429,6 +460,105 @@ namespace husky::engine
         if (found != m_spriteSheets.end() && found->second == asset.GetHandle())
         {
             m_spriteSheets.erase(found);
+        }
+    }
+
+    // ================= プレハブ =================
+    // 流れはスプライトシートと同じ(キャッシュを見る → 無ければ作って読み始める → ジョブ → Finish で値を移す)。
+
+    core::ObjectHandle AssetLoader::LoadPrefab(const core::Guid& guid)
+    {
+        const auto found = m_prefabs.find(guid);
+        if (found != m_prefabs.end())
+        {
+            const PrefabAsset* cached = ResolvePrefab(found->second);
+            if (cached != nullptr && !cached->IsPendingDestroy())
+            {
+                return found->second;
+            }
+        }
+
+        PrefabAsset* asset = m_registry.Create<PrefabAsset>();
+        if (asset == nullptr)
+        {
+            std::printf("アセット: オブジェクト用のメモリが足りず、プレハブを作れません(%s)\n", guid.ToString().c_str());
+            return {};
+        }
+        asset->m_guid = guid;
+        asset->m_loader = this;
+        StartPrefabLoad(*asset);
+        m_prefabs[guid] = asset->GetHandle();
+        return asset->GetHandle();
+    }
+
+    PrefabAsset* AssetLoader::ResolvePrefab(core::ObjectHandle handle) const
+    {
+        return m_registry.Resolve<PrefabAsset>(handle);
+    }
+
+    PrefabAsset* AssetLoader::Resolve(core::AssetRef<PrefabAsset>& reference)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        PrefabAsset* asset = ResolvePrefab(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        {
+            return asset;
+        }
+        reference.asset = LoadPrefab(reference.guid);
+        return ResolvePrefab(reference.asset);
+    }
+
+    void AssetLoader::StartPrefabLoad(PrefabAsset& asset)
+    {
+        asset.m_state = AssetState::Loading;
+        std::string path = FindPathOrLog(asset.m_guid);
+        if (path.empty())
+        {
+            asset.m_state = AssetState::Failed;
+            return;
+        }
+
+        auto record = std::make_unique<PendingPrefabLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): ファイルを読み、記録の data、warnings、succeeded に書く。
+        // 値の木はただのデータ(GC 管理のオブジェクトではない)なので、ジョブで作ってよい。
+        Schedule(std::move(record), [](PendingPrefabLoad& load) {
+            load.succeeded = ReadPrefab(load.path, load.data, load.warnings);
+        });
+    }
+
+    void AssetLoader::FinishPrefab(PendingPrefabLoad& load)
+    {
+        for (const std::string& warning : load.warnings)
+        {
+            std::printf("アセット: プレハブの注意(%s): %s\n", load.path.c_str(), warning.c_str());
+        }
+        PrefabAsset* asset = ResolvePrefab(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        {
+            return;
+        }
+        if (!load.succeeded)
+        {
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        asset->m_data = std::move(load.data); // 値の木を、コピーせずにアセットへ移す
+        asset->m_state = AssetState::Loaded;
+    }
+
+    void AssetLoader::OnPrefabDestroyed(PrefabAsset& asset)
+    {
+        const auto found = m_prefabs.find(asset.m_guid);
+        if (found != m_prefabs.end() && found->second == asset.GetHandle())
+        {
+            m_prefabs.erase(found);
         }
     }
 }

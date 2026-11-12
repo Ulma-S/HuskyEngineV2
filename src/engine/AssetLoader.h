@@ -29,6 +29,7 @@
 //
 // スプライトシート(LoadSpriteSheet)も同じ流れ。ジョブが .spritesheet(JSON)を読み、Update で結果を書く。
 // 書き終わったら、中で指している画像(テクスチャ)の読み込みを始める(依存の読み込み)。
+// プレハブ(LoadPrefab)も同じ流れ。ジョブが .prefab(JSON)を値の木にし、Update で値をアセットに移す(アクターは作らない)。
 //
 // アセットの種類を足すときは、読み込み中の記録の型(PendingLoad の子)と、Start〜 / Finish〜 の組を足す。
 //
@@ -41,6 +42,7 @@
 #include "core/ObjectRegistry.h"
 #include "core/TypeInfo.h"
 #include "engine/AssetDatabase.h"
+#include "engine/PrefabAsset.h"
 #include "engine/SpriteSheetAsset.h"
 #include "engine/TextureAsset.h"
 #include "platform/Image.h"
@@ -105,6 +107,15 @@ namespace husky::engine
         // テクスチャの Resolve と同じ(まだ読んでいなければ読み始め、reference.asset に書く)。
         SpriteSheetAsset* Resolve(core::AssetRef<SpriteSheetAsset>& reference);
 
+        // ---- プレハブ ----
+
+        // プレハブ(.prefab)の読み込みを始め、PrefabAsset を指すハンドル(弱い参照)を返す。
+        // ジョブがファイルを読んで JSON を値の木にし、Update で値をアセットに移す。
+        core::ObjectHandle LoadPrefab(const core::Guid& guid);
+        PrefabAsset* ResolvePrefab(core::ObjectHandle handle) const;
+        // テクスチャの Resolve と同じ(まだ読んでいなければ読み始め、reference.asset に書く)。
+        PrefabAsset* Resolve(core::AssetRef<PrefabAsset>& reference);
+
         // ---- 共通 ----
 
         // relativePath のファイルを、assetType(TextureAsset など)のアセットとして読めるか(拡張子で見分ける)。
@@ -115,6 +126,8 @@ namespace husky::engine
         std::size_t GetLoadedTextureCount() const { return m_textures.size(); }
         // キャッシュにある(まだ回収されていない)スプライトシートのアセットの数。確認とテスト用。
         std::size_t GetLoadedSpriteSheetCount() const { return m_spriteSheets.size(); }
+        // キャッシュにある(まだ回収されていない)プレハブのアセットの数。確認とテスト用。
+        std::size_t GetLoadedPrefabCount() const { return m_prefabs.size(); }
 
         // 読み込み中(ジョブが終わっていないか、結果をまだアセットに書いていない)の数。確認とテスト用。
         std::size_t GetPendingLoadCount() const { return m_pending.size(); }
@@ -122,6 +135,7 @@ namespace husky::engine
     private:
         friend class TextureAsset;     // 回収されるときに OnTextureDestroyed を呼べるようにする
         friend class SpriteSheetAsset; // 回収されるときに OnSpriteSheetDestroyed を呼べるようにする
+        friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
         // アセットの種類ごとに、この型を継承して「ジョブが書く結果」を足し、Finish(結果をアセットに書く)を用意する。
@@ -158,6 +172,14 @@ namespace husky::engine
             bool succeeded = false;            // ジョブが書く: 読めたか
         };
 
+        struct PendingPrefabLoad final : PendingLoad
+        {
+            void Finish(AssetLoader& loader) override { loader.FinishPrefab(*this); }
+            ArchiveValue data;                 // ジョブが書く: JSON を読んだ値の木
+            std::vector<std::string> warnings; // ジョブが書く: 読めなかった理由(Finish がログに出す)
+            bool succeeded = false;            // ジョブが書く: 読めたか
+        };
+
         // 読むファイルのパスを表で引く。無ければ空(呼んだ側が、その場で「失敗」にする)。
         std::string FindPathOrLog(const core::Guid& guid) const;
         // 記録を m_pending に入れてから、job をジョブとして積む(記録の場所は動かない)。
@@ -172,6 +194,10 @@ namespace husky::engine
         void FinishSpriteSheet(PendingSpriteSheetLoad& load);
         void OnSpriteSheetDestroyed(SpriteSheetAsset& asset);
 
+        void StartPrefabLoad(PrefabAsset& asset);
+        void FinishPrefab(PendingPrefabLoad& load);
+        void OnPrefabDestroyed(PrefabAsset& asset);
+
         const AssetDatabase& m_database;
         core::ObjectRegistry& m_registry;
         core::JobSystem& m_jobs;
@@ -180,6 +206,7 @@ namespace husky::engine
         // GUID → アセット(弱い参照のキャッシュ)。アセットが回収されると、そのデストラクタから外される。
         std::unordered_map<core::Guid, core::ObjectHandle> m_textures;
         std::unordered_map<core::Guid, core::ObjectHandle> m_spriteSheets;
+        std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。
