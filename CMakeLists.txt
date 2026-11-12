@@ -242,6 +242,7 @@ add_library(husky_engine STATIC
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
     src/engine/CameraComponent.cpp
+    src/engine/CameraFollowComponent.cpp
     src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
@@ -431,6 +432,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
         tests/engine/CameraTests.cpp
+        tests/engine/CameraFollowComponentTests.cpp
         tests/engine/TransformTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp

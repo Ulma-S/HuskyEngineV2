@@ -3,6 +3,7 @@
 
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
+#include "engine/CameraFollowComponent.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 #include "game/GameActors.h"
@@ -27,16 +28,21 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     husky::game::SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
     REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 2); // + カメラ + プレイヤー
 
-    // カメラは画面の真ん中にいる
-    const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
-    REQUIRE(camera != nullptr);
-    CHECK(camera->GetOwner()->transform.position.x == doctest::Approx(husky::game::ScreenWidth / 2.0f));
-    CHECK(camera->GetOwner()->transform.position.y == doctest::Approx(husky::game::ScreenHeight / 2.0f));
-
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
     REQUIRE(player != nullptr);
     CHECK(player->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+
+    // カメラはプレイヤーを追いかけ、最初からプレイヤーの真ん中を映す位置にいる
+    const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
+    REQUIRE(camera != nullptr);
+    const auto* follow = camera->GetOwner()->GetComponent<husky::engine::CameraFollowComponent>();
+    REQUIRE(follow != nullptr);
+    CHECK(follow->target == player->GetHandle());
+    CHECK(camera->GetOwner()->transform.position.x ==
+          doctest::Approx(player->transform.position.x + husky::game::PlayerSize / 2.0f));
+    CHECK(camera->GetOwner()->transform.position.y ==
+          doctest::Approx(player->transform.position.y + husky::game::PlayerSize / 2.0f));
 
     // 乱数の種が固定なので、2回作っても最初の跳ね回るアクターは同じ位置
     Application other;
@@ -57,6 +63,12 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
         husky::engine::SceneSerializer::Read(saved.value, loaded.GetScene(), loaded.GetTypeRegistry());
     CHECK(report.warnings.empty());
     CHECK(loaded.GetScene().actors.size() == app.GetScene().actors.size());
+    // 読み戻しても、カメラはプレイヤーを指したまま(ハンドルは番号の対応表で保存される)
+    const husky::engine::CameraComponent* loadedCamera = husky::engine::FindSceneCamera(loaded.GetScene());
+    REQUIRE(loadedCamera != nullptr);
+    const auto* loadedFollow = loadedCamera->GetOwner()->GetComponent<husky::engine::CameraFollowComponent>();
+    REQUIRE(loadedFollow != nullptr);
+    CHECK(loaded.GetRegistry().Resolve<husky::game::PlayerActor>(loadedFollow->target) != nullptr);
 }
 
 TEST_CASE("Game: プレイヤーは上キーで +y(上)へ、下キーで -y(下)へ動く(y は上が +)")
@@ -77,4 +89,28 @@ TEST_CASE("Game: プレイヤーは上キーで +y(上)へ、下キーで -y(下
     // 上キーを離し、下キーを押したまま 1 フレーム: 30 だけ下へ戻る
     app.StepFrame(0, {KeyEvent{Key::Up, false}, KeyEvent{Key::Down, true}});
     CHECK(player->transform.position.y == doctest::Approx(100.0f));
+}
+
+TEST_CASE("Game: プレイヤーは世界の外へ出られない")
+{
+    using husky::platform::Key;
+    using husky::platform::KeyEvent;
+
+    Application app;
+    app.GetClock().SetFixedDelta(0.1);
+    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    REQUIRE(player != nullptr);
+    player->transform.position = {5.0f, 5.0f, 0.0f};
+
+    // 左下へ 30 動こうとしても、0 で止まる
+    app.StepFrame(0, {KeyEvent{Key::Left, true}, KeyEvent{Key::Down, true}});
+    CHECK(player->transform.position.x == 0.0f);
+    CHECK(player->transform.position.y == 0.0f);
+
+    // 右上の端は、世界の大きさ - プレイヤーの大きさ(位置は左下の角)
+    player->transform.position = {husky::game::WorldWidth - 10.0f, husky::game::WorldHeight - 10.0f, 0.0f};
+    app.StepFrame(0, {KeyEvent{Key::Left, false}, KeyEvent{Key::Down, false}, KeyEvent{Key::Right, true},
+                      KeyEvent{Key::Up, true}});
+    CHECK(player->transform.position.x == doctest::Approx(husky::game::WorldWidth - husky::game::PlayerSize));
+    CHECK(player->transform.position.y == doctest::Approx(husky::game::WorldHeight - husky::game::PlayerSize));
 }

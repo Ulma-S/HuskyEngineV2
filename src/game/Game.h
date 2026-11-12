@@ -18,8 +18,12 @@
 
 namespace husky::game
 {
-    constexpr int ScreenWidth = 1280; // 画面(ウィンドウ)の大きさ。跳ね返る端もこれで決まる
+    constexpr int ScreenWidth = 1280; // 画面(ウィンドウ)の大きさ(ピクセル)
     constexpr int ScreenHeight = 720;
+    // ゲームの世界の大きさ(ワールドの単位。左下が (0, 0))。画面の 3 倍で、カメラがプレイヤーを追って映す。
+    // 跳ね回るアクターが跳ね返る端と、プレイヤーが出られない端も、これで決まる。
+    constexpr int WorldWidth = ScreenWidth * 3;
+    constexpr int WorldHeight = ScreenHeight * 3;
     constexpr int BouncerCount = 1000;
 
     // ゲームの型を、名前から作れるように登録する(engine の型は Application が登録済み)。
@@ -27,7 +31,7 @@ namespace husky::game
     // ゲームの exe も、エディタも、シーンを読む前に呼ぶ。
     void RegisterGameTypes(core::TypeRegistry& types);
 
-    // シーンのファイルが無いときの、最初の配置。跳ね回るアクターを BouncerCount 個と、プレイヤーを1つ置く。
+    // シーンのファイルが無いときの、最初の配置。跳ね回るアクターを BouncerCount 個、プレイヤーを追うカメラ、プレイヤーを置く。
     // 一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
     // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、スプライトシート(shapes.spritesheet)の
     // 切り出しを貼る。最初は右下のひし形(diamond)で、アニメーション「cycle」が 4 つの図形を順に切り替える。

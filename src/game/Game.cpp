@@ -2,11 +2,13 @@
 #include "game/Game.h"
 
 #include "engine/CameraComponent.h"
+#include "engine/CameraFollowComponent.h"
 #include "engine/Input.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "game/GameActors.h"
 
+#include <algorithm> // std::clamp
 #include <cstdint>
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
@@ -38,8 +40,8 @@ namespace husky::game
         void SpawnBouncers(engine::Scene& scene, int count)
         {
             std::mt19937 random(12345); // 種を固定した乱数生成器
-            std::uniform_real_distribution<double> randomX(0.0, ScreenWidth - BouncerSize);
-            std::uniform_real_distribution<double> randomY(0.0, ScreenHeight - BouncerSize);
+            std::uniform_real_distribution<double> randomX(0.0, WorldWidth - BouncerSize);
+            std::uniform_real_distribution<double> randomY(0.0, WorldHeight - BouncerSize);
             std::uniform_real_distribution<double> randomSpeed(-200.0, 200.0);
             std::uniform_real_distribution<float> randomColor(0.4f, 1.0f);
 
@@ -67,8 +69,8 @@ namespace husky::game
     void BouncerActor::Tick(double dt)
     {
         const float step = static_cast<float>(dt);
-        MoveAndBounce(transform.position.x, vx, step, ScreenWidth - BouncerSize);
-        MoveAndBounce(transform.position.y, vy, step, ScreenHeight - BouncerSize);
+        MoveAndBounce(transform.position.x, vx, step, WorldWidth - BouncerSize);
+        MoveAndBounce(transform.position.y, vy, step, WorldHeight - BouncerSize);
     }
 
     void PlayerActor::Tick(double dt)
@@ -91,6 +93,11 @@ namespace husky::game
         const float step = moveSpeed * static_cast<float>(dt);
         transform.position.x += moveX * step;
         transform.position.y += moveY * step;
+
+        // 世界の外へは出られない(位置は左下の角なので、右と上の端は大きさの分だけ手前)。
+        // std::clamp(値, 下限, 上限): 値を範囲の中に収める(C# の Math.Clamp)。
+        transform.position.x = std::clamp(transform.position.x, 0.0f, WorldWidth - PlayerSize);
+        transform.position.y = std::clamp(transform.position.y, 0.0f, WorldHeight - PlayerSize);
     }
 
     void RegisterGameTypes(core::TypeRegistry& types)
@@ -108,17 +115,17 @@ namespace husky::game
 
         SpawnBouncers(scene, BouncerCount);
 
-        // カメラ: 画面の真ん中を映す(zoom 1 なら、カメラが無いときと同じ見え方)。
+        // カメラ: プレイヤーを追いかける(追いかける相手は、プレイヤーを作った後に決める)。
         // カメラは特別な型ではなく、ふつうのアクターにカメラのコンポーネントを付けたもの。
-        if (engine::Actor* camera = scene.Spawn<engine::Actor>())
+        engine::Actor* camera = scene.Spawn<engine::Actor>();
+        if (camera != nullptr)
         {
             camera->name = "MainCamera";
             camera->AddComponent<engine::CameraComponent>();
-            camera->transform.position.x = ScreenWidth / 2.0f;
-            camera->transform.position.y = ScreenHeight / 2.0f;
         }
 
-        if (PlayerActor* player = scene.Spawn<PlayerActor>())
+        PlayerActor* player = scene.Spawn<PlayerActor>();
+        if (player != nullptr)
         {
             if (engine::SpriteComponent* sprite = player->AddComponent<engine::SpriteComponent>())
             {
@@ -136,8 +143,21 @@ namespace husky::game
             {
                 animator->Play(CycleAnimationId);
             }
-            player->transform.position.x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
-            player->transform.position.y = (ScreenHeight - PlayerSize) / 2.0f;
+            player->transform.position.x = (WorldWidth - PlayerSize) / 2.0f; // 世界の真ん中
+            player->transform.position.y = (WorldHeight - PlayerSize) / 2.0f;
+        }
+
+        if (camera != nullptr && player != nullptr)
+        {
+            if (engine::CameraFollowComponent* follow = camera->AddComponent<engine::CameraFollowComponent>())
+            {
+                follow->target = player->GetHandle();
+                // プレイヤーの位置は左下の角なので、大きさの半分だけずらして、プレイヤーの真ん中を画面の真ん中に映す。
+                follow->offset = {PlayerSize / 2.0f, PlayerSize / 2.0f, 0.0f};
+            }
+            // 最初から追いついた位置に置く(編集中は Tick が止まり、追いかけないため)。
+            camera->transform.position.x = player->transform.position.x + PlayerSize / 2.0f;
+            camera->transform.position.y = player->transform.position.y + PlayerSize / 2.0f;
         }
     }
 }
