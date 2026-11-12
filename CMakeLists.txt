@@ -320,6 +320,7 @@ target_link_libraries(husky_render
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
 add_library(husky_tools STATIC
     src/tools/DebugWindow.cpp
+    src/tools/EditorCommands.cpp
     src/tools/Inspector.cpp
 )
 husky_set_compile_options(husky_tools)
@@ -361,6 +362,7 @@ if(HUSKY_BUILD_TESTS)
     add_executable(HuskyTests
         tests/TestMain.cpp
         tests/TestFolder.h
+        tests/tools/HeadlessImGui.h
         ${HUSKY_GLOBAL_NEW_SOURCE} # ゲームと同じく、すべての new を MemoryTracker に通す
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
@@ -381,6 +383,7 @@ if(HUSKY_BUILD_TESTS)
         tests/render/SpriteBatchTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
+        tests/tools/EditorCommandsTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/core/GuidTests.cpp

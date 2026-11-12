@@ -25,7 +25,7 @@ namespace husky::platform
         Space,
         Enter,
         Escape,
-        F5, // 開発ビルドで、シーンを保存する(main.cpp)
+        F5, // 開発ビルドで、シーンを保存する(エディタのコマンド scene.save のショートカット)
 
         Count // キーの数。配列の大きさに使う。必ず最後に置く
     };

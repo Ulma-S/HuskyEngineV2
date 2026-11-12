@@ -9,6 +9,7 @@
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
 #include "tools/Inspector.h"
+#include "HeadlessImGui.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -24,35 +25,7 @@ using husky::tools::SceneInspector;
 
 namespace
 {
-    // 画面を持たない ImGui を1つ用意し、テストが終わったら片付ける(コンストラクタで用意し、デストラクタで片付ける RAII)。
-    class HeadlessImGui
-    {
-    public:
-        HeadlessImGui()
-        {
-            ImGui::CreateContext();
-            ImGuiIO& io = ImGui::GetIO();
-            io.DisplaySize = ImVec2(1280.0f, 720.0f);
-            io.DeltaTime = 1.0f / 60.0f;
-            io.IniFilename = nullptr;
-            // 「テクスチャの作成は描画の部品が受け持つ」と伝える(実際には何もしない)。こうすると、
-            // フォントの画像を GPU に送る部品が無くても、ImGui はフレームを進められる。
-            io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
-        }
-        ~HeadlessImGui() { ImGui::DestroyContext(); }
-
-        HeadlessImGui(const HeadlessImGui&) = delete;
-        HeadlessImGui& operator=(const HeadlessImGui&) = delete;
-
-        // 1フレーム分: NewFrame → draw() で UI を作る → Render。
-        template <typename Function>
-        void Frame(Function&& draw)
-        {
-            ImGui::NewFrame();
-            draw();
-            ImGui::Render();
-        }
-    };
+    using husky::tests::HeadlessImGui;
 
     class Chaser : public Actor
     {

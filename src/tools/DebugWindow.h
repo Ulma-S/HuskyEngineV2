@@ -1,8 +1,8 @@
-// 開発用のデバッグの窓(ImGui)。フレームの時間、描画、オブジェクト、メモリの数字を出し、シーンの保存のボタンを置く。
+// 開発用のデバッグの窓(ImGui)。フレームの時間、描画、オブジェクト、メモリの数字と、エディタのコマンドのボタンを出す。
 // tools モジュールの最初の部品。製品(Release)には入らない(#if HUSKY_DEVELOPMENT)。
 //
 // 使い方(main.cpp):
-//   app.SetDevUiCallback([&](engine::Application& a) { tools::DrawDebugWindow(a, actions); });
+//   app.SetDevUiCallback([&](engine::Application& a) { tools::DrawDebugWindow(a, &commands); });
 //
 // 窓の文字は、今は英語で書く(ImGui の既定のフォントには日本語が無いため。日本語のフォントを入れるかは後で相談する)。
 //
@@ -12,19 +12,17 @@
 #if HUSKY_DEVELOPMENT
 
 #include "engine/Application.h"
-
-#include <functional>
+#include "tools/EditorCommands.h"
 
 namespace husky::tools
 {
-    // 窓のボタンが押されたときにすること。ゲームの側が決めて渡す(保存先の場所などは、ゲームしか知らないため)。
-    struct DebugWindowActions
-    {
-        std::function<void()> saveScene; // 「Save scene」ボタン。空なら、ボタンを出さない
-    };
-
     // デバッグの窓を作る。毎フレーム、開発用の UI のフレームの中で呼ぶ。
-    void DrawDebugWindow(engine::Application& app, const DebugWindowActions& actions);
+    // commands: 「Editor commands」の欄に、登録されたコマンドをボタンで並べ、最後に実行した結果を出す。
+    //           ボタンは名前でコマンドを呼ぶだけ(何をするかは、コマンドの側にある)。nullptr なら、欄を出さない。
+    void DrawDebugWindow(engine::Application& app, EditorCommandRegistry* commands);
+
+    // キーの、人に見せる名前("F5" など)。ショートカットの表示に使う。
+    const char* GetKeyDisplayName(engine::Key key);
 }
 
 #endif

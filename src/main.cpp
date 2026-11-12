@@ -17,13 +17,13 @@
 
 #if HUSKY_DEVELOPMENT
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
+#include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #endif
 
 #include <cstdint>
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
-#include <functional>
 #include <string>
 
 namespace
@@ -234,22 +234,19 @@ int main()
     }
 
 #if HUSKY_DEVELOPMENT
-    // 【開発ビルドだけ】今のシーンを保存する(エディタの役目)。F5 と、デバッグの窓のボタンの両方から使う。
+    // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
+    // main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
+    tools::EditorCommandRegistry commands;
+    // シーンの保存(scene.save、F5)。書く先は2か所:
     //   1. ソースの assets/scenes/main.json  … 残しておくため(次のビルドで exe の隣にもコピーされる)
     //   2. exe の隣の assets/scenes/main.json … ビルドし直さなくても、次の起動から読まれるように
-    // [&app, scenePath]: app は参照で(main の終わりまで生きている)、scenePath はコピーして持つ。
-    const std::function<void()> saveScene = [&app, scenePath]() {
-        app.SaveSceneFile(std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json");
-        app.SaveSceneFile(scenePath);
-    };
+    commands.Register(tools::MakeSaveSceneCommand({std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json", scenePath}));
 
-    // 開発用の UI: 毎フレーム、tools のデバッグの窓を作る。
-    tools::DebugWindowActions debugActions;
-    debugActions.saveScene = saveScene;
-    // インスペクタは「選んでいるアクター」を覚えておくので、main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
+    // 開発用の UI: 毎フレーム、tools のデバッグの窓(コマンドのボタンつき)とインスペクタを作る。
+    // インスペクタは「選んでいるアクター」を覚えておくので、これも main の中に1つだけ作り、参照で渡す。
     tools::SceneInspector inspector;
-    app.SetDevUiCallback([debugActions, &inspector](engine::Application& application) {
-        tools::DrawDebugWindow(application, debugActions);
+    app.SetDevUiCallback([&commands, &inspector](engine::Application& application) {
+        tools::DrawDebugWindow(application, &commands);
         inspector.Draw(application);
     });
 #endif
@@ -258,7 +255,7 @@ int main()
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。
     // mutable を付けると、ラムダ式の中でその変数を書き換えられる(付けないと const 扱いになる)。
 #if HUSKY_DEVELOPMENT
-    app.SetUpdateCallback([colorIndex = 0, saveScene](engine::Application& application, double) mutable {
+    app.SetUpdateCallback([colorIndex = 0, &commands](engine::Application& application, double) mutable {
 #else
     app.SetUpdateCallback([colorIndex = 0](engine::Application& application, double) mutable {
 #endif
@@ -274,11 +271,8 @@ int main()
         }
 
 #if HUSKY_DEVELOPMENT
-        // 【開発ビルドだけ】F5 で、今のシーンを保存する(デバッグの窓のボタンと同じ)。
-        if (application.GetInput().WasPressed(engine::Key::F5))
-        {
-            saveScene();
-        }
+        // 【開発ビルドだけ】ショートカットのキー(F5 でシーンの保存など)が押されたコマンドを実行する。
+        commands.HandleShortcuts(application);
 #endif
     });
 
