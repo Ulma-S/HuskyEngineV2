@@ -267,7 +267,7 @@ target_include_directories(husky_engine PUBLIC src)
 # render の中の SDL3 は PRIVATE なので、ここを PUBLIC にしても SDL3 は外に漏れない。
 # husky_render は、このファイルの下のほうで定義している。CMake はターゲットの名前を最後にまとめて解決するので、
 # 定義より前に名前を書いてもよい。
-target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render)
+target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render husky_glm) # husky_glm: Transform が glm::vec3 を持つ
 # yyjson は JsonFormat.cpp の中だけで使うので PRIVATE。engine を使う側(exe やテスト)には yyjson のヘッダが見えない。
 target_link_libraries(husky_engine PRIVATE yyjson)
 
@@ -431,6 +431,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
         tests/engine/CameraTests.cpp
+        tests/engine/TransformTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp
         tests/render/SpriteBatchTests.cpp

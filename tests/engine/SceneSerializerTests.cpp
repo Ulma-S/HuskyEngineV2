@@ -72,7 +72,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     Scene* source = CreateRootScene(sourceRegistry);
     Actor* prey = source->Spawn<Actor>();
     prey->name = "うさぎ";
-    prey->x = 5.5f;
+    prey->transform.position.x = 5.5f;
     SpriteComponent* preySprite = prey->AddComponent<SpriteComponent>();
     preySprite->width = 16.0f;
     preySprite->color = {1.0f, 0.5f, 0.25f, 0.75f}; // 構造体(render::Color)のプロパティ
@@ -102,7 +102,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     REQUIRE(loadedPrey != nullptr);
     REQUIRE(loadedHunter != nullptr);
     CHECK(loadedPrey->name == "うさぎ");
-    CHECK(loadedPrey->x == 5.5f);
+    CHECK(loadedPrey->transform.position.x == 5.5f);
     CHECK(loadedHunter->level == 7);
 
     // 参照: target は、読み込んだ側の「うさぎ」を指すように付け替えられている

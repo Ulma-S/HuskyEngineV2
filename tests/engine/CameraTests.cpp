@@ -97,8 +97,8 @@ TEST_CASE("カメラ: シーンにカメラが無ければ画面ちょうどの�
     REQUIRE(actor != nullptr);
     husky::engine::CameraComponent* camera = actor->AddComponent<husky::engine::CameraComponent>();
     REQUIRE(camera != nullptr);
-    actor->x = 50.0f;
-    actor->y = 60.0f;
+    actor->transform.position.x = 50.0f;
+    actor->transform.position.y = 60.0f;
     camera->zoom = 2.0f;
     CHECK(husky::engine::FindSceneCamera(scene) == camera);
 

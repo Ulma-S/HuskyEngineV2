@@ -1,10 +1,11 @@
 // アクター: シーンに置かれる、ゲーム上の意味を持つもの(敵、プレイヤー、弾など)の基底クラス。
-// 名前と位置だけを持つ薄い入れ物。機能(見た目、体力、AI など)は、コンポーネント(Component.h)で足す。
+// 名前と Transform(位置・回転・拡大縮小)だけを持つ薄い入れ物。機能(見た目、体力、AI など)は、コンポーネント(Component.h)で足す。
 #pragma once
 
 #include "core/Guid.h"
 #include "core/ObjectRegistry.h"
 #include "engine/Component.h"
+#include "engine/Transform.h"
 
 #include <cstddef>
 #include <string>
@@ -78,8 +79,9 @@ namespace husky::engine
         // 人は名前で区別すればよく、GUID を意識しなくてよい(インスペクタでは灰色の文字で読むだけ)。
         // 書き換えてよいのは、シーンの読み込み(重なりを直すとき)だけ。
         core::Guid guid;
-        float x = 0.0f; // ワールドでの位置(右が +x、上が +y。今のカメラでは 1 単位 = 1 ピクセルで、画面の左下が原点)
-        float y = 0.0f;
+        // 位置・回転・拡大縮小(Transform.h)。位置はワールドの単位で、右が +x、上が +y。
+        // 今のカメラ(zoom 1)では 1 単位 = 1 ピクセル。保存すると {"position": {"x", "y", "z"}, "rotation", "scale": {...}}。
+        Transform transform;
 
         // 取り付けたコンポーネントのハンドルの一覧。プロパティとして登録しているので、GC がたどる(強い参照)。
         // アクターが生きている間は、そのコンポーネントも生きている。
@@ -88,8 +90,7 @@ namespace husky::engine
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(guid)
-            HUSKY_PROPERTY(x)
-            HUSKY_PROPERTY(y)
+            HUSKY_PROPERTY(transform)
             HUSKY_PROPERTY(components)
         HUSKY_REFLECTION_END()
 

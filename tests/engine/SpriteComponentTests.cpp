@@ -57,8 +57,8 @@ TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコン
     Scene* scene = CreateRootScene(registry);
 
     Actor* first = scene->Spawn<Actor>();
-    first->x = 10.0f;
-    first->y = 20.0f;
+    first->transform.position.x = 10.0f;
+    first->transform.position.y = 20.0f;
     SpriteComponent* firstSprite = first->AddComponent<SpriteComponent>();
     firstSprite->width = 64.0f;
     firstSprite->height = 48.0f;
@@ -67,7 +67,7 @@ TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコン
     scene->Spawn<Actor>(); // スプライトを持たないアクターは描かない
 
     Actor* third = scene->Spawn<Actor>();
-    third->x = 100.0f;
+    third->transform.position.x = 100.0f;
     third->AddComponent<SpriteComponent>();
 
     const std::vector<Sprite> sprites = CollectSprites(*scene);
@@ -92,7 +92,7 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     Actor* withDestroyedSprite = scene->Spawn<Actor>();
     withDestroyedSprite->AddComponent<SpriteComponent>()->Destroy();
     Actor* alive = scene->Spawn<Actor>();
-    alive->x = 5.0f;
+    alive->transform.position.x = 5.0f;
     alive->AddComponent<SpriteComponent>();
 
     destroyedActor->Destroy();

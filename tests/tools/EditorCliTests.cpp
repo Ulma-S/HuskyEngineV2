@@ -150,7 +150,7 @@ TEST_CASE("EditorCli: 読むだけのコマンド(actor.list)は --scene を読�
     const std::string rename = R"({"actor": ")" + guid + R"(", "property": "name", "value": "Player"})";
     CHECK(RunEditorCli({"property.set", rename, "--scene", scene}, folder.Root(), out) == CliExitCode::Success);
     out.clear();
-    CHECK(RunEditorCli({"property.set", R"({"actor": "Player", "property": "x", "value": 64})", "--scene", scene},
+    CHECK(RunEditorCli({"property.set", R"({"actor": "Player", "property": "transform.position.x", "value": 64})", "--scene", scene},
                        folder.Root(), out) == CliExitCode::Success);
     CHECK(out.find("was 0.0") != std::string::npos);
 
@@ -160,7 +160,7 @@ TEST_CASE("EditorCli: 読むだけのコマンド(actor.list)は --scene を読�
     const husky::engine::Actor* actor = check.GetRegistry().Resolve<husky::engine::Actor>(check.GetScene().actors[0]);
     REQUIRE(actor != nullptr);
     CHECK(actor->name == "Player");
-    CHECK(actor->x == 64.0f);
+    CHECK(actor->transform.position.x == 64.0f);
     CHECK(actor->guid.ToString() == guid); // 保存して読み戻しても、同じ guid
 }
 

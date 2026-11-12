@@ -20,7 +20,7 @@ namespace
     public:
         void Tick(double dt) override
         {
-            x += static_cast<float>(100.0 * dt); // 秒速 100
+            transform.position.x += static_cast<float>(100.0 * dt); // 秒速 100
             ++tickCount;
         }
         int tickCount = 0;
@@ -84,7 +84,7 @@ TEST_CASE("Scene: Tick は全アクターの Tick を、渡した dt で呼ぶ")
         scene->Tick(1.0 / 60.0); // 固定の dt で1秒分
     }
     CHECK(a->tickCount == 60);
-    CHECK(b->x == doctest::Approx(100.0f)); // 秒速 100 で1秒
+    CHECK(b->transform.position.x == doctest::Approx(100.0f)); // 秒速 100 で1秒
 }
 
 TEST_CASE("Scene: Destroy したアクターは、そのフレームの残りでは更新されず、フレームの終わりに消える")
@@ -161,11 +161,11 @@ TEST_CASE("Scene: ForEachActor は、生きているアクターだけを一覧�
     CHECK(visited == std::vector<Actor*>{a, c});
 }
 
-TEST_CASE("Actor: 名前と位置は、リフレクションのプロパティとして見える")
+TEST_CASE("Actor: 名前と Transform(位置など)は、リフレクションのプロパティとして見える")
 {
     CHECK(Actor::StaticType().FindProperty("name") != nullptr);
-    CHECK(Actor::StaticType().FindProperty("x") != nullptr);
-    CHECK(Mover::StaticType().FindProperty("y") != nullptr); // 子クラスからも見える
+    CHECK(Actor::StaticType().FindProperty("transform") != nullptr);
+    CHECK(Mover::StaticType().FindProperty("transform") != nullptr); // 子クラスからも見える
 }
 
 namespace
@@ -181,7 +181,7 @@ namespace
             const husky::engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
             if (input != nullptr && input->IsDown(husky::platform::Key::Space))
             {
-                x += static_cast<float>(100.0 * dt);
+                transform.position.x += static_cast<float>(100.0 * dt);
             }
         }
     };
@@ -216,7 +216,7 @@ TEST_CASE("Scene: 入力は SetInput で渡したものを返し、アクター�
 
     CHECK(scene->GetInput() == nullptr);
     scene->Tick(1.0); // 入力が無くても落ちない
-    CHECK(reader->x == 0.0f);
+    CHECK(reader->transform.position.x == 0.0f);
 
     husky::engine::Input input;
     scene->SetInput(&input);
@@ -224,7 +224,7 @@ TEST_CASE("Scene: 入力は SetInput で渡したものを返し、アクター�
 
     input.BeginFrame({husky::platform::KeyEvent{husky::platform::Key::Space, true}}); // Space を押す
     scene->Tick(0.5);
-    CHECK(reader->x == doctest::Approx(50.0));
+    CHECK(reader->transform.position.x == doctest::Approx(50.0));
 
     scene->SetInput(nullptr); // 外せる
     CHECK(scene->GetInput() == nullptr);

@@ -361,8 +361,8 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
             }
-            actor->x = x;
-            actor->y = y;
+            actor->transform.position.x = x;
+            actor->transform.position.y = y;
             // 位置は %g で短く書く(std::to_string は 100.000000 のように桁を並べて読みにくい)。
             char position[64];
             std::snprintf(position, sizeof(position), " at (%g, %g)", static_cast<double>(x), static_cast<double>(y));
@@ -405,6 +405,61 @@ namespace husky::tools
                 return false; // ハンドル、配列、構造体、アセットの参照、guid は、今は書き換えない
             }
         }
+
+        // 「transform.position.x」のような、点でつないだ道筋を区切る。
+        std::vector<std::string> SplitPropertyPath(const std::string& path)
+        {
+            std::vector<std::string> parts;
+            std::size_t start = 0;
+            while (true)
+            {
+                const std::size_t dot = path.find('.', start);
+                parts.push_back(path.substr(start, dot == std::string::npos ? std::string::npos : dot - start));
+                if (dot == std::string::npos)
+                {
+                    return parts;
+                }
+                start = dot + 1;
+            }
+        }
+
+        // 道筋をたどって、最後のプロパティを探す。途中は構造体でなければならない。見つからなければ nullptr。
+        //   例: Actor の "transform.position.x" → Transform の position(glm::vec3)→ その x(float)
+        const core::Property* FindPropertyByPath(const core::TypeInfo& type, const std::vector<std::string>& parts)
+        {
+            const core::TypeInfo* current = &type;
+            const core::Property* property = nullptr;
+            for (const std::string& part : parts)
+            {
+                if (current == nullptr) // 前の段が構造体ではなかった(中に入れない)
+                {
+                    return nullptr;
+                }
+                property = current->FindProperty(part.c_str());
+                if (property == nullptr)
+                {
+                    return nullptr;
+                }
+                current = property->GetStructType(); // 構造体なら、次の段はその中を探す
+            }
+            return property;
+        }
+
+        // property.set で書き換えられるプロパティの道筋を、構造体の中まで入って全部集める(選択肢の一覧に使う)。
+        void CollectSettablePaths(const core::TypeInfo& type, const std::string& prefix, std::vector<EditorArgChoice>& out)
+        {
+            type.ForEachProperty([&](const core::Property& property) {
+                const std::string path = prefix + property.GetName();
+                if (const core::TypeInfo* structType = property.GetStructType())
+                {
+                    CollectSettablePaths(*structType, path + ".", out);
+                }
+                else if (IsSettableProperty(property))
+                {
+                    out.push_back({path, std::string()});
+                }
+            });
+        }
     }
 
     std::string DescribeActor(const engine::Actor& actor)
@@ -412,7 +467,7 @@ namespace husky::tools
         const char* typeName = actor.GetType().GetName();
         if (actor.name.empty())
         {
-            return std::string(typeName) + " at " + FormatPosition(actor.x, actor.y);
+            return std::string(typeName) + " at " + FormatPosition(actor.transform.position.x, actor.transform.position.y);
         }
         return actor.name + " (" + typeName + ")";
     }
@@ -454,7 +509,7 @@ namespace husky::tools
         {
             const engine::Actor& actor = *matches[i];
             error += "\n  " + actor.guid.ToString() + "  " + actor.GetType().GetName() + " at " +
-                     FormatPosition(actor.x, actor.y);
+                     FormatPosition(actor.transform.position.x, actor.transform.position.y);
         }
         if (matches.size() > MaxListed)
         {
@@ -507,8 +562,8 @@ namespace husky::tools
                 item.Set("guid", engine::ArchiveValue(actor.guid.ToString()));
                 item.Set("name", engine::ArchiveValue(actor.name));
                 item.Set("type", engine::ArchiveValue(actor.GetType().GetName()));
-                item.Set("x", engine::ArchiveValue(actor.x));
-                item.Set("y", engine::ArchiveValue(actor.y));
+                item.Set("x", engine::ArchiveValue(actor.transform.position.x));
+                item.Set("y", engine::ArchiveValue(actor.transform.position.y));
             });
             if (count > MaxDetails)
             {
@@ -534,7 +589,8 @@ namespace husky::tools
         EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
         actorArg.choices = ActorChoices;
         // 選べるプロパティは、選んだアクターの型で決まる(ほかの引数 actor を見て一覧を作る)。
-        EditorCommandArg propertyArg{"property", EditorArgType::String, "Name of the property, like \"x\"", true};
+        EditorCommandArg propertyArg{"property", EditorArgType::String,
+                                     "Name of the property. Use dots to go inside, like \"transform.position.x\"", true};
         propertyArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
@@ -543,12 +599,7 @@ namespace husky::tools
                 actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
             if (actor != nullptr)
             {
-                actor->GetType().ForEachProperty([&choices](const core::Property& property) {
-                    if (IsSettableProperty(property))
-                    {
-                        choices.push_back({property.GetName(), std::string()});
-                    }
-                });
+                CollectSettablePaths(actor->GetType(), std::string(), choices);
             }
             return choices;
         };
@@ -566,7 +617,8 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string& propertyName = context.args.Find("property")->AsString();
-            const core::Property* property = actor->GetType().FindProperty(propertyName.c_str());
+            const std::vector<std::string> path = SplitPropertyPath(propertyName);
+            const core::Property* property = FindPropertyByPath(actor->GetType(), path);
             if (property == nullptr)
             {
                 return EditorCommandResult::Failure(DescribeActor(*actor) + " has no property '" + propertyName + "'");
@@ -581,19 +633,28 @@ namespace husky::tools
             // 前の値(人に見せるため)。保存と同じ道具で、このアクターのプロパティを値の木にして、その名前のものを取り出す。
             const engine::ArchiveValue before = engine::ObjectSerializer::Write(*actor);
             std::string oldText;
-            if (const engine::ArchiveValue* oldProperties = before.Find("properties"))
+            // 道筋のとおりに、入れ子のオブジェクトを1段ずつ下りる。
+            const engine::ArchiveValue* old = before.Find("properties");
+            for (std::size_t i = 0; i < path.size() && old != nullptr; ++i)
             {
-                if (const engine::ArchiveValue* old = oldProperties->Find(propertyName))
-                {
-                    engine::JsonFormat::Write(*old, oldText, false);
-                }
+                old = old->Find(path[i]);
+            }
+            if (old != nullptr)
+            {
+                engine::JsonFormat::Write(*old, oldText, false);
             }
 
             // 新しい値を書く: シーンの読み込みと同じ道具(ObjectSerializer::ReadProperties)を通すので、
             // 種類の確かめ(「数ではありません」など)も、ファイルを読むときとそろう。
+            // 構造体の中の値は、ファイルと同じ入れ子の形にして渡す。構造体の読み込みは書いてある値だけを書き換えるので、
+            //   "transform.position.x" → {"transform": {"position": {"x": 値}}}(ほかの値はそのまま)
             engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
-            engine::ArchiveValue& properties = entry.Set("properties", engine::ArchiveValue::MakeObject());
-            properties.Set(propertyName, *context.args.Find("value"));
+            engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
+            for (std::size_t i = 0; i + 1 < path.size(); ++i)
+            {
+                parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
+            }
+            parent->Set(path.back(), *context.args.Find("value"));
             const engine::ObjectSerializer::ReadReport report = engine::ObjectSerializer::ReadProperties(entry, *actor);
             if (!report.warnings.empty())
             {

@@ -30,11 +30,11 @@ namespace
     public:
         void Tick(double dt) override
         {
-            x += static_cast<float>(100.0 * dt);
+            transform.position.x += static_cast<float>(100.0 * dt);
             const Scene* scene = GetScene();
             if (scene != nullptr && scene->GetInput()->IsDown(Key::Space))
             {
-                y += static_cast<float>(100.0 * dt);
+                transform.position.y += static_cast<float>(100.0 * dt);
             }
         }
     };
@@ -65,7 +65,7 @@ TEST_CASE("Application: StepFrame は固定した dt でシーンを更新し、
 
     CHECK(app.StepFrame(0, NoEvents) == doctest::Approx(0.1));
     CHECK(app.StepFrame(0, NoEvents) == doctest::Approx(0.1));
-    CHECK(walker->x == doctest::Approx(20.0)); // 100 × 0.1 × 2 フレーム
+    CHECK(walker->transform.position.x == doctest::Approx(20.0)); // 100 × 0.1 × 2 フレーム
 }
 
 TEST_CASE("Application: StepFrame に渡したキーイベントが、アクターの読む入力になる")
@@ -76,13 +76,13 @@ TEST_CASE("Application: StepFrame に渡したキーイベントが、アクタ�
 
     app.StepFrame(0, {KeyEvent{Key::Space, true}}); // Space を押す
     CHECK(app.GetInput().WasPressed(Key::Space));
-    CHECK(walker->y == doctest::Approx(10.0));
+    CHECK(walker->transform.position.y == doctest::Approx(10.0));
 
     app.StepFrame(0, NoEvents); // 押しっぱなし
-    CHECK(walker->y == doctest::Approx(20.0));
+    CHECK(walker->transform.position.y == doctest::Approx(20.0));
 
     app.StepFrame(0, {KeyEvent{Key::Space, false}}); // 離す
-    CHECK(walker->y == doctest::Approx(20.0));
+    CHECK(walker->transform.position.y == doctest::Approx(20.0));
 }
 
 TEST_CASE("Application: 更新コールバックは、シーンの更新の前に、同じ dt で呼ばれる")
@@ -207,7 +207,7 @@ TEST_CASE("Application: LoadSceneFile は、保存したシーンのファイル
     // 読み込んだアクターも、普通に更新される
     app.GetClock().SetFixedDelta(0.1);
     app.StepFrame(0, NoEvents);
-    CHECK(loaded->x == doctest::Approx(10.0f));
+    CHECK(loaded->transform.position.x == doctest::Approx(10.0f));
 
     husky::platform::RemoveFile(path.c_str());
 }
@@ -247,7 +247,7 @@ TEST_CASE("Application(開発ビルド): SaveSceneFile で保存したものを�
         Application source;
         Walker* walker = source.GetScene().Spawn<Walker>();
         walker->name = "保存した";
-        walker->y = 42.0f;
+        walker->transform.position.y = 42.0f;
         REQUIRE(source.SaveSceneFile(path));
     }
 
@@ -262,7 +262,7 @@ TEST_CASE("Application(開発ビルド): SaveSceneFile で保存したものを�
     Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetScene().actors[0]);
     REQUIRE(loaded != nullptr);
     CHECK(loaded->name == "保存した");
-    CHECK(loaded->y == 42.0f);
+    CHECK(loaded->transform.position.y == 42.0f);
 
     husky::platform::RemoveFile(path.c_str());
 }

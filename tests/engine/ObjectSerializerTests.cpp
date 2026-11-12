@@ -47,7 +47,7 @@ TEST_CASE("ObjectSerializer: 型の名前と、親クラスから順に値のプ
     ObjectRegistry registry;
     SaveTestEnemy* enemy = registry.Create<SaveTestEnemy>();
     enemy->name = "スライム";
-    enemy->x = 12.5f;
+    enemy->transform.position.x = 12.5f;
     enemy->hp = -3;
     enemy->angry = true;
 
@@ -57,7 +57,7 @@ TEST_CASE("ObjectSerializer: 型の名前と、親クラスから順に値のプ
     const ArchiveValue& properties = *saved.Find("properties");
     CHECK(properties.GetMemberName(0) == "name"); // Actor のプロパティが先
     CHECK(properties.Find("name")->AsString() == "スライム");
-    CHECK(properties.Find("x")->AsFloat() == doctest::Approx(12.5));
+    CHECK(properties.Find("transform")->Find("position")->Find("x")->AsFloat() == doctest::Approx(12.5)); // 構造体は入れ子になる
     CHECK(properties.Find("hp")->AsInt() == -3);
     CHECK(properties.Find("angry")->AsBool());
     CHECK(properties.Find("target") == nullptr);     // ハンドルは書かない
@@ -70,8 +70,8 @@ TEST_CASE("ObjectSerializer: JSON の文字列を通して、別のオブジェ�
     ObjectRegistry registry;
     SaveTestEnemy* original = registry.Create<SaveTestEnemy>();
     original->name = "ゴブリン";
-    original->x = 0.1f;
-    original->y = -7.25f;
+    original->transform.position.x = 0.1f;
+    original->transform.position.y = -7.25f;
     original->angry = true;
     original->hp = 2147483647; // int32 の最大
     original->speed = 3.3f;
@@ -86,10 +86,10 @@ TEST_CASE("ObjectSerializer: JSON の文字列を通して、別のオブジェ�
     const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *copy);
 
     CHECK(report.warnings.empty());
-    CHECK(report.readCount == 8); // name, guid(シーンに入れていないので null), x, y, angry, hp, speed, title
+    CHECK(report.readCount == 13); // name, guid(シーンに入れていないので null), transform(位置 x・y・z、回転、拡大縮小 x・y・z), angry, hp, speed, title
     CHECK(copy->name == "ゴブリン");
-    CHECK(copy->x == 0.1f); // float は文字列を通しても、ぴったり同じ値に戻る
-    CHECK(copy->y == -7.25f);
+    CHECK(copy->transform.position.x == 0.1f); // float は文字列を通しても、ぴったり同じ値に戻る
+    CHECK(copy->transform.position.y == -7.25f);
     CHECK(copy->angry);
     CHECK(copy->hp == 2147483647);
     CHECK(copy->speed == 3.3f);
@@ -100,7 +100,7 @@ TEST_CASE("ObjectSerializer: float は短い形で書かれる(0.1f は 0.1)")
 {
     ObjectRegistry registry;
     SaveTestEnemy* enemy = registry.Create<SaveTestEnemy>();
-    enemy->x = 0.1f;
+    enemy->transform.position.x = 0.1f;
 
     std::string text;
     REQUIRE(JsonFormat::Write(ObjectSerializer::Write(*enemy), text, false));
@@ -121,7 +121,7 @@ TEST_CASE("ObjectSerializer: 無いプロパティは今の値のまま。知ら
             "unknown": 1,
             "angry": true,
             "target": 5,
-            "x": 3000000000
+            "transform": { "position": { "x": 3000000000 } }
         }
     })", loaded));
 
@@ -131,7 +131,7 @@ TEST_CASE("ObjectSerializer: 無いプロパティは今の値のまま。知ら
     CHECK(enemy->speed == 2.0f);                  // 整数でも float に読める
     CHECK(enemy->angry);
     CHECK(enemy->title == "なし");                // ファイルに無い → そのまま
-    CHECK(enemy->x == doctest::Approx(3.0e9f));   // x は float なので、大きな整数も読める
+    CHECK(enemy->transform.position.x == doctest::Approx(3.0e9f));   // 構造体の中の値も、書いてあるものだけ読む。x は float なので、大きな整数も読める
     CHECK(report.readCount == 3);                 // speed, angry, x
     REQUIRE(report.warnings.size() == 4);         // 型の名前、hp、unknown、target
     CHECK(report.warnings[0].find("型が違います") != std::string::npos);

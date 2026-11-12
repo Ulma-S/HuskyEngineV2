@@ -15,7 +15,7 @@ namespace
     {
         HUSKY_OBJECT(Walker, Actor)
     public:
-        void Tick(double) override { x += 1.0f; }
+        void Tick(double) override { transform.position.x += 1.0f; }
     };
 }
 
@@ -28,22 +28,22 @@ TEST_CASE("Application: シーンの更新を止めている間は Tick を呼�
     CHECK(app.IsSceneTickEnabled()); // 既定は動かす(製品とテスト)
 
     app.StepFrame(0, {});
-    CHECK(walker->x == 1.0f);
+    CHECK(walker->transform.position.x == 1.0f);
 
     app.SetSceneTickEnabled(false);
     app.StepFrame(0, {});
     app.StepFrame(0, {});
-    CHECK(walker->x == 1.0f);
+    CHECK(walker->transform.position.x == 1.0f);
 
     app.RequestSceneStep();
     app.StepFrame(0, {});
-    CHECK(walker->x == 2.0f);
+    CHECK(walker->transform.position.x == 2.0f);
     app.StepFrame(0, {}); // 頼んだのは1回だけ
-    CHECK(walker->x == 2.0f);
+    CHECK(walker->transform.position.x == 2.0f);
 
     app.SetSceneTickEnabled(true);
     app.StepFrame(0, {});
-    CHECK(walker->x == 3.0f);
+    CHECK(walker->transform.position.x == 3.0f);
 }
 
 #if HUSKY_DEVELOPMENT
@@ -81,7 +81,7 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     app.GetClock().SetFixedDelta(0.01);
     Walker* original = app.GetScene().Spawn<Walker>();
     REQUIRE(original != nullptr);
-    original->x = 10.0f;
+    original->transform.position.x = 10.0f;
     const husky::core::Guid originalGuid = original->guid;
 
     EditorPlayMode mode;
@@ -91,13 +91,13 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     CHECK(mode.GetState() == EditorPlayMode::State::Edit);
 
     app.StepFrame(0, {});
-    CHECK(original->x == 10.0f); // 編集中は動かない
+    CHECK(original->transform.position.x == 10.0f); // 編集中は動かない
 
     CHECK(commands.Execute("editor.play", app).succeeded);
     CHECK(mode.GetState() == EditorPlayMode::State::Playing);
     app.StepFrame(0, {});
     app.StepFrame(0, {});
-    CHECK(original->x == 12.0f);
+    CHECK(original->transform.position.x == 12.0f);
     original->Destroy(); // 再生中に壊しても
     app.StepFrame(0, {});
 
@@ -109,12 +109,12 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     Walker* restored = FindWalker(app, count);
     CHECK(count == 1); // 元の1体だけ(再生中のものと、控えから戻したものが両方いたりしない)
     REQUIRE(restored != nullptr);
-    CHECK(restored->x == 10.0f); // Play を押す前の位置
+    CHECK(restored->transform.position.x == 10.0f); // Play を押す前の位置
     CHECK(restored->guid == originalGuid); // 作り直しても、変わらない ID は同じ(コマンドが Stop の後も同じアクターを指せる)
     CHECK(app.GetScene().actors.size() == 1);
 
     app.StepFrame(0, {});
-    CHECK(restored->x == 10.0f); // 戻った後は、また編集中なので動かない
+    CHECK(restored->transform.position.x == 10.0f); // 戻った後は、また編集中なので動かない
 }
 
 TEST_CASE("EditorPlayMode: 一時停止すると止まり、コマ送りで1フレームずつ進み、Play で続きから動く")
@@ -130,29 +130,29 @@ TEST_CASE("EditorPlayMode: 一時停止すると止まり、コマ送りで1フ�
 
     REQUIRE(commands.Execute("editor.play", app).succeeded);
     app.StepFrame(0, {});
-    CHECK(walker->x == 1.0f);
+    CHECK(walker->transform.position.x == 1.0f);
 
     REQUIRE(commands.Execute("editor.pause", app).succeeded);
     CHECK(mode.GetState() == EditorPlayMode::State::Paused);
     app.StepFrame(0, {});
-    CHECK(walker->x == 1.0f);
+    CHECK(walker->transform.position.x == 1.0f);
 
     REQUIRE(commands.Execute("editor.step", app).succeeded);
     app.StepFrame(0, {});
     app.StepFrame(0, {});
-    CHECK(walker->x == 2.0f);
+    CHECK(walker->transform.position.x == 2.0f);
 
     REQUIRE(commands.Execute("editor.play", app).succeeded); // 続きから(控えは取り直さない)
     CHECK(mode.GetState() == EditorPlayMode::State::Playing);
     app.StepFrame(0, {});
-    CHECK(walker->x == 3.0f);
+    CHECK(walker->transform.position.x == 3.0f);
 
     REQUIRE(commands.Execute("editor.stop", app).succeeded);
     app.StepFrame(0, {});
     std::size_t count = 0;
     Walker* restored = FindWalker(app, count);
     REQUIRE(restored != nullptr);
-    CHECK(restored->x == 0.0f); // 最初の Play の前に戻る
+    CHECK(restored->transform.position.x == 0.0f); // 最初の Play の前に戻る
 }
 
 TEST_CASE("EditorPlayMode: 今の状態で使えない操作は、理由つきで断る(シーンの保存は編集中だけ)")

@@ -281,8 +281,8 @@ TEST_CASE("EditorCommands: アクターを置くコマンドは、型の名前�
     REQUIRE(app.GetScene().actors.size() == 1);
     const husky::engine::Actor* actor = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetScene().actors[0]);
     REQUIRE(actor != nullptr);
-    CHECK(actor->x == 100.0f);
-    CHECK(actor->y == 50.5f);
+    CHECK(actor->transform.position.x == 100.0f);
+    CHECK(actor->transform.position.y == 50.5f);
     CHECK(actor->GetScene() == &app.GetScene());
 
     REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "SpriteComponent"})", args));
@@ -389,7 +389,7 @@ namespace
         actors.enemyA->name = "Enemy";
         actors.enemyB->name = "Enemy";
         actors.player->name = "Player";
-        actors.enemyB->x = 50.0f;
+        actors.enemyB->transform.position.x = 50.0f;
         return actors;
     }
 
@@ -450,16 +450,16 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     EditorCommandRegistry commands;
     REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
 
-    EditorCommandResult result = commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "x", "value": 120})"));
+    EditorCommandResult result = commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": 120})"));
     CHECK(result.succeeded);
-    CHECK(actors.player->x == 120.0f);
-    CHECK(result.message == "Set Player (Actor).x = 120");
+    CHECK(actors.player->transform.position.x == 120.0f);
+    CHECK(result.message == "Set Player (Actor).transform.position.x = 120");
     REQUIRE_FALSE(result.details.empty());
     CHECK(result.details[0] == "was 0.0");
 
     // 名前が重なっていると、名前では指せない(2体いる)
-    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Enemy", "property": "x", "value": 1})")).succeeded);
-    CHECK(actors.enemyA->x == 0.0f);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Enemy", "property": "transform.position.x", "value": 1})")).succeeded);
+    CHECK(actors.enemyA->transform.position.x == 0.0f);
 
     // 名前が重なっていても、guid なら指せる
     const std::string args = std::string(R"({"actor": ")") + actors.enemyB->guid.ToString() +
@@ -469,8 +469,8 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     CHECK(actors.enemyA->name == "Enemy"); // もう1体は変わらない
 
     // 断るもの(どれも値は変えない)
-    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "x", "value": "left"})")).succeeded);
-    CHECK(actors.player->x == 120.0f);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": "left"})")).succeeded);
+    CHECK(actors.player->transform.position.x == 120.0f);
     const husky::core::Guid guidBefore = actors.player->guid;
     CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "guid", "value": "x"})")).succeeded);
     CHECK(actors.player->guid == guidBefore);
@@ -483,9 +483,23 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     {
         names.push_back(choice.value);
     }
-    CHECK(std::find(names.begin(), names.end(), "x") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "transform.position.x") != names.end());
     CHECK(std::find(names.begin(), names.end(), "guid") == names.end());
     CHECK(std::find(names.begin(), names.end(), "components") == names.end());
+
+    // 構造体(Transform)の中は「点でつないだ道筋」で指す。書いた値だけが変わり、ほかの値はそのまま。
+    actors.player->transform.position.z = 3.0f;
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.y", "value": 7})")).succeeded);
+    CHECK(actors.player->transform.position.x == 120.0f);
+    CHECK(actors.player->transform.position.y == 7.0f);
+    CHECK(actors.player->transform.position.z == 3.0f);
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.rotation", "value": 45})")).succeeded);
+    CHECK(actors.player->transform.rotation == 45.0f);
+    // 構造体そのもの、構造体の中に無い名前、構造体ではないものの中は、断る
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform", "value": 1})")).succeeded);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.w", "value": 1})")).succeeded);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "name.x", "value": 1})")).succeeded);
+    CHECK(actors.player->transform.position.y == 7.0f);
 
     // アクターの選択肢は、表示が人向け(名前と型)で、値が guid
     const std::vector<husky::tools::EditorArgChoice> actorChoices =

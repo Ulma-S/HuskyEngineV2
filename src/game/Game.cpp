@@ -53,8 +53,8 @@ namespace husky::game
                     std::printf("跳ね回るアクターを作れませんでした(%d 個目)\n", i);
                     return;
                 }
-                bouncer->x = static_cast<float>(randomX(random));
-                bouncer->y = static_cast<float>(randomY(random));
+                bouncer->transform.position.x = static_cast<float>(randomX(random));
+                bouncer->transform.position.y = static_cast<float>(randomY(random));
                 bouncer->vx = static_cast<float>(randomSpeed(random));
                 bouncer->vy = static_cast<float>(randomSpeed(random));
                 sprite->width = BouncerSize;
@@ -67,8 +67,8 @@ namespace husky::game
     void BouncerActor::Tick(double dt)
     {
         const float step = static_cast<float>(dt);
-        MoveAndBounce(x, vx, step, ScreenWidth - BouncerSize);
-        MoveAndBounce(y, vy, step, ScreenHeight - BouncerSize);
+        MoveAndBounce(transform.position.x, vx, step, ScreenWidth - BouncerSize);
+        MoveAndBounce(transform.position.y, vy, step, ScreenHeight - BouncerSize);
     }
 
     void PlayerActor::Tick(double dt)
@@ -89,8 +89,8 @@ namespace husky::game
 
         // 速さ × dt = このフレームで進む距離。フレームレートが違っても、1秒で進む距離は同じになる。
         const float step = moveSpeed * static_cast<float>(dt);
-        x += moveX * step;
-        y += moveY * step;
+        transform.position.x += moveX * step;
+        transform.position.y += moveY * step;
     }
 
     void RegisterGameTypes(core::TypeRegistry& types)
@@ -114,8 +114,8 @@ namespace husky::game
         {
             camera->name = "MainCamera";
             camera->AddComponent<engine::CameraComponent>();
-            camera->x = ScreenWidth / 2.0f;
-            camera->y = ScreenHeight / 2.0f;
+            camera->transform.position.x = ScreenWidth / 2.0f;
+            camera->transform.position.y = ScreenHeight / 2.0f;
         }
 
         if (PlayerActor* player = scene.Spawn<PlayerActor>())
@@ -136,8 +136,8 @@ namespace husky::game
             {
                 animator->Play(CycleAnimationId);
             }
-            player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
-            player->y = (ScreenHeight - PlayerSize) / 2.0f;
+            player->transform.position.x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
+            player->transform.position.y = (ScreenHeight - PlayerSize) / 2.0f;
         }
     }
 }

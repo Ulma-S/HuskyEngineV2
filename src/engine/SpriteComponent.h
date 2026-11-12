@@ -78,8 +78,8 @@ namespace husky::engine
                 return;
             }
             render::Sprite sprite;
-            sprite.x = actor.x;
-            sprite.y = actor.y;
+            sprite.x = actor.transform.position.x;
+            sprite.y = actor.transform.position.y;
             sprite.width = spriteComponent->width;
             sprite.height = spriteComponent->height;
             sprite.color = spriteComponent->color;

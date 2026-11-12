@@ -26,6 +26,7 @@ namespace husky::engine
         {
             return MakeScreenCamera(screenWidth, screenHeight);
         }
-        return MakeOrthographicCamera(owner->x, owner->y, camera->zoom, screenWidth, screenHeight);
+        const glm::vec3& position = owner->transform.position;
+        return MakeOrthographicCamera(position.x, position.y, camera->zoom, screenWidth, screenHeight);
     }
 }

@@ -30,8 +30,8 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     // カメラは画面の真ん中にいる
     const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
     REQUIRE(camera != nullptr);
-    CHECK(camera->GetOwner()->x == doctest::Approx(husky::game::ScreenWidth / 2.0f));
-    CHECK(camera->GetOwner()->y == doctest::Approx(husky::game::ScreenHeight / 2.0f));
+    CHECK(camera->GetOwner()->transform.position.x == doctest::Approx(husky::game::ScreenWidth / 2.0f));
+    CHECK(camera->GetOwner()->transform.position.y == doctest::Approx(husky::game::ScreenHeight / 2.0f));
 
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
@@ -46,7 +46,7 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     const auto* otherFirst = other.GetRegistry().Resolve<husky::game::BouncerActor>(other.GetScene().actors.front());
     REQUIRE(first != nullptr);
     REQUIRE(otherFirst != nullptr);
-    CHECK(first->x == otherFirst->x);
+    CHECK(first->transform.position.x == otherFirst->transform.position.x);
     CHECK(first->vy == otherFirst->vy);
 
     // ゲームの型を登録したアプリなら、保存したシーンを読み戻せる(エディタがシーンを扱うときと同じ)
@@ -68,13 +68,13 @@ TEST_CASE("Game: プレイヤーは上キーで +y(上)へ、下キーで -y(下
     app.GetClock().SetFixedDelta(0.1);
     auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
     REQUIRE(player != nullptr);
-    player->y = 100.0f;
+    player->transform.position.y = 100.0f;
 
     // 上キーを押したまま 1 フレーム: 速さ 300 × 0.1 秒 = 30 だけ上へ
     app.StepFrame(0, {KeyEvent{Key::Up, true}});
-    CHECK(player->y == doctest::Approx(130.0f));
+    CHECK(player->transform.position.y == doctest::Approx(130.0f));
 
     // 上キーを離し、下キーを押したまま 1 フレーム: 30 だけ下へ戻る
     app.StepFrame(0, {KeyEvent{Key::Up, false}, KeyEvent{Key::Down, true}});
-    CHECK(player->y == doctest::Approx(100.0f));
+    CHECK(player->transform.position.y == doctest::Approx(100.0f));
 }
