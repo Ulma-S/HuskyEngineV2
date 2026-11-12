@@ -93,6 +93,14 @@ namespace husky::engine
         // ウィンドウも GPU も使わないので、テストからも呼べる。
         bool LoadSceneFile(const std::string& path);
 
+#if HUSKY_DEVELOPMENT
+        // 【開発ビルドだけ】今のシーンを、シーンのファイル(JSON、読みやすい形)に保存する。
+        // 保存はエディタの役目なので、製品(Release)にはコードごと入らない。
+        // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
+        // 戻り値: 保存できたら true(警告はログに出す)。
+        bool SaveSceneFile(const std::string& path);
+#endif
+
         // platform を初期化し、ウィンドウと描画を用意して、終了が要求されるまでゲームループを回す。
         // 閉じるボタンか Escape で終わる。戻り値: プロセスの終了コード(0 が正常)。
         int Run(const ApplicationDesc& desc);

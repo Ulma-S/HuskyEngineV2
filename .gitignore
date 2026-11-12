@@ -8,3 +8,8 @@
 .vs/
 *.user
 CMakeUserPresets.json
+
+# 開発ビルドの F5 で保存する、乱数で大量に並べただけの動作確認用のシーン(手元で作り直せるので管理しない)。
+# 中身を作り込んだシーンは、別の名前で assets/scenes/ に置いて管理する。
+/assets/scenes/main.json
+/assets/scenes/main.json.tmp

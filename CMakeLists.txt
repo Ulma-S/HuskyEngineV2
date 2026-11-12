@@ -109,6 +109,12 @@ function(husky_set_compile_options target)
             target_link_options(${target} PRIVATE /INCREMENTAL:NO /DEBUG)
         endif()
     endif()
+
+    # 開発ビルドの印。Debug の構成(ASan のビルドも Debug)でだけ HUSKY_DEVELOPMENT=1 を定義する。
+    # Release は「製品」として扱い、エディタの機能(シーンの保存など)は #if HUSKY_DEVELOPMENT でコードごと外す。
+    # $<$<CONFIG:Debug>:...> は「ジェネレータ式」。Visual Studio のように1つのソリューションに Debug と Release が
+    # 同居する場合でも、ビルドする構成ごとに中身を切り替えられる(普通の if では、生成のときに1回しか判断できない)。
+    target_compile_definitions(${target} PRIVATE $<$<CONFIG:Debug>:HUSKY_DEVELOPMENT=1>)
 endfunction()
 
 # exe を ASan 付きで動かすために、ASan の実行時ライブラリ(DLL)を exe の隣へコピーする。
@@ -272,6 +278,10 @@ add_executable(HuskyEngineV2
 )
 husky_set_compile_options(HuskyEngineV2)
 husky_copy_asan_runtime(HuskyEngineV2)
+
+# 開発ビルドだけ、ソースのフォルダの場所を教える(エディタの機能が、ソースの assets/ にシーンを保存するため)。
+# この PC の場所が exe に埋め込まれるが、開発ビルドだけで、製品(Release)には入らない。
+target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
 target_link_libraries(HuskyEngineV2 PRIVATE husky_engine husky_render husky_platform)

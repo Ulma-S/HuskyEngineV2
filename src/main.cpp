@@ -183,7 +183,8 @@ int main()
     // Space を押すと、背景色を2色で切り替える(ゲーム固有の毎フレームの処理)。
     // [colorIndex = 0] は、ラムダ式が自分用の変数 colorIndex を持つという意味(初期値 0)。
     // mutable を付けると、ラムダ式の中でその変数を書き換えられる(付けないと const 扱いになる)。
-    app.SetUpdateCallback([colorIndex = 0](engine::Application& application, double) mutable {
+    // [colorIndex = 0, scenePath] の scenePath は、外の変数 scenePath をコピーして持つという意味。
+    app.SetUpdateCallback([colorIndex = 0, scenePath](engine::Application& application, double) mutable {
         static const husky::render::Color colors[] = {
             {0.10f, 0.12f, 0.20f, 1.0f}, // 紺
             {0.20f, 0.45f, 0.30f, 1.0f}, // 緑
@@ -194,6 +195,19 @@ int main()
             application.SetClearColor(colors[colorIndex]);
             std::printf("色を切り替えました: %d\n", colorIndex);
         }
+
+#if HUSKY_DEVELOPMENT
+        // 【開発ビルドだけ】F5 で、今のシーンを保存する(エディタの役目。後で ImGui のエディタ(tools)に移す)。
+        //   1. ソースの assets/scenes/main.json  … 残しておくため(次のビルドで exe の隣にもコピーされる)
+        //   2. exe の隣の assets/scenes/main.json … ビルドし直さなくても、次の起動から読まれるように
+        if (application.GetInput().WasPressed(engine::Key::F5))
+        {
+            application.SaveSceneFile(std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json");
+            application.SaveSceneFile(scenePath);
+        }
+#else
+        (void)scenePath; // 製品では使わない(未使用の警告を消す)
+#endif
     });
 
     engine::ApplicationDesc desc;

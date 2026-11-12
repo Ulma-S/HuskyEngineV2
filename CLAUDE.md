@@ -35,6 +35,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - render(描画層): SDL_GPUで描く。`RenderDevice`と独自の型(`Color`、`Sprite`など)だけを公開する。platformに依存する。engineを参照しない(依存の向きは engine → render)。
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ、エディタの機能(シーンの保存など)。engineに依存する。リリースビルドには含めない。最初はゲームと同じプロセスに組み込み、いずれ別プロセスとプロセス間通信も検討する(設計メモ「UIとツール」)。シーンのファイルを保存するのはtools(開発ビルド)だけで、製品のゲームは読み込むだけ。
+  - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースとexeの隣の両方)に保存する(`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。
 - game: ゲーム固有のコード。engineに依存する。
 
 ## オブジェクトモデル

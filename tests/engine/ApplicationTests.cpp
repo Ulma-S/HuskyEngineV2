@@ -223,3 +223,47 @@ TEST_CASE("Application: LoadSceneFile は、無いファイルや壊れた JSON 
     CHECK(app.GetScene().actors.empty());
     husky::platform::RemoveFile(path.c_str());
 }
+
+TEST_CASE("Application: 開発ビルドの印(HUSKY_DEVELOPMENT)は Debug だけに付き、製品(Release)には付かない")
+{
+    // NDEBUG は、Release の構成で CMake が付ける標準の印(assert を消すためのもの)。
+#if defined(NDEBUG)
+#if defined(HUSKY_DEVELOPMENT)
+    FAIL("Release なのに HUSKY_DEVELOPMENT が付いている");
+#endif
+#else
+#if !defined(HUSKY_DEVELOPMENT)
+    FAIL("Debug なのに HUSKY_DEVELOPMENT が付いていない");
+#endif
+#endif
+    CHECK(true);
+}
+
+#if HUSKY_DEVELOPMENT
+TEST_CASE("Application(開発ビルド): SaveSceneFile で保存したものを、LoadSceneFile で読み戻せる")
+{
+    const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_saved_scene.json";
+    {
+        Application source;
+        Walker* walker = source.GetScene().Spawn<Walker>();
+        walker->name = "保存した";
+        walker->y = 42.0f;
+        REQUIRE(source.SaveSceneFile(path));
+    }
+
+    std::string text;
+    REQUIRE(husky::platform::ReadTextFile(path.c_str(), text));
+    CHECK(text.find("\n  ") != std::string::npos); // 読みやすい形(字下げあり)で書かれている
+
+    Application app;
+    app.GetTypeRegistry().Register<Walker>();
+    REQUIRE(app.LoadSceneFile(path));
+    REQUIRE(app.GetScene().actors.size() == 1);
+    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetScene().actors[0]);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->name == "保存した");
+    CHECK(loaded->y == 42.0f);
+
+    husky::platform::RemoveFile(path.c_str());
+}
+#endif

@@ -82,6 +82,31 @@ namespace husky::engine
         return true;
     }
 
+#if HUSKY_DEVELOPMENT
+    bool Application::SaveSceneFile(const std::string& path)
+    {
+        // オブジェクト → 値の木 → 文字列 → ファイル、の順に変換する(LoadSceneFile の逆)。
+        const SceneSerializer::WriteResult saved = SceneSerializer::Write(*m_scene);
+        for (const std::string& warning : saved.warnings)
+        {
+            std::printf("シーンの保存の警告(%s): %s\n", path.c_str(), warning.c_str());
+        }
+        std::string text;
+        if (!JsonFormat::Write(saved.value, text, true))
+        {
+            std::printf("シーンを JSON にできません(%s)\n", path.c_str());
+            return false;
+        }
+        if (!platform::WriteTextFile(path.c_str(), text))
+        {
+            return false; // 理由は platform がログに出している
+        }
+        std::printf("シーンを保存しました(%s): アクター %zu、%zu バイト\n", path.c_str(), m_scene->actors.size(),
+                    text.size());
+        return true;
+    }
+#endif
+
     int Application::Run(const ApplicationDesc& desc)
     {
         if (!platform::Initialize())
