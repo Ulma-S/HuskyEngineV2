@@ -1,4 +1,9 @@
-// テクスチャのアセット。画像ファイル1つを読み込んだもので、GC 管理のオブジェクト(core::Object)。
+// テクスチャのアセット。画像ファイル1つ(と、その .meta の取り込みの設定)を読み込んだもので、GC 管理のオブジェクト(core::Object)。
+//
+// 今は「画像 + .meta」をそのままテクスチャのアセットとして扱う(1 枚の画像 = 1 つのテクスチャ。Unity と同じ形)。
+// 将来、同じ画像を別々の取り込みの設定(圧縮、ミップマップ、色の扱い)で使いたくなったら、画像を包むアセット
+// (.texture のようなファイル)に変える余地を残している。そのときも、使う側は GUID(AssetRef<TextureAsset>)で指すので変わらない
+// (設計メモ「テクスチャを包むアセットへの移し替え」)。
 //
 // 作るのは AssetLoader だけ(AssetLoader::LoadTexture)。ゲームは、受け取ったハンドルから引いて使う。
 //   core::ObjectHandle handle = loader.LoadTexture(guid);
@@ -12,23 +17,14 @@
 
 #include "core/Guid.h"
 #include "core/Object.h"
-#include "engine/SpriteSlices.h"
+#include "engine/AssetState.h"
 #include "render/RenderDevice.h"
 
 #include <cstdint>
-#include <vector>
 
 namespace husky::engine
 {
     class AssetLoader;
-
-    // アセットの読み込みの状態。
-    enum class AssetState : std::uint8_t
-    {
-        Loading, // 読み込み中(ワーカーが読んでいる。終わると AssetLoader::Update が Loaded か Failed にする)
-        Loaded,  // 読み込めた
-        Failed,  // 読み込めなかった(GUID が表に無い、ファイルが壊れているなど。理由はログに出る)
-    };
 
     class TextureAsset : public core::Object
     {
@@ -48,21 +44,6 @@ namespace husky::engine
         // 描画層のテクスチャ。描画の準備ができていない(GPU が無い、テストなど)ときは、何も指さないハンドル。
         render::TextureHandle GetTexture() const { return m_texture; }
 
-        // 切り出しの一覧(.meta の "sprites")。書いていなければ空。読み終わる(IsLoaded)までは空。
-        const std::vector<SpriteSlice>& GetSlices() const { return m_slices; }
-        // ID で切り出しを探す。無ければ nullptr。
-        const SpriteSlice* FindSlice(std::int32_t id) const
-        {
-            for (const SpriteSlice& slice : m_slices)
-            {
-                if (slice.id == id)
-                {
-                    return &slice;
-                }
-            }
-            return nullptr; // 切り出しは多くても数十なので、先頭から順に探す
-        }
-
     private:
         // 中身を書くのは AssetLoader だけ(friend: private なメンバーを触らせる)。
         friend class AssetLoader;
@@ -72,7 +53,6 @@ namespace husky::engine
         int m_width = 0;
         int m_height = 0;
         render::TextureHandle m_texture;
-        std::vector<SpriteSlice> m_slices;
         AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ。ローダはこのオブジェクトより長く生きる)
     };
 }

@@ -170,7 +170,7 @@ namespace husky::engine
         std::size_t rewritten = 0;
         for (const std::string& file : files)
         {
-            constexpr std::string_view Suffix = ".meta";
+            constexpr std::string_view Suffix = ".spritesheet";
             if (file.size() < Suffix.size() || file.compare(file.size() - Suffix.size(), Suffix.size(), Suffix) != 0)
             {
                 continue;
@@ -179,7 +179,7 @@ namespace husky::engine
             ArchiveValue meta;
             if (!platform::ReadTextFile((root + file).c_str(), text) || !JsonFormat::Read(text, meta))
             {
-                continue; // 読めない .meta は AssetDatabase::Scan が知らせる
+                continue; // 読めないファイルは、読み込むときにローダが知らせる
             }
             const std::size_t assigned = AssignMissingSliceIds(meta);
             if (assigned == 0)

@@ -202,7 +202,7 @@ int main()
     //   1. ソースの assets … 残しておくため(git で管理する)
     //   2. exe の隣の assets … ビルドし直さなくても、この起動から表に入るように(1 と同じ GUID を書く)
     engine::CreateMissingMetaFiles(std::string(HUSKY_SOURCE_DIR) + "assets", assetsDirectory);
-    // .meta に手で書き足した切り出しに、ID を振って書き戻す(これも2か所に書く)。
+    // スプライトシート(.spritesheet)に手で書き足した切り出しに、ID を振って書き戻す(これも2か所に書く)。
     engine::AssignMissingSliceIdsInFolder(std::string(HUSKY_SOURCE_DIR) + "assets", assetsDirectory);
 #endif
     engine::AssetScanReport assetReport;

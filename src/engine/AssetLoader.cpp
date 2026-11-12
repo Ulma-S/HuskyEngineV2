@@ -1,4 +1,4 @@
-// AssetLoader.h と TextureAsset.h の実装。
+// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h の実装。
 #include "engine/AssetLoader.h"
 
 #include "engine/JsonFormat.h"
@@ -12,24 +12,12 @@ namespace husky::engine
 {
     namespace
     {
+        // ---- テクスチャ(ジョブの中で呼ぶ) ----
+
         // 1段目「元のファイルを読む」: PNG を読み、CPU のメモリ上の画像にする。
         bool ReadTextureSource(const std::string& path, platform::Image& outImage)
         {
             return platform::LoadPng(path.c_str(), outImage); // 失敗の理由は platform がログに出す
-        }
-
-        // インポートの設定: 画像の隣の .meta から、切り出しの一覧を読む(ジョブの中で呼ぶ。ファイルと JSON を読むだけ)。
-        // .meta が読めない、切り出しが無いなら、空の一覧(画像の全体だけを使う)。
-        std::vector<SpriteSlice> ReadTextureSlices(const std::string& imagePath, std::vector<std::string>& outWarnings)
-        {
-            std::string text;
-            ArchiveValue meta;
-            if (!platform::ReadTextFile((imagePath + std::string(AssetDatabase::MetaSuffix)).c_str(), text)
-                || !JsonFormat::Read(text, meta))
-            {
-                return {};
-            }
-            return ReadSpriteSlices(meta, &outWarnings);
         }
 
         // 2段目「実行用のデータにする」: 今は素通し(受け取った画像を、そのまま返す)。
@@ -38,6 +26,40 @@ namespace husky::engine
         {
             return source;
         }
+
+        // ---- スプライトシート(ジョブの中で呼ぶ) ----
+
+        // .spritesheet(JSON)を読み、中の画像の GUID と、切り出しの一覧を取り出す。読めなければ false。
+        bool ReadSpriteSheet(const std::string& path, core::Guid& outTexture, std::vector<SpriteSlice>& outSlices,
+                             std::vector<std::string>& outWarnings)
+        {
+            std::string text;
+            ArchiveValue root;
+            std::string error;
+            if (!platform::ReadTextFile(path.c_str(), text))
+            {
+                return false; // 理由は platform がログに出す
+            }
+            if (!JsonFormat::Read(text, root, &error))
+            {
+                outWarnings.push_back("JSON として読めません: " + error);
+                return false;
+            }
+            const ArchiveValue* texture = root.Find("texture");
+            if (texture == nullptr || texture->GetType() != ArchiveValue::Type::String
+                || !core::Guid::Parse(texture->AsString(), outTexture))
+            {
+                outWarnings.push_back("texture に、画像の GUID の文字列がありません");
+                return false;
+            }
+            outSlices = ReadSpriteSlices(root, &outWarnings);
+            return true;
+        }
+
+        bool EndsWith(std::string_view text, std::string_view suffix)
+        {
+            return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
+        }
     }
 
     TextureAsset::~TextureAsset()
@@ -45,6 +67,14 @@ namespace husky::engine
         if (m_loader != nullptr)
         {
             m_loader->OnTextureDestroyed(*this);
+        }
+    }
+
+    SpriteSheetAsset::~SpriteSheetAsset()
+    {
+        if (m_loader != nullptr)
+        {
+            m_loader->OnSpriteSheetDestroyed(*this);
         }
     }
 
@@ -60,7 +90,7 @@ namespace husky::engine
     AssetLoader::~AssetLoader()
     {
         // ジョブは記録(m_pending の中身)に書き込むので、記録を壊す前に、すべて終わるのを待つ。
-        for (const std::unique_ptr<PendingTextureLoad>& load : m_pending)
+        for (const std::unique_ptr<PendingLoad>& load : m_pending)
         {
             m_jobs.Wait(load->counter);
         }
@@ -89,8 +119,8 @@ namespace husky::engine
         m_device = device;
 
         // 新しい GPU のために、読み終わっていて GPU のテクスチャを持っていないアセットを、読み直す。
-        // (読み込み中のものは、終わったとき(Finish)に、その時点の GPU に送られるので、読み直さない)
-        // StartLoad はキャッシュ(m_textures)を書き換えないので、回しながら呼んでよい。
+        // (読み込み中のものは、終わったとき(FinishTexture)に、その時点の GPU に送られるので、読み直さない)
+        // StartTextureLoad はキャッシュ(m_textures)を書き換えないので、回しながら呼んでよい。
         if (m_device != nullptr)
         {
             for (const auto& entry : m_textures)
@@ -98,11 +128,84 @@ namespace husky::engine
                 TextureAsset* asset = ResolveTexture(entry.second);
                 if (asset != nullptr && asset->IsLoaded() && asset->m_texture.IsNull())
                 {
-                    StartLoad(*asset);
+                    StartTextureLoad(*asset);
                 }
             }
         }
     }
+
+    void AssetLoader::Update()
+    {
+        // ワーカーがいなければ、読み込みのジョブは誰も実行しないので、ここで実行する(同期実行)。
+        if (m_jobs.GetWorkerCount() == 0)
+        {
+            m_jobs.RunPendingJobs();
+        }
+
+        // 終わった記録の結果をアセットに書き、記録を外す。
+        // 外すときは、最後の記録と入れ替えてから末尾を消す(途中を消して後ろを詰めるより速い。順番は気にしない)。
+        // Finish の中で新しい読み込みが始まる(m_pending に足される)ことがあるので、要素は毎回 m_pending から引く。
+        for (std::size_t i = 0; i < m_pending.size();)
+        {
+            if (!m_pending[i]->counter.IsDone())
+            {
+                ++i;
+                continue;
+            }
+            std::unique_ptr<PendingLoad> done = std::move(m_pending[i]);
+            std::swap(m_pending[i], m_pending.back());
+            m_pending.pop_back();
+            done->Finish(*this); // 外してから書く(Finish の中で m_pending が増えても、done は動かない)
+        }
+    }
+
+    void AssetLoader::WaitForAllLoads()
+    {
+        // スプライトシートが読み終わると、中の画像の読み込みが新しく始まる。増えたものも含めて、無くなるまで繰り返す。
+        while (!m_pending.empty())
+        {
+            for (const std::unique_ptr<PendingLoad>& load : m_pending)
+            {
+                m_jobs.Wait(load->counter); // 待っている間、このスレッドも積まれたジョブを実行する
+            }
+            Update();
+        }
+    }
+
+    bool AssetLoader::CanLoadAs(const core::TypeInfo& assetType, std::string_view relativePath)
+    {
+        // アセットの型ごとに、読めるファイルの拡張子を決める。新しい型を足したら、ここにも足す。
+        if (assetType.IsA(TextureAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".png"); // 1段目の ReadTextureSource が PNG を読むため
+        }
+        if (assetType.IsA(SpriteSheetAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".spritesheet");
+        }
+        return false;
+    }
+
+    std::string AssetLoader::FindPathOrLog(const core::Guid& guid) const
+    {
+        std::string path = m_database.GetFullPath(guid);
+        if (path.empty())
+        {
+            std::printf("アセット: GUID が表にありません(%s)\n", guid.ToString().c_str());
+        }
+        return path;
+    }
+
+    template <typename Record, typename Job>
+    void AssetLoader::Schedule(std::unique_ptr<Record> record, Job&& job)
+    {
+        Record* raw = record.get(); // ジョブには、記録の場所(ポインタ1つ)だけを渡す
+        core::JobCounter& counter = raw->counter;
+        m_pending.push_back(std::move(record));
+        m_jobs.Schedule([raw, job] { job(*raw); }, counter);
+    }
+
+    // ================= テクスチャ =================
 
     core::ObjectHandle AssetLoader::LoadTexture(const core::Guid& guid)
     {
@@ -126,57 +229,14 @@ namespace husky::engine
         }
         asset->m_guid = guid;
         asset->m_loader = this;
-        StartLoad(*asset);
+        StartTextureLoad(*asset);
         m_textures[guid] = asset->GetHandle(); // 古いもの(破棄を予約済み)があれば置き換える
         return asset->GetHandle();
-    }
-
-    void AssetLoader::Update()
-    {
-        // ワーカーがいなければ、読み込みのジョブは誰も実行しないので、ここで実行する(同期実行)。
-        if (m_jobs.GetWorkerCount() == 0)
-        {
-            m_jobs.RunPendingJobs();
-        }
-
-        // 終わった記録の結果をアセットに書き、記録を外す。
-        // 外すときは、最後の記録と入れ替えてから末尾を消す(途中を消して後ろを詰めるより速い。順番は気にしない)。
-        for (std::size_t i = 0; i < m_pending.size();)
-        {
-            if (!m_pending[i]->counter.IsDone())
-            {
-                ++i;
-                continue;
-            }
-            Finish(*m_pending[i]);
-            std::swap(m_pending[i], m_pending.back());
-            m_pending.pop_back();
-        }
-    }
-
-    void AssetLoader::WaitForAllLoads()
-    {
-        for (const std::unique_ptr<PendingTextureLoad>& load : m_pending)
-        {
-            m_jobs.Wait(load->counter); // 待っている間、このスレッドも積まれたジョブを実行する
-        }
-        Update();
     }
 
     TextureAsset* AssetLoader::ResolveTexture(core::ObjectHandle handle) const
     {
         return m_registry.Resolve<TextureAsset>(handle);
-    }
-
-    bool AssetLoader::CanLoadAs(const core::TypeInfo& assetType, std::string_view relativePath)
-    {
-        if (assetType.IsA(TextureAsset::StaticType()))
-        {
-            // テクスチャとして読めるのは、今は PNG だけ(1段目の ReadTextureSource が PNG を読むため)。
-            constexpr std::string_view Png = ".png";
-            return relativePath.size() >= Png.size() && relativePath.substr(relativePath.size() - Png.size()) == Png;
-        }
-        return false;
     }
 
     TextureAsset* AssetLoader::Resolve(core::AssetRef<TextureAsset>& reference)
@@ -196,40 +256,31 @@ namespace husky::engine
         return ResolveTexture(reference.asset);
     }
 
-    void AssetLoader::StartLoad(TextureAsset& asset)
+    void AssetLoader::StartTextureLoad(TextureAsset& asset)
     {
         asset.m_state = AssetState::Loading;
-
-        // 2. GUID → パス(表はゲームスレッドでだけ引く。ジョブには、引いた結果の文字列を渡す)
-        std::string path = m_database.GetFullPath(asset.m_guid);
+        std::string path = FindPathOrLog(asset.m_guid); // 表はゲームスレッドでだけ引く
         if (path.empty())
         {
-            std::printf("アセット: GUID が表にありません(%s)\n", asset.m_guid.ToString().c_str());
             asset.m_state = AssetState::Failed;
             return;
         }
 
-        auto load = std::make_unique<PendingTextureLoad>();
-        load->asset = asset.GetHandle();
-        load->guid = asset.m_guid;
-        load->path = std::move(path);
-        PendingTextureLoad* record = load.get(); // ジョブには、記録の場所(ポインタ1つ)だけを渡す
-        m_pending.push_back(std::move(load));
-
-        // 3〜4. ジョブ(ワーカースレッド): 記録のパスを読み、記録の image、succeeded、slices、warnings に書く。ほかは触らない。
-        m_jobs.Schedule(
-            [record] {
-                record->succeeded = ReadTextureSource(record->path, record->image);
-                if (record->succeeded)
-                {
-                    record->image = CookTexture(std::move(record->image));
-                    record->slices = ReadTextureSlices(record->path, record->warnings);
-                }
-            },
-            record->counter);
+        auto record = std::make_unique<PendingTextureLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): 記録のパスを読み、記録の image と succeeded に書く。ほかは触らない。
+        Schedule(std::move(record), [](PendingTextureLoad& load) {
+            load.succeeded = ReadTextureSource(load.path, load.image);
+            if (load.succeeded)
+            {
+                load.image = CookTexture(std::move(load.image));
+            }
+        });
     }
 
-    void AssetLoader::Finish(PendingTextureLoad& load)
+    void AssetLoader::FinishTexture(PendingTextureLoad& load)
     {
         // 書く先のアセットが、まだ生きていて、読み込み中のままか(途中で回収された、作り直された、なら捨てる)。
         TextureAsset* asset = ResolveTexture(load.asset);
@@ -245,24 +296,7 @@ namespace husky::engine
         asset->m_width = load.image.width;
         asset->m_height = load.image.height;
 
-        // 切り出し: ジョブが .meta から読んだもの。画像からはみ出すものは、注意を出して使わない。
-        for (const std::string& warning : load.warnings)
-        {
-            std::printf("アセット: 切り出しを読めません(%s): %s\n", load.path.c_str(), warning.c_str());
-        }
-        asset->m_slices.clear();
-        for (SpriteSlice& slice : load.slices)
-        {
-            const PixelRect& rect = slice.rect;
-            if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > asset->m_width || rect.y + rect.height > asset->m_height)
-            {
-                std::printf("アセット: 切り出し「%s」が画像からはみ出しています(%s)\n", slice.name.c_str(), load.path.c_str());
-                continue;
-            }
-            asset->m_slices.push_back(std::move(slice));
-        }
-
-        // 5. GPU に送る(描画の準備ができていれば)
+        // GPU に送る(描画の準備ができていれば)
         if (m_device != nullptr)
         {
             asset->m_texture = m_device->CreateTexture(load.image);
@@ -282,11 +316,116 @@ namespace husky::engine
             m_device->ReleaseTexture(asset.m_texture); // GPU のメモリは、描画層が数フレーム遅らせて解放する
         }
         // キャッシュが、このアセットを指しているときだけ外す(同じ GUID で、もう新しいものを作っていることがある)。
-        // 読み込み中の記録は、ここでは消さない(ジョブがまだ書き込んでいるかもしれない)。終わったときに Finish が捨てる。
+        // 読み込み中の記録は、ここでは消さない(ジョブがまだ書き込んでいるかもしれない)。終わったときに捨てる。
         const auto found = m_textures.find(asset.m_guid);
         if (found != m_textures.end() && found->second == asset.GetHandle())
         {
             m_textures.erase(found);
+        }
+    }
+
+    // ================= スプライトシート =================
+
+    core::ObjectHandle AssetLoader::LoadSpriteSheet(const core::Guid& guid)
+    {
+        const auto found = m_spriteSheets.find(guid);
+        if (found != m_spriteSheets.end())
+        {
+            const SpriteSheetAsset* cached = ResolveSpriteSheet(found->second);
+            if (cached != nullptr && !cached->IsPendingDestroy())
+            {
+                return found->second;
+            }
+        }
+
+        SpriteSheetAsset* asset = m_registry.Create<SpriteSheetAsset>();
+        if (asset == nullptr)
+        {
+            std::printf("アセット: オブジェクト用のメモリが足りず、スプライトシートを作れません(%s)\n",
+                        guid.ToString().c_str());
+            return {};
+        }
+        asset->m_guid = guid;
+        asset->m_loader = this;
+        StartSpriteSheetLoad(*asset);
+        m_spriteSheets[guid] = asset->GetHandle();
+        return asset->GetHandle();
+    }
+
+    SpriteSheetAsset* AssetLoader::ResolveSpriteSheet(core::ObjectHandle handle) const
+    {
+        return m_registry.Resolve<SpriteSheetAsset>(handle);
+    }
+
+    SpriteSheetAsset* AssetLoader::Resolve(core::AssetRef<SpriteSheetAsset>& reference)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        SpriteSheetAsset* asset = ResolveSpriteSheet(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        {
+            return asset;
+        }
+        reference.asset = LoadSpriteSheet(reference.guid);
+        return ResolveSpriteSheet(reference.asset);
+    }
+
+    void AssetLoader::StartSpriteSheetLoad(SpriteSheetAsset& asset)
+    {
+        asset.m_state = AssetState::Loading;
+        std::string path = FindPathOrLog(asset.m_guid);
+        if (path.empty())
+        {
+            asset.m_state = AssetState::Failed;
+            return;
+        }
+
+        auto record = std::make_unique<PendingSpriteSheetLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): ファイルを読み、記録の texture、slices、warnings、succeeded に書く。
+        Schedule(std::move(record), [](PendingSpriteSheetLoad& load) {
+            load.succeeded = ReadSpriteSheet(load.path, load.texture, load.slices, load.warnings);
+        });
+    }
+
+    void AssetLoader::FinishSpriteSheet(PendingSpriteSheetLoad& load)
+    {
+        for (const std::string& warning : load.warnings)
+        {
+            std::printf("アセット: スプライトシートの注意(%s): %s\n", load.path.c_str(), warning.c_str());
+        }
+        SpriteSheetAsset* asset = ResolveSpriteSheet(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        {
+            return;
+        }
+        if (!load.succeeded)
+        {
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        asset->m_slices = std::move(load.slices);
+        asset->texture.guid = load.texture;
+        asset->texture.asset = {};
+        asset->m_state = AssetState::Loaded;
+
+        // 依存の読み込み: 中で指している画像の読み込みを、すぐに始める(描くときまで待たない)。
+        // Resolve は AssetRef に、読み始めたテクスチャのハンドルを書く。AssetRef はプロパティなので、
+        // このスプライトシートが生きている間、テクスチャも GC に回収されない。
+        Resolve(asset->texture);
+    }
+
+    void AssetLoader::OnSpriteSheetDestroyed(SpriteSheetAsset& asset)
+    {
+        const auto found = m_spriteSheets.find(asset.m_guid);
+        if (found != m_spriteSheets.end() && found->second == asset.GetHandle())
+        {
+            m_spriteSheets.erase(found);
         }
     }
 }
