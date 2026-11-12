@@ -310,10 +310,26 @@ namespace husky::tools
         command.description = "Place a new actor of the given type in the scene. Only the actor is created "
                               "(no components such as a sprite).";
         command.modifiesScene = true;
+        EditorCommandArg typeArg{"type", EditorArgType::String,
+                                 "Type name of the actor, like \"BouncerActor\" (must derive from Actor)", true};
+        // 選べるのは、型の登録簿にある Actor の子孫(エンジンの型と、ゲームが登録した型)。
+        typeArg.choices = [](engine::Application& app) {
+            std::vector<std::string> names;
+            const core::TypeRegistry& types = app.GetTypeRegistry();
+            for (std::size_t i = 0; i < types.GetCount(); ++i)
+            {
+                const core::TypeInfo* type = types.GetType(i);
+                if (type != nullptr && type->IsA(engine::Actor::StaticType()))
+                {
+                    names.emplace_back(type->GetName());
+                }
+            }
+            return names;
+        };
         command.args = {
-            {"type", EditorArgType::String, "Type name of the actor, like \"BouncerActor\" (must derive from Actor)", true},
-            {"x", EditorArgType::Float, "X position in pixels (default 0)", false},
-            {"y", EditorArgType::Float, "Y position in pixels (default 0)", false},
+            typeArg,
+            {"x", EditorArgType::Float, "X position in pixels", false, engine::ArchiveValue(0.0)},
+            {"y", EditorArgType::Float, "Y position in pixels", false, engine::ArchiveValue(0.0)},
         };
         command.execute = [](EditorCommandContext& context) {
             // 引数は Execute が形で確かめ済みなので、ここでは種類の心配をせずに読める。

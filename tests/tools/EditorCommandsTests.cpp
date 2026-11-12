@@ -13,7 +13,9 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm> // std::find
 #include <string>
+#include <vector>
 
 using husky::engine::Application;
 using husky::engine::ArchiveValue;
@@ -293,6 +295,7 @@ TEST_CASE("EditorCommands: アクターを置くコマンドは、型の名前�
 TEST_CASE("EditorCommands: 温まった後は、キーが押されていないフレームのショートカットの確認も、ボタンを並べるのも、メモリを確保しない")
 {
     husky::tests::HeadlessImGui imgui;
+    husky::tools::DebugWindow window; // 入力欄の値やボタンの文字の入れ物を持つので、フレームをまたいで使う
     Application app;
     EditorCommandRegistry commands;
     int calls = 0;
@@ -301,30 +304,81 @@ TEST_CASE("EditorCommands: 温まった後は、キーが押されていない�
     commands.Execute("test.count_with_a_long_name", app); // 最後の結果の行も並べる
 
     // 1フレーム目で、使い回す入れ物や ImGui の中身が温まる。
-    imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); });
+    imgui.Frame([&] { window.Draw(app, &commands); });
     commands.HandleShortcuts(app);
 
     const std::uint64_t before = husky::core::GetMemoryStats().totalAllocations;
     for (int frame = 0; frame < 10; ++frame)
     {
-        imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); });
+        imgui.Frame([&] { window.Draw(app, &commands); });
         commands.HandleShortcuts(app);
     }
     CHECK(husky::core::GetMemoryStats().totalAllocations == before);
 }
 
+TEST_CASE("DebugWindow: 入力欄は引数の形の既定値から始まり、Run で渡す引数は、必須のものと、既定値があるか触ったものだけ")
+{
+    int calls = 0;
+    EditorCommand command = MakeCountingCommand("test.inputs", calls);
+    command.args = {
+        {"name", husky::tools::EditorArgType::String, "a name", true},
+        {"size", husky::tools::EditorArgType::Float, "a size", false, ArchiveValue(2.5)},
+        {"count", husky::tools::EditorArgType::Int, "a count", false},
+    };
+    husky::tools::DebugWindow window;
+    std::vector<husky::tools::CommandArgInput>& inputs = window.GetArgInputs(command);
+    REQUIRE(inputs.size() == 3);
+    CHECK(inputs[1].number == 2.5);
+    CHECK(inputs[1].send);       // 既定値があるものは渡す
+    CHECK_FALSE(inputs[2].send); // 既定値が無い省略できるものは、触るまで渡さない
+
+    inputs[0].text = "abc";
+    ArchiveValue args = husky::tools::DebugWindow::BuildArgs(command, inputs);
+    CHECK(args.Find("name")->AsString() == "abc");
+    CHECK(args.Find("size")->AsFloat() == 2.5);
+    CHECK(args.Find("count") == nullptr);
+    CHECK(husky::tools::ValidateCommandArgs(command, args).empty()); // 作った引数は、形の確かめを通る
+
+    inputs[2].integer = 7;
+    inputs[2].send = true; // 人が触った
+    args = husky::tools::DebugWindow::BuildArgs(command, inputs);
+    CHECK(args.Find("count")->AsInt() == 7);
+    CHECK(&window.GetArgInputs(command) == &inputs); // 2回目からは同じ値(閉じても残る)
+}
+
+TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を開いても、ImGui の使い方の誤りが無い。開くだけでは実行しない")
+{
+    husky::tests::HeadlessImGui imgui;
+    husky::tools::DebugWindow window;
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+
+    window.OpenArgsInput("actor.spawn");
+    imgui.Frame([&] { window.Draw(app, &commands); }); // 小窓を開いたフレーム
+    imgui.Frame([&] { window.Draw(app, &commands); }); // 開いたまま
+    CHECK(app.GetScene().actors.empty());
+    CHECK(commands.GetLastCommandName().empty());
+
+    // 選択肢: 型の登録簿にある Actor の子孫(アクターでない型は入らない)
+    const std::vector<std::string> choices = commands.Find("actor.spawn")->args[0].choices(app);
+    CHECK(std::find(choices.begin(), choices.end(), "Actor") != choices.end());
+    CHECK(std::find(choices.begin(), choices.end(), "SpriteComponent") == choices.end());
+}
+
 TEST_CASE("DebugWindow: コマンドのボタンと最後の結果を並べても、ImGui の使い方の誤りが無い。並べるだけでは実行しない")
 {
     husky::tests::HeadlessImGui imgui;
+    husky::tools::DebugWindow window; // 入力欄の値やボタンの文字の入れ物を持つので、フレームをまたいで使う
     Application app;
     EditorCommandRegistry commands;
     int calls = 0;
     REQUIRE(commands.Register(MakeCountingCommand("test.count", calls, Key::F5)));
 
-    imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); }); // 結果がまだ無いとき
+    imgui.Frame([&] { window.Draw(app, &commands); }); // 結果がまだ無いとき
     commands.Execute("test.count", app);
-    imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); }); // 結果があるとき
-    imgui.Frame([&] { husky::tools::DrawDebugWindow(app, nullptr); });   // コマンド無し
+    imgui.Frame([&] { window.Draw(app, &commands); }); // 結果があるとき
+    imgui.Frame([&] { window.Draw(app, nullptr); });   // コマンド無し
     CHECK(calls == 1);
     CHECK(std::string(husky::tools::GetKeyDisplayName(Key::F5)) == "F5");
 }

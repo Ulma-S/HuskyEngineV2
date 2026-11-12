@@ -175,6 +175,26 @@ namespace husky::tools
                     argItem.Set("type", engine::ArchiveValue(GetArgTypeName(arg.type)));
                     argItem.Set("required", engine::ArchiveValue(arg.required));
                     argItem.Set("description", engine::ArchiveValue(arg.description));
+                    // 既定値(省略したときの値)。人には JSON の書き方のまま見せる。
+                    if (!arg.defaultValue.IsNull())
+                    {
+                        std::string defaultText;
+                        engine::JsonFormat::Write(arg.defaultValue, defaultText, false);
+                        out += "        default: " + defaultText + "\n";
+                        argItem.Set("default", arg.defaultValue);
+                    }
+                    // 選べる値(ゲームの型を登録した後のアプリで決まる)。AI はここから選べば、打ち間違えない。
+                    if (arg.choices)
+                    {
+                        engine::ArchiveValue& choiceList = argItem.Set("choices", engine::ArchiveValue::MakeArray());
+                        std::string line = "        choices:";
+                        for (const std::string& choice : arg.choices(app))
+                        {
+                            line += " " + choice;
+                            choiceList.Append(engine::ArchiveValue(choice));
+                        }
+                        out += line + "\n";
+                    }
                 }
             }
             if (!options.jsonOutPath.empty())

@@ -159,6 +159,13 @@ TEST_CASE("EditorCli: --list は引数の形も出す")
             REQUIRE(command.Find("args")->GetArraySize() == 3);
             CHECK(command.Find("args")->At(0).Find("name")->AsString() == "type");
             CHECK(command.Find("args")->At(0).Find("required")->AsBool());
+            // 選べる値(型の登録簿にある Actor の子孫)と、既定値
+            const husky::engine::ArchiveValue* choices = command.Find("args")->At(0).Find("choices");
+            REQUIRE(choices != nullptr);
+            CHECK(choices->GetArraySize() >= 1);
+            CHECK(choices->At(0).AsString() == "Actor");
+            REQUIRE(command.Find("args")->At(1).Find("default") != nullptr);
+            CHECK(command.Find("args")->At(1).Find("default")->AsFloat() == 0.0);
         }
     }
     CHECK(found);

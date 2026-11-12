@@ -64,6 +64,12 @@ namespace husky::core
         // 登録されている型の数。
         std::size_t GetCount() const { return m_entries.size(); }
 
+        // index 番目(登録した順)の型。範囲外なら nullptr。一覧を作るとき(エディタで型を選ばせる、など)に、GetCount と組で使う。
+        const TypeInfo* GetType(std::size_t index) const
+        {
+            return index < m_entries.size() ? m_entries[index].type : nullptr;
+        }
+
     private:
         struct Entry
         {

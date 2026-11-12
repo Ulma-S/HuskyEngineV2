@@ -75,6 +75,13 @@ namespace husky::tools
         EditorArgType type = EditorArgType::String;
         std::string description; // 何を渡すか(人と AI への説明)
         bool required = true;    // false なら省略できる(省略したときの値は、description に書く)
+        // 省略したときの値(無ければ Null)。画面の入力欄の最初の値と、--list の説明に使う。
+        // コマンドの中でも、省略されたらこの値を使うようにそろえる。
+        engine::ArchiveValue defaultValue;
+        // 選べる値の一覧を返す関数(無ければ空の関数。自由に入力する)。画面では選択肢の箱になり、--list にも並ぶ。
+        // 「登録されているアクターの型」のように、そのときのアプリの中身で決まるので、関数で受け取る。
+        // 一覧の外の値も Execute は断らない(コマンドの中で確かめる)。
+        std::function<std::vector<std::string>(engine::Application&)> choices;
     };
 
     // コマンド1つ。

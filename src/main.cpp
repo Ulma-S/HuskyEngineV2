@@ -105,10 +105,11 @@ int main()
     playMode.EnterEditMode(app);
 
     // 開発用の UI: 毎フレーム、tools のデバッグの窓(状態とコマンドのボタンつき)とインスペクタを作る。
-    // インスペクタは「選んでいるアクター」を覚えておくので、これも main の中に1つだけ作り、参照で渡す。
+    // どちらも覚えておくもの(入力した引数、選んでいるアクター)があるので、main の中に1つだけ作り、参照で渡す。
+    tools::DebugWindow debugWindow;
     tools::SceneInspector inspector;
-    app.SetDevUiCallback([&commands, &inspector, &playMode](engine::Application& application) {
-        tools::DrawDebugWindow(application, &commands, &playMode);
+    app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode](engine::Application& application) {
+        debugWindow.Draw(application, &commands, &playMode);
         inspector.Draw(application);
     });
 #endif
