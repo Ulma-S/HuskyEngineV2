@@ -208,15 +208,21 @@ int main()
     app.GetTypeRegistry().Register<BouncerActor>();
     app.GetTypeRegistry().Register<PlayerActor>();
 
-    // アセットのデータベース(GUID → パスの表)を作る。読むのは、ビルドのたびに exe の隣へコピーされる assets。
-    const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
+    // アセットのフォルダ(GUID → パスの表、シーンのファイル、すべての読み書きの起点)。
+    //   開発ビルド: ソースの assets を直接読み書きする(Unity のエディタが、プロジェクトの Assets を直接読むのと同じ)。
+    //              足した・直したファイルがビルドし直さなくても見え、エディタが書くもの(シーン、.meta)も1か所で済む。
+    //   製品(Release): ビルドのたびに exe の隣へコピーされる assets を読む(書き込みはしない)。
 #if HUSKY_DEVELOPMENT
-    // 【開発ビルドだけ】.meta が無いアセットに GUID を振る(エディタの役目)。シーンの保存と同じく、2か所に書く。
-    //   1. ソースの assets … 残しておくため(git で管理する)
-    //   2. exe の隣の assets … ビルドし直さなくても、この起動から表に入るように(1 と同じ GUID を書く)
-    engine::CreateMissingMetaFiles(std::string(HUSKY_SOURCE_DIR) + "assets", assetsDirectory);
-    // スプライトシート(.spritesheet)を整える: ID を振り、アニメーションのコマの名前を ID に直して書き戻す(これも2か所に書く)。
-    engine::NormalizeSpriteSheetsInFolder(std::string(HUSKY_SOURCE_DIR) + "assets", assetsDirectory);
+    const std::string assetsDirectory = std::string(HUSKY_SOURCE_DIR) + "assets";
+#else
+    const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
+#endif
+    std::printf("アセットのフォルダ: %s\n", assetsDirectory.c_str());
+#if HUSKY_DEVELOPMENT
+    // 【開発ビルドだけ】.meta が無いアセットに GUID を振る(エディタの役目)。
+    engine::CreateMissingMetaFiles(assetsDirectory);
+    // スプライトシート(.spritesheet)を整える: ID を振り、アニメーションのコマの名前を ID に直して書き戻す。
+    engine::NormalizeSpriteSheetsInFolder(assetsDirectory);
 #endif
     engine::AssetScanReport assetReport;
     app.GetAssetDatabase().Scan(assetsDirectory, &assetReport);
@@ -225,8 +231,7 @@ int main()
                 assetReport.orphanMetaCount, assetReport.duplicateGuidCount);
 
     // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
-    // ファイルは、ビルドのたびに exe の隣へコピーされる assets の中にある。
-    const std::string scenePath = platform::GetExecutableDirectory() + "assets/scenes/main.json";
+    const std::string scenePath = assetsDirectory + "/scenes/main.json";
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
         std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
@@ -237,10 +242,9 @@ int main()
     // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
     // main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
     tools::EditorCommandRegistry commands;
-    // シーンの保存(scene.save、F5)。書く先は2か所:
-    //   1. ソースの assets/scenes/main.json  … 残しておくため(次のビルドで exe の隣にもコピーされる)
-    //   2. exe の隣の assets/scenes/main.json … ビルドし直さなくても、次の起動から読まれるように
-    commands.Register(tools::MakeSaveSceneCommand({std::string(HUSKY_SOURCE_DIR) + "assets/scenes/main.json", scenePath}));
+    // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
+    // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。
+    commands.Register(tools::MakeSaveSceneCommand({scenePath}));
 
     // 開発用の UI: 毎フレーム、tools のデバッグの窓(コマンドのボタンつき)とインスペクタを作る。
     // インスペクタは「選んでいるアクター」を覚えておくので、これも main の中に1つだけ作り、参照で渡す。

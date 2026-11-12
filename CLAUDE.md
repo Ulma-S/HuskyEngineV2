@@ -37,7 +37,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - render(描画層): SDL_GPUで描く。`RenderDevice`と独自の型(`Color`、`Sprite`など)だけを公開する。platformに依存する。engineを参照しない(依存の向きは engine → render)。
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ、エディタの機能(シーンの保存など)。engineに依存する。リリースビルドには含めない。最初はゲームと同じプロセスに組み込み、いずれ別プロセスとプロセス間通信も検討する(設計メモ「UIとツール」)。シーンのファイルを保存するのはtools(開発ビルド)だけで、製品のゲームは読み込むだけ。
-  - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースとexeの隣の両方)に保存する(コマンド`scene.save`。中身は`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。
+  - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースの assets)に保存する(コマンド`scene.save`。中身は`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。
   - エディタの操作は、ImGuiの中に直接書かず、関数(将来の「エディタのコマンド」)として外に置く。ImGui、コマンドラインツール、MCP(AIから使う)が同じ操作を呼べるようにするため(設計メモ「AIから使いやすいエディタ」)。
   - エディタのコマンドは`tools/EditorCommands.h`(`EditorCommand`と`EditorCommandRegistry`)。1つのコマンドは、機械向けの名前(`"scene.save"`のように「対象.動作」。一度決めたら変えない)と、人向けの表示名・説明・ショートカットを両方持つ。引数は`ArchiveValue`(JSONと同じ形)、結果は人が読む1行(`message`)と細かい内容(`details`)。ボタンもショートカット(`HandleShortcuts`)も、名前で`Execute`を呼ぶだけ。新しいエディタの操作は、まずコマンドとして作る。人も使うので、説明と結果の表示(成功か失敗かと理由)を必ず付ける。今あるのは`scene.save`(F5)だけ。
 - game: ゲーム固有のコード。engineに依存する。
@@ -93,12 +93,13 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - `Property::IsReference`はシーンの中のオブジェクトへの参照(保存に番号の対応表が要るもの)だけで、`AssetRef`は含まない。
   - GUIDは、アセットの隣の`.meta`(`enemy.png.meta`、中身は`{"guid": "..."}`)に書く。`.meta`はアセットと一緒にgitで管理し、ファイルを動かすときは一緒に動かす。
   - テクスチャは「画像 + `.meta`」をそのままアセットにする(1枚の画像 = 1つのテクスチャ)。切り出しは、画像をGUIDで指す別のアセット(スプライトシート、`.spritesheet`、JSON。`engine/SpriteSheetAsset.h`)に書く(`"texture": "<GUID>", "sprites": [{"id", "name", "x", "y", "width", "height"}]`)。1枚の画像をテクスチャとして直接使いながら、いくつものスプライトシートからも使える。将来テクスチャも包むアセットにする余地を残す(設計メモ「テクスチャを包むアセットへの移し替え」)。
-  - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。アニメーション(`"animations": [{"id", "name", "frames", "frameSeconds", "loop"}]`。コマは切り出しのID)も同じくIDで指す(`engine/SpriteSheetData.h`)。手で書くときはIDを省き、コマを切り出しの名前で書いてよい。開発ビルドが起動時にIDを振り、名前をIDに直して書き戻す(`NormalizeSpriteSheetsInFolder`。ソースとexeの隣の両方)。製品はIDだけを読む。
+  - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。アニメーション(`"animations": [{"id", "name", "frames", "frameSeconds", "loop"}]`。コマは切り出しのID)も同じくIDで指す(`engine/SpriteSheetData.h`)。手で書くときはIDを省き、コマを切り出しの名前で書いてよい。開発ビルドが起動時にIDを振り、名前をIDに直して書き戻す(`NormalizeSpriteSheetsInFolder`。ソースの assets に書く)。製品はIDだけを読む。
   - スプライトシートを読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。スプライトシートの`texture`はプロパティの`AssetRef`なので、スプライトシートが生きている間は画像も回収されない。アセットの種類を足すときは、ローダの読み込み中の記録(`PendingLoad`の子)と`Start〜`/`Finish〜`を足す。
   - `SpriteComponent`は、`sheet`(`AssetRef<SpriteSheetAsset>`)と`sprite`(切り出しのID)で切り出しを指せる。`sheet`を指していれば、`texture`と`region`より優先する。どれを貼るかは`ChooseSpriteTexture`(GPUを使わない。テストできる)が決める。
   - アニメーションは`SpriteAnimatorComponent`(`animation`(ID)、`playing`、`speed`を保存。経った時間は保存しない)が再生し、同じアクターの`SpriteComponent::sprite`を書き換える(実行順は`PreRender`)。スプライトシートを読み始めるのは描画なので、読めるまでは時間を進めない。スプライト専用で、骨のアニメーションは別の仕組みにする(設計メモ「保留事項と将来拡張」)。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
-  - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
+  - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースの assets に書く)。すでにある`.meta`は作り直さない。
+  - アセットのフォルダ: 開発ビルド(Debug、ASan)は、ソースの`assets`を直接読み書きする(`HUSKY_SOURCE_DIR`。Unity、UE、Godotのエディタがプロジェクトのフォルダを直接読むのと同じ)。製品(Release)は、ビルドのたびにexeの隣へコピーされる`assets`を読むだけ。決めるのは`src/main.cpp`の1か所。テストはexeの隣のコピーを読む(2026-11-12に決定)。
 - ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。読み込みは非同期(ジョブ)。
   - ファイルを読む・実行用のデータにする(1段目と2段目)はジョブで行い、結果は「読み込み中の記録」に書く。ジョブはGC管理のアセットを触らない。ゲームスレッドが毎フレーム`AssetLoader::Update`(`StepFrame`の中)で、終わったものをGPUに送り、アセットの状態を書く。待ちたいときは`WaitForAllLoads`。
   - ローダは`engine::AssetLoader`(`Application::GetAssetLoader`)。テクスチャは`LoadTexture(guid)`で、GC管理の`TextureAsset`を指すハンドル(弱い参照)を返す。失敗しても状態が`Failed`のアセットを返す。同じGUIDは、生きている間は同じアセットを返す。

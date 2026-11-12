@@ -336,7 +336,7 @@ add_executable(HuskyEngineV2
 husky_set_compile_options(HuskyEngineV2)
 husky_copy_asan_runtime(HuskyEngineV2)
 
-# 開発ビルドだけ、ソースのフォルダの場所を教える(エディタの機能が、ソースの assets/ にシーンを保存するため)。
+# 開発ビルドだけ、ソースのフォルダの場所を教える(開発ビルドは、ソースの assets/ を直接読み書きするため)。
 # この PC の場所が exe に埋め込まれるが、開発ビルドだけで、製品(Release)には入らない。
 target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
 
