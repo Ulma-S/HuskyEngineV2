@@ -148,6 +148,14 @@ namespace husky::core
         FreeListAllocator m_allocator;              // オブジェクトのメモリの貸し出し元
         std::vector<ObjectHandle> m_pendingDestroy; // 破棄を予約されたもの
         std::vector<ObjectHandle> m_roots;          // GC の根
+
+        // GC の作業用の配列。CollectGarbage の中だけで使う。
+        // 関数の中で毎回作ると、空の状態から大きくなるたびに確保し直す(オブジェクト 2000 個で 18 回)。
+        // メンバーにして clear() で使い回すと、clear は容量を手放さないので、2 回目からは確保しない。
+        // 代わりに、一番多かったときの容量を持ち続ける(今の規模で数 KB)。
+        std::vector<Object*> m_gcStack;             // マークで「これから中を調べるオブジェクト」
+        std::vector<ObjectHandle> m_gcGarbage;      // スイープで「破棄するオブジェクト」
+
         HandleTable<ObjectPtr> m_objects;           // 全オブジェクト。持ち主はこの表
     };
 }

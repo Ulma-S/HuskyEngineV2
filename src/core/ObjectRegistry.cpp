@@ -93,7 +93,10 @@ namespace husky::core
         // 2. マーク: 根から届くオブジェクトに印を付ける。
         //    「これから中を調べるオブジェクト」を stack に積み、1つずつ取り出して、その参照先を積む。
         //    関数の再帰でたどると、参照の鎖が長いときに関数呼び出しの深さが限界を超えるので、自前のスタックを使う。
-        std::vector<Object*> stack;
+        //    stack はメンバーの m_gcStack を使い回す(毎回作ると、大きくなるたびに確保し直すため)。
+        //    std::vector<Object*>& は参照(別名)で、ここで stack と書けば m_gcStack のこと。
+        std::vector<Object*>& stack = m_gcStack;
+        stack.clear(); // 中身を空にする。確保した容量はそのまま残る
 
         // 印を付けて stack に積む。すでに印があれば何もしない(循環参照でも無限に回らない)。
         // [&stack] はラムダ式が外の stack を参照で使うという意味。
@@ -126,7 +129,8 @@ namespace husky::core
 
         // 3. スイープ: 印の無いオブジェクトを集めてから、まとめて破棄する。
         //    (ForEach で回っている最中に Remove すると表の形が変わるので、先に集める)
-        std::vector<ObjectHandle> garbage;
+        std::vector<ObjectHandle>& garbage = m_gcGarbage; // stack と同じく使い回す
+        garbage.clear();
         m_objects.ForEach([&garbage](Handle<ObjectPtr>, ObjectPtr& object) {
             if (!object->m_gcMarked)
             {

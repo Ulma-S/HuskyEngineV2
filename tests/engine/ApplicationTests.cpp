@@ -1,7 +1,9 @@
 // Application のテスト。Run(ウィンドウと GPU)は使わず、StepFrame で1フレームずつ進める。
 // dt は FrameClock::SetFixedDelta で固定するので、結果は毎回同じになる。
 // FrameClock は dt を上限(既定 0.1 秒)で切り詰めるので、固定する dt はそれ以下にする。
+#include "core/MemoryTracker.h"
 #include "engine/Application.h"
+#include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
 
@@ -130,4 +132,30 @@ TEST_CASE("Application: GC は GcIntervalSeconds(1 秒)ごとに回り、シー�
     app.StepFrame(0, NoEvents); // 1.0 秒 → GC
     CHECK(app.GetRegistry().GetObjectCount() == 1);
     CHECK(app.GetCollectedLastGc() == 1);
+}
+
+TEST_CASE("Application: 温まった後は、GC を回すフレームも含めて、StepFrame はメモリを確保しない")
+{
+    // 毎フレームの確保は、数が多いと遅くなり、断片化の原因にもなる。
+    // 作業用の配列を使い回すなどして、普段のフレームでは確保しないようにしてある。それが崩れていないかを確かめる。
+    Application app;
+    for (int i = 0; i < 1000; ++i)
+    {
+        app.GetScene().Spawn<Walker>()->AddComponent<husky::engine::SpriteComponent>();
+    }
+    app.GetClock().SetFixedDelta(0.0625); // 16 フレームで 1 秒 = GC 1 回
+    for (int i = 0; i < 40; ++i)          // 温める: 作業用の配列が一番大きくなるまで回す(GC も 2 回回る)
+    {
+        app.StepFrame(0, NoEvents);
+    }
+
+    // CHECK も中で確保することがあるので、数える間は CHECK を挟まない。
+    const std::uint64_t before = husky::core::GetMemoryStats().totalAllocations;
+    for (int i = 0; i < 32; ++i) // 2 秒分(GC が 2 回回る)
+    {
+        app.StepFrame(0, NoEvents);
+    }
+    const std::uint64_t after = husky::core::GetMemoryStats().totalAllocations;
+
+    CHECK(after - before == 0);
 }
