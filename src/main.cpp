@@ -109,7 +109,7 @@ int main()
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
         std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
-        game::SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
+        game::SpawnInitialActors(app);
     }
 
 #if HUSKY_DEVELOPMENT

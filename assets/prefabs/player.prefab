@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 0,
+      "type": "PlayerActor",
+      "properties": {
+        "name": "Player",
+        "transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": 0.0,
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "components": [
+          1,
+          2
+        ],
+        "moveSpeed": 300.0
+      }
+    },
+    {
+      "id": 1,
+      "type": "SpriteComponent",
+      "properties": {
+        "width": 128.0,
+        "height": 128.0,
+        "color": {
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "texture": null,
+        "region": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "sheet": "ccb8b68e-c739-4b5e-a888-aa3e8899afa1",
+        "sprite": 1917386538
+      }
+    },
+    {
+      "id": 2,
+      "type": "SpriteAnimatorComponent",
+      "properties": {
+        "animation": 1811624963,
+        "playing": true,
+        "speed": 1.0
+      }
+    }
+  ],
+  "actors": [
+    0
+  ]
+}

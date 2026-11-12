@@ -13,8 +13,7 @@
 #pragma once
 
 #include "core/TypeRegistry.h"
-#include "engine/AssetDatabase.h"
-#include "engine/Scene.h"
+#include "engine/Application.h"
 
 namespace husky::game
 {
@@ -33,8 +32,9 @@ namespace husky::game
 
     // シーンのファイルが無いときの、最初の配置。跳ね回るアクターを BouncerCount 個、プレイヤーを追うカメラ、プレイヤーを置く。
     // 一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
-    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、スプライトシート(shapes.spritesheet)の
-    // 切り出しを貼る。最初は右下のひし形(diamond)で、アニメーション「cycle」が 4 つの図形を順に切り替える。
+    // 跳ね回るアクターとプレイヤーは、assets のプレハブ(prefabs/bouncer.prefab、prefabs/player.prefab)から置き、
+    // 1つずつ違う値(位置、速度、色)だけを置いた後に書く。見た目の決め事(大きさ、スプライトシート、アニメーション)はプレハブの中にある。
+    // プレハブを読むので、先にアセットの表(app.GetAssetDatabase().Scan)を作っておくこと。プレハブが無ければ、ログに出してそれを置かない。
     // 乱数の種を固定しているので、毎回同じ配置になる。
-    void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets);
+    void SpawnInitialActors(engine::Application& app);
 }

@@ -1,9 +1,11 @@
 // Game.h と GameActors.h の実装。
 #include "game/Game.h"
 
+#include "engine/AssetLoader.h"
 #include "engine/CameraComponent.h"
 #include "game/CameraFollowComponent.h"
 #include "engine/Input.h"
+#include "engine/Prefab.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "game/GameActors.h"
@@ -12,6 +14,7 @@
 #include <cstdint>
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
+#include <string>
 
 namespace husky::game
 {
@@ -33,11 +36,47 @@ namespace husky::game
                 velocity = -velocity;
             }
         }
+        // assets の中のパスでプレハブを探して読み、読み終わったアセットを返す。無い・読めないときはログに出して nullptr。
+        // 最初の配置は起動のときに1回だけなので、読み終わるまで待つ(WaitForAllLoads)。
+        const engine::PrefabAsset* LoadPrefab(engine::Application& app, const char* path)
+        {
+            const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
+            if (guid == nullptr)
+            {
+                std::printf("プレハブがアセットの表にありません(%s)\n", path);
+                return nullptr;
+            }
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            const engine::PrefabAsset* prefab = loader.ResolvePrefab(loader.LoadPrefab(*guid));
+            loader.WaitForAllLoads();
+            if (prefab == nullptr || !prefab->IsLoaded())
+            {
+                std::printf("プレハブを読めませんでした(%s)\n", path);
+                return nullptr;
+            }
+            return prefab;
+        }
 
-        // 跳ね回るアクターを count 個、シーンに置く。
+        // プレハブを1つ置き、T の型として返す(プレハブの中のアクターが T でなければ nullptr)。
+        // 置いたものの警告(知らないプロパティなど)はログに出す。
+        template <typename T>
+        T* PlacePrefab(engine::Application& app, const engine::PrefabAsset& prefab)
+        {
+            engine::Prefab::InstantiateResult placed =
+                engine::Prefab::Instantiate(prefab, app.GetScene(), app.GetTypeRegistry());
+            for (const std::string& warning : placed.warnings)
+            {
+                std::printf("プレハブの注意: %s\n", warning.c_str());
+            }
+            return core::Cast<T>(placed.actor);
+        }
+
+        // 跳ね回るアクターを count 個、プレハブ(bouncer.prefab: BouncerActor + 32x32 の白い SpriteComponent)から置く。
+        // プレハブにあるのは全員に共通の値だけ。1つずつ違う位置、速度、色は、置いた後に書く
+        // (Unity でプレハブを置いてから Inspector で値を変えるのと同じ。PF-4 では、この「違い」だけがシーンに保存される)。
         // 乱数の種(seed)を固定しているので、毎回同じ配置になる(CLAUDE.md: 結果が毎回同じになるように)。
-        // 乱数は S-2 までと同じ型(double)で引く。型が変わると乱数の消費のしかたが変わり、配置が変わってしまうため。
-        void SpawnBouncers(engine::Scene& scene, int count)
+        // 乱数は S-2 までと同じ型(double)で、同じ順番に引く。型や順番が変わると乱数の消費のしかたが変わり、配置が変わってしまうため。
+        void SpawnBouncers(engine::Application& app, const engine::PrefabAsset& prefab, int count)
         {
             std::mt19937 random(12345); // 種を固定した乱数生成器
             std::uniform_real_distribution<double> randomX(0.0, WorldWidth - BouncerSize);
@@ -47,20 +86,18 @@ namespace husky::game
 
             for (int i = 0; i < count; ++i)
             {
-                BouncerActor* bouncer = scene.Spawn<BouncerActor>();
+                BouncerActor* bouncer = PlacePrefab<BouncerActor>(app, prefab);
                 engine::SpriteComponent* sprite =
-                    bouncer != nullptr ? bouncer->AddComponent<engine::SpriteComponent>() : nullptr;
-                if (sprite == nullptr) // オブジェクト用のメモリを使い切った
+                    bouncer != nullptr ? bouncer->GetComponent<engine::SpriteComponent>() : nullptr;
+                if (sprite == nullptr) // オブジェクト用のメモリを使い切った、またはプレハブの形が違う
                 {
-                    std::printf("跳ね回るアクターを作れませんでした(%d 個目)\n", i);
+                    std::printf("跳ね回るアクターを置けませんでした(%d 個目)\n", i);
                     return;
                 }
                 bouncer->transform.position.x = static_cast<float>(randomX(random));
                 bouncer->transform.position.y = static_cast<float>(randomY(random));
                 bouncer->vx = static_cast<float>(randomSpeed(random));
                 bouncer->vy = static_cast<float>(randomSpeed(random));
-                sprite->width = BouncerSize;
-                sprite->height = BouncerSize;
                 sprite->color = {randomColor(random), randomColor(random), randomColor(random), 1.0f};
             }
         }
@@ -107,17 +144,21 @@ namespace husky::game
         types.Register<CameraFollowComponent>();
     }
 
-    void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
+    void SpawnInitialActors(engine::Application& app)
     {
-        // shapes.spritesheet の「diamond」の切り出しと、「cycle」のアニメーション(4 つの図形を 0.25 秒ずつ順に)の ID
-        // (ファイルに書いてある。名前を変えても、この ID は変わらない)。
-        constexpr std::int32_t DiamondSpriteId = 1917386538;
-        constexpr std::int32_t CycleAnimationId = 1811624963;
+        // どのプレハブを使うかは、ゲームの決め事なのでここ(ゲームのコード)に書く。パスで探し、GUID で読む。
+        const engine::PrefabAsset* bouncerPrefab = LoadPrefab(app, "prefabs/bouncer.prefab");
+        const engine::PrefabAsset* playerPrefab = LoadPrefab(app, "prefabs/player.prefab");
+        engine::Scene& scene = app.GetScene();
 
-        SpawnBouncers(scene, BouncerCount);
+        if (bouncerPrefab != nullptr)
+        {
+            SpawnBouncers(app, *bouncerPrefab, BouncerCount);
+        }
 
         // カメラ: プレイヤーを追いかける(追いかける相手は、プレイヤーを作った後に決める)。
         // カメラは特別な型ではなく、ふつうのアクターにカメラのコンポーネントを付けたもの。
+        // プレハブにしないのは、追いかける相手(ほかのアクターへのハンドル)がプレハブの外にいて、プレハブには書けないため。
         engine::Actor* camera = scene.Spawn<engine::Actor>();
         if (camera != nullptr)
         {
@@ -125,25 +166,11 @@ namespace husky::game
             camera->AddComponent<engine::CameraComponent>();
         }
 
-        PlayerActor* player = scene.Spawn<PlayerActor>();
+        // プレイヤー(player.prefab): PlayerActor + スプライトシート(shapes.spritesheet)の切り出しを貼る SpriteComponent
+        // + 4 つの図形を順に切り替えるアニメーション(SpriteAnimatorComponent)。見た目の決め事は、すべてプレハブの中にある。
+        PlayerActor* player = playerPrefab != nullptr ? PlacePrefab<PlayerActor>(app, *playerPrefab) : nullptr;
         if (player != nullptr)
         {
-            if (engine::SpriteComponent* sprite = player->AddComponent<engine::SpriteComponent>())
-            {
-                sprite->width = PlayerSize;
-                sprite->height = PlayerSize; // 色は既定の白(テクスチャのまま)
-                // アセットは GUID で指す。読むのは、描くとき(DrawSprites)。
-                if (const core::Guid* shapes = assets.FindGuid("sprites/shapes.spritesheet"))
-                {
-                    sprite->sheet.guid = *shapes;
-                    sprite->sprite = DiamondSpriteId; // スプライトシートが読めるまでの間に描くコマ(アニメーターが書き換える)
-                }
-            }
-            // 見た目(SpriteComponent)とは別の部品で、切り出しを時間で切り替える(Unity の SpriteRenderer と Animator)。
-            if (engine::SpriteAnimatorComponent* animator = player->AddComponent<engine::SpriteAnimatorComponent>())
-            {
-                animator->Play(CycleAnimationId);
-            }
             player->transform.position.x = (WorldWidth - PlayerSize) / 2.0f; // 世界の真ん中
             player->transform.position.y = (WorldHeight - PlayerSize) / 2.0f;
         }

@@ -5,12 +5,23 @@
 #include "engine/CameraComponent.h"
 #include "game/CameraFollowComponent.h"
 #include "engine/SceneSerializer.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
+#include "platform/FileSystem.h"
 #include "game/GameActors.h"
 
 #include <doctest/doctest.h>
 
 using husky::engine::Application;
+
+namespace
+{
+    // ビルドのたびに exe の隣へコピーされる assets で、アセットの表を作る(最初の配置がプレハブを読むため)。
+    void ScanBuiltAssets(Application& app)
+    {
+        REQUIRE(app.GetAssetDatabase().Scan(husky::platform::GetExecutableDirectory() + "assets"));
+    }
+}
 
 TEST_CASE("Game: ゲームの型を登録すると、名前から作れる")
 {
@@ -25,13 +36,29 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
 {
     Application app;
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
-    husky::game::SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
+    ScanBuiltAssets(app);
+    husky::game::SpawnInitialActors(app);
     REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 2); // + カメラ + プレイヤー
 
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
     REQUIRE(player != nullptr);
     CHECK(player->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+
+    // プレハブから置いている: 元のプレハブを覚え、見た目の決め事(大きさ、スプライトシート、アニメーション)はプレハブのとおり
+    const husky::core::Guid* playerPrefab = app.GetAssetDatabase().FindGuid("prefabs/player.prefab");
+    REQUIRE(playerPrefab != nullptr);
+    CHECK(player->prefab.guid == *playerPrefab);
+    CHECK(player->name == "Player");
+    CHECK(player->GetComponent<husky::engine::SpriteComponent>()->width == husky::game::PlayerSize);
+    CHECK_FALSE(player->GetComponent<husky::engine::SpriteComponent>()->sheet.IsNull());
+    REQUIRE(player->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+    CHECK(player->GetComponent<husky::engine::SpriteAnimatorComponent>()->playing);
+    const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    REQUIRE(bouncer != nullptr);
+    CHECK(bouncer->prefab.guid == *app.GetAssetDatabase().FindGuid("prefabs/bouncer.prefab"));
+    CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->width == husky::game::BouncerSize);
+    CHECK(bouncer->vx != 0.0f); // 1つずつ違う値は、置いた後に書いている
 
     // カメラはプレイヤーを追いかけ、最初からプレイヤーの真ん中を映す位置にいる
     const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
@@ -47,7 +74,8 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     // 乱数の種が固定なので、2回作っても最初の跳ね回るアクターは同じ位置
     Application other;
     husky::game::RegisterGameTypes(other.GetTypeRegistry());
-    husky::game::SpawnInitialActors(other.GetScene(), other.GetAssetDatabase());
+    ScanBuiltAssets(other);
+    husky::game::SpawnInitialActors(other);
     const auto* first = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
     const auto* otherFirst = other.GetRegistry().Resolve<husky::game::BouncerActor>(other.GetScene().actors.front());
     REQUIRE(first != nullptr);
