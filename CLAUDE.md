@@ -31,7 +31,8 @@
 - 言語: C++17(MSVC、Visual Studio 2022)。例外とRTTIは使わない(ビルド設定でも無効にする)。
 - ウィンドウと入力: SDL3。グラフィックス: SDL_GPU。
 - ビルド: CMake。依存はvcpkgかFetchContent。パスはWindows固有にしない。
-- 数学: glmなどの既存ライブラリ。自前では作らない。
+- 数学: glm(2026-11-12にユーザーが追加を了承。座標系とカメラのCAM-1で入れる)。自前では作らない。行列は最初から4×4(`glm::mat4`)で、3Dを見越して作る。
+- 座標系(2026-11-12に決定。詳しくは設計メモ「座標系とカメラ」): yは上が+、ワールドの単位(最初は1単位 = 1ピクセル、換算はカメラ)、位置はx・y・z。カメラはビュー行列と射影行列(2Dは正射影)。親子の階層は今は作らない。
 - JSON: yyjson(0.12.0、FetchContent)。使うのは`engine/JsonFormat.cpp`の中だけ(PRIVATEでリンク)。替えるときはそのファイルだけを書き直す。
 - 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。ASanのビルドでは`husky_imgui`もASan付きでコンパイルする(MSVCのSTLの注釈`annotate_string`をそろえるため)。
   - インスペクタ(`tools/Inspector`)は、リフレクション(`TypeInfo`と`Property`)から自動で画面を作る。新しい型やプロパティを足しても、画面のコードは要らない。
