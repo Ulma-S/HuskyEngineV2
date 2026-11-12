@@ -95,6 +95,12 @@ namespace husky::engine
         // 名前でメンバーを取り除く。あれば true。ほかのメンバーの順番は変えない。オブジェクトでなければ何もしない(false)。
         bool Remove(std::string_view name);
 
+        // --- 比べる ---
+        // 中身が同じなら true(配列とオブジェクトは中まで比べる。オブジェクトはメンバーの順番を問わない)。
+        // 数は、整数と小数でも値が同じなら同じとみなす(JSON では 1 と 1.0 の区別があいまいなため)。
+        // どちらかが float から作った小数なら、float の精度で比べる(0.1f と、ファイルから読んだ 0.1 を同じとみなす)。
+        bool Equals(const ArchiveValue& other) const;
+
     private:
         Type m_type = Type::Null;
         bool m_bool = false;

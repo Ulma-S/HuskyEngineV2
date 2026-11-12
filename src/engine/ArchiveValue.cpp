@@ -159,4 +159,64 @@ namespace husky::engine
         }
         return false;
     }
+
+    bool ArchiveValue::Equals(const ArchiveValue& other) const
+    {
+        const bool isNumber = m_type == Type::Int || m_type == Type::Float;
+        const bool otherIsNumber = other.m_type == Type::Int || other.m_type == Type::Float;
+        if (isNumber && otherIsNumber)
+        {
+            if (m_type == Type::Int && other.m_type == Type::Int)
+            {
+                return m_int == other.m_int;
+            }
+            if (m_singlePrecision || other.m_singlePrecision)
+            {
+                return static_cast<float>(AsFloat()) == static_cast<float>(other.AsFloat());
+            }
+            return AsFloat() == other.AsFloat();
+        }
+        if (m_type != other.m_type)
+        {
+            return false;
+        }
+        switch (m_type)
+        {
+        case Type::Null:
+            return true;
+        case Type::Bool:
+            return m_bool == other.m_bool;
+        case Type::String:
+            return m_string == other.m_string;
+        case Type::Array:
+            if (m_children.size() != other.m_children.size())
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < m_children.size(); ++i)
+            {
+                if (!m_children[i].Equals(other.m_children[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        case Type::Object:
+            if (m_children.size() != other.m_children.size())
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < m_children.size(); ++i)
+            {
+                const ArchiveValue* found = other.Find(m_names[i]);
+                if (found == nullptr || !m_children[i].Equals(*found))
+                {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return false;
+        }
+    }
 }

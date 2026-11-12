@@ -120,7 +120,8 @@ namespace husky::tools
 
         // 2. 控えから、再生を始める前のアクターを作り直す(一覧の後ろに足される。消す印の付いた古いものは、フレームの終わりに外れる)。
         const engine::SceneSerializer::ReadReport report =
-            engine::SceneSerializer::Read(m_snapshot, scene, app.GetTypeRegistry());
+            engine::SceneSerializer::Read(m_snapshot, scene, app.GetTypeRegistry(),
+                                          [&app](const core::Guid& guid) { return app.FindPrefabForScene(guid); });
 
         // 3. 編集の状態に戻す。
         EnterEditMode(app);

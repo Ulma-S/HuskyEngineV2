@@ -70,6 +70,16 @@ namespace husky::engine
         return dt;
     }
 
+    const PrefabAsset* Application::FindPrefabForScene(const core::Guid& guid)
+    {
+        const PrefabAsset* prefab = m_loader.ResolvePrefab(m_loader.LoadPrefab(guid));
+        if (prefab != nullptr && prefab->GetState() == AssetState::Loading)
+        {
+            m_loader.WaitForAllLoads(); // 読み込み中なら、読み終わるまで待つ(ジョブで読み、ここで結果を受け取る)
+        }
+        return prefab != nullptr && prefab->IsLoaded() ? prefab : nullptr;
+    }
+
     bool Application::LoadSceneFile(const std::string& path)
     {
         // ファイル → 文字列 → 値の木 → オブジェクト、の順に変換する(どこで失敗しても、ログに理由を出して false)。
@@ -85,7 +95,8 @@ namespace husky::engine
             std::printf("シーンのファイルを読めません(%s): %s\n", path.c_str(), error.c_str());
             return false;
         }
-        const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *m_scene, m_types);
+        const SceneSerializer::ReadReport report = SceneSerializer::Read(
+            file, *m_scene, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
         for (const std::string& warning : report.warnings)
         {
             std::printf("シーンの読み込みの警告(%s): %s\n", path.c_str(), warning.c_str());

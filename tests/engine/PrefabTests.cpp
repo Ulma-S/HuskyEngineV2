@@ -6,6 +6,7 @@
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
 #include "engine/Scene.h"
+#include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 
 #include "TestFolder.h"
@@ -206,4 +207,167 @@ TEST_CASE("PrefabAsset: JSON として読めないファイルや、表に無い
     REQUIRE(missing != nullptr);
     CHECK(brokenPrefab->GetState() == husky::engine::AssetState::Failed);
     CHECK(missing->GetState() == husky::engine::AssetState::Failed);
+}
+
+namespace
+{
+    const husky::core::Guid BoxGuid = husky::tests::MakeGuid(0x1a2b3c4d5e6f4a1bull, 0x9c8d7e6f5a4b3c2dull);
+
+    // PF-4 のテストで使うプレハブ(Actor + 幅 width、高さ 16 の SpriteComponent)を folder に書く。名前と幅を変えて書き直せる。
+    // prefab.create と同じく、アクターから Prefab::Write で作る(全部の値が入る。違いは、書いてある値とだけ比べられるため)。
+    void WriteBoxPrefab(husky::tests::TestFolder& folder, const char* name, float width)
+    {
+        husky::engine::Application maker;
+        Actor* actor = maker.GetScene().Spawn<Actor>();
+        REQUIRE(actor != nullptr);
+        actor->name = name;
+        SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
+        REQUIRE(sprite != nullptr);
+        sprite->width = width;
+        sprite->height = 16.0f;
+        const Prefab::WriteResult written = Prefab::Write(*actor);
+        REQUIRE(written.ok);
+        std::string text;
+        REQUIRE(JsonFormat::Write(written.value, text));
+        folder.Write("prefabs/box.prefab", text);
+        folder.Write("prefabs/box.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(BoxGuid));
+    }
+
+    // シーンを読むときと同じやり方(Application::FindPrefabForScene)でプレハブを探す関数。
+    husky::engine::SceneSerializer::PrefabFinder FinderOf(husky::engine::Application& app)
+    {
+        return [&app](const husky::core::Guid& guid) { return app.FindPrefabForScene(guid); };
+    }
+
+    // folder でアセットの表を作ったアプリに、箱のプレハブを1つ置く。
+    Actor* PlaceBox(husky::engine::Application& app, const husky::tests::TestFolder& folder)
+    {
+        REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+        const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(BoxGuid);
+        REQUIRE(prefab != nullptr);
+        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetScene(), app.GetTypeRegistry());
+        REQUIRE(placed.actor != nullptr);
+        return placed.actor;
+    }
+
+    // シーンの値の木の、index 番目のオブジェクトの "properties"。
+    const ArchiveValue& PropertiesAt(const ArchiveValue& scene, std::size_t index)
+    {
+        return *scene.Find("objects")->At(index).Find("properties");
+    }
+}
+
+TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する。読み直すとプレハブの値に違いが重なり、プレハブを直すと伝わる")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_diff");
+    WriteBoxPrefab(folder, "Box", 32.0f);
+
+    // 置いて、2つだけ値を変える(位置の x と、スプライトの高さ)
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        Actor* placed = PlaceBox(app, folder);
+        placed->transform.position.x = 5.0f;
+        placed->GetComponent<SpriteComponent>()->height = 20.0f;
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        CHECK(written.warnings.empty());
+        saved = ThroughJson(written.value);
+    }
+
+    // アクター: 変えた position.x と、いつも書くもの(guid、prefab、components)だけ。name や position.y は書かない
+    const ArchiveValue& actor = PropertiesAt(saved, 0);
+    CHECK(actor.Find("guid") != nullptr);
+    REQUIRE(actor.Find("prefab") != nullptr);
+    CHECK(actor.Find("prefab")->AsString() == BoxGuid.ToString());
+    CHECK(actor.Find("components") != nullptr);
+    CHECK(actor.Find("name") == nullptr);
+    REQUIRE(actor.Find("transform") != nullptr);
+    CHECK(actor.Find("transform")->GetMemberCount() == 1); // rotation、scale は同じなので書かない
+    REQUIRE(actor.Find("transform")->Find("position") != nullptr);
+    CHECK(actor.Find("transform")->Find("position")->GetMemberCount() == 1);
+    CHECK(actor.Find("transform")->Find("position")->Find("x")->AsFloat() == 5.0);
+    // コンポーネント: 変えた height だけ
+    const ArchiveValue& sprite = PropertiesAt(saved, 1);
+    CHECK(sprite.GetMemberCount() == 1);
+    REQUIRE(sprite.Find("height") != nullptr);
+    CHECK(sprite.Find("height")->AsFloat() == 20.0);
+
+    // プレハブを直す(名前と幅)。違いの無い値は、直したプレハブの値になる
+    WriteBoxPrefab(folder, "Crate", 64.0f);
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    const husky::engine::SceneSerializer::ReadReport report =
+        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+    CHECK(report.warnings.empty());
+    CHECK(report.createdCount == 2);
+    REQUIRE(report.addedActors.size() == 1);
+    const Actor* loaded = app.GetRegistry().Resolve<Actor>(report.addedActors[0]);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->name == "Crate");              // プレハブから(直した値)
+    CHECK(loaded->transform.position.x == 5.0f); // ファイルの違いから
+    CHECK(loaded->transform.position.y == 0.0f);
+    CHECK(loaded->guid.ToString() == actor.Find("guid")->AsString());
+    REQUIRE(loaded->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(loaded->GetComponent<SpriteComponent>()->width == 64.0f);  // プレハブから(直した値)
+    CHECK(loaded->GetComponent<SpriteComponent>()->height == 20.0f); // ファイルの違いから
+    CHECK(app.GetAssetLoader().ResolvePrefab(loaded->prefab.asset) != nullptr); // 読んだプレハブを覚えている
+
+    // もう一度保存しても、違いは同じ(プレハブの値は書かない)
+    const ArchiveValue again = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+    CHECK(PropertiesAt(again, 0).Find("name") == nullptr);
+    CHECK(PropertiesAt(again, 1).GetMemberCount() == 1);
+}
+
+TEST_CASE("PF-4: プレハブが読めないときは、警告を出してファイルにある値だけで作る")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_diff_missing");
+    WriteBoxPrefab(folder, "Box", 32.0f);
+
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        Actor* placed = PlaceBox(app, folder);
+        placed->GetComponent<SpriteComponent>()->height = 20.0f;
+        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetScene()).value);
+    }
+
+    husky::engine::Application app; // アセットの表を作らない(プレハブが見つからない)
+    const husky::engine::SceneSerializer::ReadReport report =
+        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].find("読めない") != std::string::npos);
+    REQUIRE(report.addedActors.size() == 1);
+    const Actor* loaded = app.GetRegistry().Resolve<Actor>(report.addedActors[0]);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->prefab.guid == BoxGuid); // つながりの印は残す(プレハブが戻れば、次に読むときに使える)
+    REQUIRE(loaded->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(loaded->GetComponent<SpriteComponent>()->height == 20.0f); // ファイルにある値
+}
+
+TEST_CASE("PF-4: コンポーネントを足したものは、警告を出して全部の値を書き、読むときもファイルの値だけで作る")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_diff_added");
+    WriteBoxPrefab(folder, "Box", 32.0f);
+
+    husky::engine::Application app;
+    Actor* placed = PlaceBox(app, folder);
+    REQUIRE(placed->AddComponent<SpriteComponent>() != nullptr); // プレハブに無い2つ目
+
+    const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+    REQUIRE(written.warnings.size() == 1);
+    CHECK(written.warnings[0].find("コンポーネントの並び") != std::string::npos);
+    CHECK(PropertiesAt(written.value, 0).Find("name") != nullptr); // 全部の値
+    CHECK(PropertiesAt(written.value, 1).Find("width") != nullptr);
+
+    husky::engine::Application other;
+    REQUIRE(other.GetAssetDatabase().Scan(folder.Root()));
+    const husky::engine::SceneSerializer::ReadReport report = husky::engine::SceneSerializer::Read(
+        ThroughJson(written.value), other.GetScene(), other.GetTypeRegistry(), FinderOf(other));
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].find("コンポーネントの並び") != std::string::npos);
+    REQUIRE(report.addedActors.size() == 1);
+    const Actor* loaded = other.GetRegistry().Resolve<Actor>(report.addedActors[0]);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->name == "Box");
+    CHECK(loaded->components.size() == 2);
 }

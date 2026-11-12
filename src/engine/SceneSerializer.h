@@ -27,14 +27,26 @@
 //   JsonFormat::Read(text, loaded);
 //   SceneSerializer::ReadReport report = SceneSerializer::Read(loaded, otherScene, app.GetTypeRegistry());
 //
+// プレハブから置いたもの(PF-4。Unity と同じく、シーンにはプレハブとの違いだけを書く):
+//   保存: アクターの "prefab" が読み込んだプレハブを指していれば、アクターとコンポーネントの "properties" には、
+//         プレハブと値が違うものだけを書く(構造体は中まで比べ、position.x だけ、のように書ける)。
+//         いつも書くもの: アクターの guid、prefab、components(番号の対応に要る)と、ハンドル(番号の振り方がプレハブと違い、比べられない)。
+//         プレハブのファイルに無い値も、比べる相手が無いのでいつも書く(prefab.create で作ったプレハブは、全部の値を持つ)。
+//         コンポーネントは並んだ順でプレハブのものと組にする。数か型がプレハブと違えば(足した・外した)、警告を出して全部の値を書く。
+//   読み込み: そのアクターは、先にプレハブから作り(プレハブの値が入る)、その上にファイルの値を重ねる。
+//         だから、プレハブを直すと、ファイルに書いていない(違いの無い)値は、直したプレハブの値になる。
+//         プレハブが読めない・コンポーネントの並びが違うときは、警告を出してファイルの値だけで作る(書いていない値は型の既定値)。
+//
 // 動作スレッド: ゲームスレッドのみ。
 #pragma once
 
 #include "core/TypeRegistry.h"
 #include "engine/ArchiveValue.h"
+#include "engine/PrefabAsset.h"
 #include "engine/Scene.h"
 
 #include <cstddef>
+#include <functional> // std::function
 #include <string>
 #include <vector>
 
@@ -50,6 +62,7 @@ namespace husky::engine::SceneSerializer
     };
 
     // シーンの生きている(Destroy 済みでない)アクターと、その生きているコンポーネントを保存する。
+    // プレハブから置いたアクター(Actor::prefab の中身が読み込まれている)は、プレハブとの違いだけを書く(下の「プレハブから置いたもの」)。
     // それ以外のオブジェクト(シーンの外のもの)を指すハンドルは、null として書き、warnings に残す。
     WriteResult Write(Scene& scene);
 
@@ -73,7 +86,14 @@ namespace husky::engine::SceneSerializer
         std::vector<std::string> warnings;  // 知らない型、読めなかったプロパティなど(途中で止めない)
     };
 
+    // プレハブを GUID から探して、読み終わったものを返す関数(無い・読めなければ nullptr)。
+    // どう読むか(アセットの表、ローダ、待つかどうか)は呼ぶ側が決める(Application::FindPrefabForScene)。
+    using PrefabFinder = std::function<const PrefabAsset*(const core::Guid&)>;
+
     // value のオブジェクトを scene と同じレジストリに作り、アクターを scene の一覧の末尾に足す(今いるアクターは消さない)。
     // 型の名前は types で探す。知らない型のオブジェクトは作らず、それを指すハンドルはどこも指さないハンドルになる。
-    ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types);
+    // findPrefab を渡すと、プレハブから置いたアクターは、プレハブから作ってからファイルの値を重ねる(上の「プレハブから置いたもの」)。
+    // 渡さなければ、ファイルの値だけで作る(プレハブそのものを読むときなど)。
+    ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types,
+                    const PrefabFinder& findPrefab = {});
 }

@@ -259,6 +259,9 @@ namespace husky::tools
             out += "Error: " + argError + " (see --list)\n";
             return CliExitCode::UsageError;
         }
+        // アセットの表(GUID → パス)を、シーンを読む前に作る。シーンのプレハブから置いたアクターは、読むときにプレハブを GUID で探し、
+        // actor.spawn の prefab も GUID やパスでアセットを指すため。ファイルは直さない(直すのは asset.refresh の役目)。
+        app.GetAssetDatabase().Scan(assetsDirectory);
 
         // --scene: シーンのファイルを読んでから実行する(無ければ、空のシーンから始めて新しく作る)。
         const bool newScene = !options.scenePath.empty() && !platform::FileExists(options.scenePath.c_str());
@@ -272,10 +275,6 @@ namespace husky::tools
             out += "FAILED: could not load the scene: " + options.scenePath + "\n";
             return CliExitCode::CommandFailed;
         }
-
-        // アセットの表(GUID → パス)を作ってから実行する(actor.spawn の prefab のように、GUID やパスでアセットを指すため)。
-        // ファイルは直さない(直すのは asset.refresh の役目)。
-        app.GetAssetDatabase().Scan(assetsDirectory);
 
         EditorCommandResult result = commands.Execute(options.commandName, app, commandArgs);
 

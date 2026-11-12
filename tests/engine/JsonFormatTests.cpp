@@ -74,6 +74,31 @@ TEST_CASE("ArchiveValue: Remove は名前のメンバーを取り除き、ほか
     CHECK_FALSE(ArchiveValue(std::int64_t{5}).Remove("a")); // オブジェクトでなければ何もしない
 }
 
+TEST_CASE("ArchiveValue: Equals は中まで比べる。数は整数と小数を問わず、float から作った小数は float の精度で比べる")
+{
+    CHECK(ArchiveValue(std::int64_t{32}).Equals(ArchiveValue(32.0)));    // 1 と 1.0 は同じ
+    CHECK(ArchiveValue(0.1f).Equals(ArchiveValue(0.1)));                 // ファイルから読んだ 0.1 と、float の 0.1f
+    CHECK_FALSE(ArchiveValue(0.1).Equals(ArchiveValue(0.2)));
+    CHECK_FALSE(ArchiveValue("1").Equals(ArchiveValue(std::int64_t{1}))); // 種類が違う
+    CHECK(ArchiveValue().Equals(ArchiveValue()));                        // null 同士
+
+    ArchiveValue a = ArchiveValue::MakeObject();
+    a.Set("x", ArchiveValue(1.0));
+    a.Set("y", ArchiveValue(2.0));
+    ArchiveValue b = ArchiveValue::MakeObject();
+    b.Set("y", ArchiveValue(2.0));
+    b.Set("x", ArchiveValue(1.0));
+    CHECK(a.Equals(b)); // メンバーの順番は問わない
+    b.Set("x", ArchiveValue(3.0));
+    CHECK_FALSE(a.Equals(b));
+
+    ArchiveValue list = ArchiveValue::MakeArray();
+    list.Append(ArchiveValue(std::int64_t{1}));
+    ArchiveValue longer = list;
+    longer.Append(ArchiveValue(std::int64_t{2}));
+    CHECK_FALSE(list.Equals(longer));
+}
+
 TEST_CASE("JsonFormat: 書いて読み戻すと、同じ木になる")
 {
     const ArchiveValue original = MakeSample();
