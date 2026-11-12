@@ -146,6 +146,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
 # STATIC は「.lib を作り、使う側の exe に丸ごと組み込む」という意味。
 add_library(husky_platform STATIC
+    src/platform/FileSystem.cpp
     src/platform/Image.cpp
     src/platform/Platform.cpp
     src/platform/Window.cpp
@@ -301,6 +302,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/JsonFormatTests.cpp
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
+        tests/platform/FileSystemTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
