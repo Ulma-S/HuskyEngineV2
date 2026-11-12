@@ -218,20 +218,30 @@ int main()
     const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
 #endif
     std::printf("アセットのフォルダ: %s\n", assetsDirectory.c_str());
+    const std::string scenePath = assetsDirectory + "/scenes/main.json";
+
 #if HUSKY_DEVELOPMENT
-    // 【開発ビルドだけ】.meta が無いアセットに GUID を振る(エディタの役目)。
-    engine::CreateMissingMetaFiles(assetsDirectory);
-    // スプライトシート(.spritesheet)を整える: ID を振り、アニメーションのコマの名前を ID に直して書き戻す。
-    engine::NormalizeSpriteSheetsInFolder(assetsDirectory);
-#endif
+    // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
+    // main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
+    tools::EditorCommandRegistry commands;
+    // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
+    commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
+    // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
+    // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。
+    commands.Register(tools::MakeSaveSceneCommand({scenePath}));
+
+    // 起動時のアセットの準備も、ボタンと同じコマンドで行う(手順が1か所にしか無いので、起動時とボタンで食い違わない)。
+    commands.Execute("asset.refresh", app);
+#else
+    // 製品: ファイルは直さず(エディタの役目)、表を作るだけ。
     engine::AssetScanReport assetReport;
     app.GetAssetDatabase().Scan(assetsDirectory, &assetReport);
     std::printf("アセット: %zu 個(.meta が無い %zu、読めない .meta %zu、対の無い .meta %zu、GUID の重なり %zu)\n",
                 assetReport.assetCount, assetReport.missingMetaCount, assetReport.invalidMetaCount,
                 assetReport.orphanMetaCount, assetReport.duplicateGuidCount);
+#endif
 
     // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
-    const std::string scenePath = assetsDirectory + "/scenes/main.json";
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
         std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
@@ -239,13 +249,6 @@ int main()
     }
 
 #if HUSKY_DEVELOPMENT
-    // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
-    // main の中に1つだけ作り、参照で渡す(Run が終わるまで生きている)。
-    tools::EditorCommandRegistry commands;
-    // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
-    // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。
-    commands.Register(tools::MakeSaveSceneCommand({scenePath}));
-
     // 開発用の UI: 毎フレーム、tools のデバッグの窓(コマンドのボタンつき)とインスペクタを作る。
     // インスペクタは「選んでいるアクター」を覚えておくので、これも main の中に1つだけ作り、参照で渡す。
     tools::SceneInspector inspector;

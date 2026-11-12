@@ -3,6 +3,9 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "engine/AssetDatabase.h"   // CreateMissingMetaFiles、Scan
+#include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
+
 #include <cstdio>  // std::printf
 #include <utility> // std::move
 
@@ -74,20 +77,22 @@ namespace husky::tools
 
     std::size_t EditorCommandRegistry::HandleShortcuts(engine::Application& app)
     {
-        // 先に実行するものを決めてから実行する(実行中に一覧が変わっても、範囲 for が壊れないように、名前をコピーしておく)。
-        std::vector<std::string> pressed;
-        for (const EditorCommand& command : m_commands)
+        // 毎フレーム呼ばれるので、キーが押されていないフレームでは何も確保しない(作業用の vector も作らない。
+        // MSVC の Debug の STL は、空の vector を作るだけでも管理用のメモリを確保する)。
+        // コマンドの中で一覧に登録が足されると、要素の場所が変わり得るので、範囲 for ではなく番号で回し、
+        // 実行する前に名前をコピーしておく(コピーは、押されたときだけ)。
+        std::size_t executed = 0;
+        for (std::size_t i = 0; i < m_commands.size(); ++i)
         {
-            if (command.shortcut != engine::Key::Unknown && app.GetInput().WasPressed(command.shortcut))
+            const engine::Key shortcut = m_commands[i].shortcut;
+            if (shortcut != engine::Key::Unknown && app.GetInput().WasPressed(shortcut))
             {
-                pressed.push_back(command.name);
+                const std::string name = m_commands[i].name;
+                Execute(name, app);
+                ++executed;
             }
         }
-        for (const std::string& name : pressed)
-        {
-            Execute(name, app);
-        }
-        return pressed.size();
+        return executed;
     }
 
     EditorCommand MakeSaveSceneCommand(std::vector<std::string> paths)
@@ -127,6 +132,68 @@ namespace husky::tools
                 {
                     result.details.push_back("failed: " + path);
                 }
+            }
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeRefreshAssetsCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "asset.refresh";
+        command.label = "Refresh assets";
+        command.description = "Create missing .meta files, fix sprite sheets (IDs), and rebuild the asset table. "
+                              "Run this after adding or editing files in the assets folder.";
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            // 1 と 2: ファイルを直す(エディタの役目)。どちらも、直したものが無ければ何も書かない。
+            const std::size_t createdMeta = engine::CreateMissingMetaFiles(directory);
+            const std::size_t fixedSheets = engine::NormalizeSpriteSheetsInFolder(directory);
+
+            // 3: 直した後のファイルで、表を作り直す。
+            engine::AssetScanReport report;
+            if (!context.app.GetAssetDatabase().Scan(directory, &report))
+            {
+                return EditorCommandResult::Failure("Could not read the assets folder: " + directory);
+            }
+
+            // 要約は「何個になったか」と「何を直したか」。人が一目で分かるように、直したものが無ければ書かない。
+            std::string summary = std::to_string(report.assetCount) + " assets";
+            if (createdMeta > 0)
+            {
+                summary += ", created " + std::to_string(createdMeta) + " .meta";
+            }
+            if (fixedSheets > 0)
+            {
+                summary += ", fixed " + std::to_string(fixedSheets) + " sprite sheet(s)";
+            }
+
+            EditorCommandResult result = report.HasProblems()
+                                             ? EditorCommandResult::Failure(summary + " (problems found, see log)")
+                                             : EditorCommandResult::Success(summary);
+            result.details.push_back("folder: " + directory);
+            result.details.push_back("created .meta: " + std::to_string(createdMeta));
+            result.details.push_back("fixed sprite sheets: " + std::to_string(fixedSheets));
+            // 問題は、数があるものだけを、何をすればよいかと一緒に並べる。
+            if (report.missingMetaCount > 0)
+            {
+                result.details.push_back("assets without .meta: " + std::to_string(report.missingMetaCount) +
+                                         " (could not create them)");
+            }
+            if (report.invalidMetaCount > 0)
+            {
+                result.details.push_back("unreadable .meta: " + std::to_string(report.invalidMetaCount) +
+                                         " (fix or delete the file)");
+            }
+            if (report.orphanMetaCount > 0)
+            {
+                result.details.push_back(".meta without asset: " + std::to_string(report.orphanMetaCount) +
+                                         " (move it with its asset, or delete it)");
+            }
+            if (report.duplicateGuidCount > 0)
+            {
+                result.details.push_back("duplicate GUIDs: " + std::to_string(report.duplicateGuidCount) +
+                                         " (a copied .meta? give one of them a new GUID)");
             }
             return result;
         };

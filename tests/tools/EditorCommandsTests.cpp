@@ -3,6 +3,7 @@
 
 #include "tools/EditorCommands.h"
 
+#include "core/MemoryTracker.h"
 #include "platform/FileSystem.h"
 #include "tools/DebugWindow.h"
 #include "HeadlessImGui.h"
@@ -152,6 +153,93 @@ TEST_CASE("EditorCommands: シーンの保存で書けないファイルがあ�
     REQUIRE(result.details.size() == 1);
     CHECK(result.details[0].find("ng.json") != std::string::npos);
     CHECK(husky::platform::FileExists(folder.PathOf("ok.json").c_str())); // 書けるものは書く
+}
+
+TEST_CASE("EditorCommands: アセットを最新にすると、.meta を作り、スプライトシートを整え、表に入る(ゲームを止めずに足したファイルも)")
+{
+    husky::tests::TestFolder folder("husky_test_command_refresh");
+    folder.WriteAsset("textures/old.png", husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a61ull));
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeRefreshAssetsCommand(folder.Root())));
+    const EditorCommand* refresh = commands.Find("asset.refresh");
+    REQUIRE(refresh != nullptr);
+    CHECK_FALSE(refresh->label.empty());
+    CHECK_FALSE(refresh->description.empty());
+
+    EditorCommandResult result = commands.Execute("asset.refresh", app);
+    CHECK(result.succeeded);
+    CHECK(app.GetAssetDatabase().GetAssetCount() == 1);
+
+    // 動かしている間に、.meta の無い画像と、コマを名前で書いたスプライトシートを足す(人が手で置いたのと同じ)。
+    folder.Write("textures/new.png", "dummy");
+    folder.Write("sprites/new.spritesheet", R"({ "texture": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a61",
+        "sprites": [ { "name": "a", "x": 0, "y": 0, "width": 8, "height": 8 } ],
+        "animations": [ { "name": "loop", "frames": ["a"], "frameSeconds": 0.1 } ] })");
+    CHECK(app.GetAssetDatabase().FindGuid("textures/new.png") == nullptr); // まだ表に無い
+
+    result = commands.Execute("asset.refresh", app);
+    CHECK(result.succeeded);
+    CHECK(husky::platform::FileExists(folder.PathOf("textures/new.png.meta").c_str()));
+    CHECK(husky::platform::FileExists(folder.PathOf("sprites/new.spritesheet.meta").c_str()));
+    CHECK(app.GetAssetDatabase().FindGuid("textures/new.png") != nullptr);
+    CHECK(app.GetAssetDatabase().FindGuid("sprites/new.spritesheet") != nullptr);
+    CHECK(app.GetAssetDatabase().GetAssetCount() == 3);
+    CHECK(result.message.find("created 2 .meta") != std::string::npos);
+    CHECK(result.message.find("fixed 1 sprite sheet") != std::string::npos);
+
+    // スプライトシートのコマが、名前から ID に直っている。
+    std::string sheetText;
+    REQUIRE(husky::platform::ReadTextFile(folder.PathOf("sprites/new.spritesheet").c_str(), sheetText));
+    CHECK(sheetText.find("\"a\"]") == std::string::npos); // frames に名前が残っていない
+
+    // 何も変えずにもう一度: 何も直さず、成功(要約に「作った」「直した」が出ない)。
+    result = commands.Execute("asset.refresh", app);
+    CHECK(result.succeeded);
+    CHECK(result.message == "3 assets");
+}
+
+TEST_CASE("EditorCommands: アセットを最新にしたとき、人が直す必要のある問題があれば、表は作ったうえで失敗にし、理由を並べる")
+{
+    husky::tests::TestFolder folder("husky_test_command_refresh_problem");
+    folder.WriteAsset("textures/ok.png", husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a62ull));
+    folder.Write("textures/gone.png.meta", R"({ "guid": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a63" })"); // 画像だけを消した
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeRefreshAssetsCommand(folder.Root())));
+
+    const EditorCommandResult result = commands.Execute("asset.refresh", app);
+    CHECK_FALSE(result.succeeded);
+    CHECK(app.GetAssetDatabase().GetAssetCount() == 1); // 問題の無いものは表に入る
+    bool listed = false;
+    for (const std::string& detail : result.details)
+    {
+        listed = listed || detail.find(".meta without asset: 1") != std::string::npos;
+    }
+    CHECK(listed);
+}
+
+TEST_CASE("EditorCommands: 温まった後は、キーが押されていないフレームのショートカットの確認も、ボタンを並べるのも、メモリを確保しない")
+{
+    husky::tests::HeadlessImGui imgui;
+    Application app;
+    EditorCommandRegistry commands;
+    int calls = 0;
+    REQUIRE(commands.Register(MakeCountingCommand("test.count_with_a_long_name", calls, Key::F5)));
+    REQUIRE(commands.Register(MakeCountingCommand("test.count_without_shortcut", calls)));
+    commands.Execute("test.count_with_a_long_name", app); // 最後の結果の行も並べる
+
+    // 1フレーム目で、使い回す入れ物や ImGui の中身が温まる。
+    imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); });
+    commands.HandleShortcuts(app);
+
+    const std::uint64_t before = husky::core::GetMemoryStats().totalAllocations;
+    for (int frame = 0; frame < 10; ++frame)
+    {
+        imgui.Frame([&] { husky::tools::DrawDebugWindow(app, &commands); });
+        commands.HandleShortcuts(app);
+    }
+    CHECK(husky::core::GetMemoryStats().totalAllocations == before);
 }
 
 TEST_CASE("DebugWindow: コマンドのボタンと最後の結果を並べても、ImGui の使い方の誤りが無い。並べるだけでは実行しない")

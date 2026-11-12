@@ -19,26 +19,39 @@ namespace husky::tools
             ImGui::SeparatorText("Editor commands");
             // ボタンを押すと一覧の外のもの(シーン)が変わるので、押されたコマンドは、並べ終わってから実行する。
             const EditorCommand* clicked = nullptr;
+            // ボタンの文字を組み立てる入れ物。毎フレーム新しく作ると、そのたびにメモリを確保してしまう
+            // (温まった後のフレームは確保 0 回、という決まりを守るため)。static にして使い回すと、
+            // clear や assign をしても確保済みの容量は残るので、2フレーム目からは確保しない。ゲームスレッドだけで使う。
+            static std::string text;
             for (const EditorCommand& command : commands.GetCommands())
             {
-                // ボタンの文字: "Save scene (F5)"。"##scene.save" の部分は画面に出ない、ボタンを区別するための ID
-                // (表示名が同じコマンドがあっても、押し間違えないように)。
-                std::string text = command.label;
+                // ボタンを区別する ID は、機械向けの名前にする(表示名が同じコマンドがあっても、押し間違えないように)。
+                ImGui::PushID(command.name.c_str());
+                // ボタンの文字: "Save scene (F5)"。
+                text.assign(command.label);
                 if (command.shortcut != engine::Key::Unknown)
                 {
-                    text += std::string(" (") + GetKeyDisplayName(command.shortcut) + ")";
+                    text += " (";
+                    text += GetKeyDisplayName(command.shortcut);
+                    text += ')';
                 }
-                text += "##" + command.name;
                 // Button は、押されたフレームだけ true を返す。
                 if (ImGui::Button(text.c_str()))
                 {
                     clicked = &command;
                 }
                 // マウスを乗せると、何をするかと、CLI や AI から呼ぶときの名前を出す。
+                // 説明が長くても読めるように、文字の大きさの 30 倍ほどの幅で折り返す。名前は控えめな色で下に添える。
                 if (ImGui::IsItemHovered())
                 {
-                    ImGui::SetTooltip("%s\n[%s]", command.description.c_str(), command.name.c_str());
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+                    ImGui::TextUnformatted(command.description.c_str());
+                    ImGui::TextDisabled("[%s]", command.name.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
                 }
+                ImGui::PopID();
             }
             if (clicked != nullptr)
             {

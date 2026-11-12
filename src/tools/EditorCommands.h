@@ -102,6 +102,16 @@ namespace husky::tools
     // ふつうは「ソースの assets」(残すため)と「exe の隣の assets」(ビルドし直さずに次の起動で読むため)の2か所。
     // どれか1つでも書けなければ、失敗の結果(書けなかったパスを details に)を返す。
     EditorCommand MakeSaveSceneCommand(std::vector<std::string> paths);
+
+    // 「アセットを最新にする」コマンド(asset.refresh)を作る。Unity の Refresh にあたる。assetsDirectory の中で、順に:
+    //   1. .meta が無いアセットに、GUID を振って .meta を作る(CreateMissingMetaFiles)
+    //   2. スプライトシートを整える(ID を振り、アニメーションのコマの名前を ID に直して書き戻す。NormalizeSpriteSheetsInFolder)
+    //   3. アセットの表(GUID → パス)を作り直す(AssetDatabase::Scan)
+    // 起動時にも、このコマンドを呼ぶ。ゲームを動かしたまま assets にファイルを足したときは、これを実行すれば
+    // インスペクタから選べるようになる。すでに読み込んだアセットの中身は読み直さない。
+    // 表の問題(.meta が読めない、対になるアセットが無い、GUID が重なる)があれば、表は作ったうえで、失敗の結果を返す
+    // (人に直してもらう必要があるため。ファイルの名前はログに出ている)。
+    EditorCommand MakeRefreshAssetsCommand(std::string assetsDirectory);
 }
 
 #endif
