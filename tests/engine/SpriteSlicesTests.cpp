@@ -3,6 +3,7 @@
 
 #include "engine/Application.h"
 #include "engine/JsonFormat.h"
+#include "engine/SpriteComponent.h"
 #include "TestFolder.h"
 
 #include <doctest/doctest.h>
@@ -217,4 +218,87 @@ TEST_CASE("AssetLoader: 読めるファイルは、アセットの型ごとに�
     CHECK_FALSE(AssetLoader::CanLoadAs(husky::engine::TextureAsset::StaticType(), "sprites/a.spritesheet"));
     CHECK(AssetLoader::CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "sprites/a.spritesheet"));
     CHECK_FALSE(AssetLoader::CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "textures/a.png"));
+}
+
+TEST_CASE("ChooseSpriteTexture: スプライトシートを指せば、その画像と切り出しの範囲。読み終わるまでは nullptr")
+{
+    husky::tests::TestFolder folder("husky_test_choose_sheet");
+    WriteSheetAssets(folder);
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    auto& loader = app.GetAssetLoader();
+
+    auto* sprite = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    sprite->sheet.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull);
+    sprite->sprite = 6; // "right"(16, 0, 16x32)
+    sprite->texture.guid = husky::tests::MakeGuid(1, 1); // スプライトシートが優先されるので、使われない
+    sprite->region = {1, 2, 3, 4};
+
+    husky::engine::PixelRect region;
+    CHECK(husky::engine::ChooseSpriteTexture(*sprite, loader, region) == nullptr); // 読み込み中
+    loader.WaitForAllLoads();
+
+    const husky::engine::TextureAsset* texture = husky::engine::ChooseSpriteTexture(*sprite, loader, region);
+    REQUIRE(texture != nullptr);
+    CHECK(texture->GetWidth() == 32);
+    CHECK(region.x == 16);
+    CHECK(region.y == 0);
+    CHECK(region.width == 16);
+    CHECK(region.height == 32);
+
+    // 見つからない切り出しなら、画像の全体(範囲は空)。
+    sprite->sprite = 12345;
+    REQUIRE(husky::engine::ChooseSpriteTexture(*sprite, loader, region) == texture);
+    CHECK(region.IsEmpty());
+}
+
+TEST_CASE("ChooseSpriteTexture: スプライトシートを指さなければ、texture と region")
+{
+    husky::tests::TestFolder folder("husky_test_choose_texture");
+    WriteSheetAssets(folder);
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+
+    auto* sprite = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    sprite->texture.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a45ull); // sheet.png
+    sprite->region = {8, 8, 8, 8};
+    husky::engine::PixelRect region;
+    husky::engine::ChooseSpriteTexture(*sprite, app.GetAssetLoader(), region); // 読み始める
+    app.GetAssetLoader().WaitForAllLoads();
+    REQUIRE(husky::engine::ChooseSpriteTexture(*sprite, app.GetAssetLoader(), region) != nullptr);
+    CHECK(region.x == 8);
+    CHECK(region.width == 8);
+
+    // 何も指さなければ nullptr(呼んだ側が、既定のテクスチャを使う)。
+    auto* empty = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    CHECK(husky::engine::ChooseSpriteTexture(*empty, app.GetAssetLoader(), region) == nullptr);
+}
+
+TEST_CASE("SpriteComponent: スプライトシートを指している間は、スプライトシートも画像も GC に回収されない")
+{
+    husky::tests::TestFolder folder("husky_test_sheet_component_gc");
+    WriteSheetAssets(folder);
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    auto& loader = app.GetAssetLoader();
+
+    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    auto* sprite = actor->AddComponent<husky::engine::SpriteComponent>();
+    sprite->sheet.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull);
+    husky::engine::PixelRect region;
+    husky::engine::ChooseSpriteTexture(*sprite, loader, region);
+    loader.WaitForAllLoads();
+    REQUIRE(husky::engine::ChooseSpriteTexture(*sprite, loader, region) != nullptr); // 画像の AssetRef もたどれる状態にする
+
+    // シーン(根)→ アクター → コンポーネント → スプライトシート → 画像
+    app.GetRegistry().CollectGarbage();
+    CHECK(loader.GetLoadedSpriteSheetCount() == 1);
+    CHECK(loader.GetLoadedTextureCount() == 1);
+
+    actor->Destroy();
+    app.GetClock().SetFixedDelta(0.01);
+    app.StepFrame(0, {});
+    app.GetRegistry().CollectGarbage();
+    CHECK(loader.GetLoadedSpriteSheetCount() == 0);
+    CHECK(loader.GetLoadedTextureCount() == 0);
 }

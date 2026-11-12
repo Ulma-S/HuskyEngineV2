@@ -25,6 +25,17 @@ namespace husky::tools
     bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
                         const engine::AssetDatabase* assets = nullptr);
 
+    // プロパティ1つの表示を差し替える関数の型。引数は DrawProperties と同じ(container はプロパティの持ち主の先頭)。
+    // 戻り値: 値を書き換えたら true。
+    using PropertyDrawer = bool (*)(const core::Property& property, void* container, core::ObjectRegistry& registry,
+                                    const engine::AssetDatabase* assets);
+
+    // type の propertyName のプロパティを、標準の部品ではなく drawer で表示するようにする(親の型のプロパティも指定できる)。
+    // ふつうはリフレクションから自動で表示すれば足りるが、「整数の ID を、名前の一覧から選ばせる」のように、
+    // 型だけでは分からない見せ方をしたいときに使う。最初から SpriteComponent::sprite(切り出しの ID)が登録されている。
+    // 戻り値: そのプロパティが見つかれば true。同じプロパティにもう一度登録すると置き換える。
+    bool RegisterPropertyDrawer(const core::TypeInfo& type, const char* propertyName, PropertyDrawer drawer);
+
     class SceneInspector
     {
     public:

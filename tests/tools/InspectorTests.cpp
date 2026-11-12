@@ -6,6 +6,7 @@
 
 #include "engine/Application.h"
 #include "engine/SpriteComponent.h"
+#include "platform/FileSystem.h"
 #include "tools/Inspector.h"
 
 #include <doctest/doctest.h>
@@ -112,6 +113,40 @@ TEST_CASE("Inspector: 1000 体のシーンで、選んだアクターとコン�
     app.StepFrame(0, {}); // フレームの終わりに消える
     imgui.Frame([&] { inspector.Draw(app); }); // 選んだアクターが消えた後も、落ちずに「選んでいない」と出す
     CHECK(app.GetRegistry().Resolve(inspector.GetSelected()) == nullptr);
+}
+
+TEST_CASE("Inspector: 切り出しの ID は、差し替えた表示(名前の選択肢)で並べる。差し替えは、ある名前のプロパティにだけ登録できる")
+{
+    HeadlessImGui imgui;
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(husky::platform::GetExecutableDirectory() + "assets"));
+    const husky::core::Guid* shapes = app.GetAssetDatabase().FindGuid("sprites/shapes.spritesheet");
+    REQUIRE(shapes != nullptr);
+
+    SpriteComponent* sprite = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    sprite->sheet.guid = *shapes;
+    sprite->sprite = 1917386538; // diamond
+
+    // スプライトシートを読む前(ID の数字だけを出す)と、読んだ後(名前の選択肢を出す)の両方で、ImGui の使い方の誤りが無い。
+    bool changed = true;
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase());
+        ImGui::End();
+    });
+    CHECK_FALSE(changed);
+
+    app.GetAssetLoader().Resolve(sprite->sheet);
+    app.GetAssetLoader().WaitForAllLoads();
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase());
+        ImGui::End();
+    });
+    CHECK_FALSE(changed);
+    CHECK(sprite->sprite == 1917386538);
+
+    CHECK_FALSE(husky::tools::RegisterPropertyDrawer(SpriteComponent::StaticType(), "no_such_property", nullptr));
 }
 
 #endif

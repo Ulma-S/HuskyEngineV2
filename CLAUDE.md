@@ -25,6 +25,7 @@
 - JSON: yyjson(0.12.0、FetchContent)。使うのは`engine/JsonFormat.cpp`の中だけ(PRIVATEでリンク)。替えるときはそのファイルだけを書き直す。
 - 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。ASanのビルドでは`husky_imgui`もASan付きでコンパイルする(MSVCのSTLの注釈`annotate_string`をそろえるため)。
   - インスペクタ(`tools/Inspector`)は、リフレクション(`TypeInfo`と`Property`)から自動で画面を作る。新しい型やプロパティを足しても、画面のコードは要らない。
+    - 型だけでは分からない見せ方(整数のIDを名前の一覧から選ばせるなど)が要るプロパティは、`tools::RegisterPropertyDrawer`で表示を差し替える(例: `SpriteComponent::sprite`は、スプライトシートの切り出しの名前から選ぶ)。
 - 依存ライブラリを追加するときは、先にユーザーへ相談する。
 
 ## モジュール構成と依存方向
@@ -92,6 +93,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - テクスチャは「画像 + `.meta`」をそのままアセットにする(1枚の画像 = 1つのテクスチャ)。切り出しは、画像をGUIDで指す別のアセット(スプライトシート、`.spritesheet`、JSON。`engine/SpriteSheetAsset.h`)に書く(`"texture": "<GUID>", "sprites": [{"id", "name", "x", "y", "width", "height"}]`)。1枚の画像をテクスチャとして直接使いながら、いくつものスプライトシートからも使える。将来テクスチャも包むアセットにする余地を残す(設計メモ「テクスチャを包むアセットへの移し替え」)。
   - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。IDの無い切り出し(手で書き足したもの)には、開発ビルドが起動時にIDを振って書き戻す(`AssignMissingSliceIdsInFolder`。ソースとexeの隣の両方)。
   - スプライトシートを読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。スプライトシートの`texture`はプロパティの`AssetRef`なので、スプライトシートが生きている間は画像も回収されない。アセットの種類を足すときは、ローダの読み込み中の記録(`PendingLoad`の子)と`Start〜`/`Finish〜`を足す。
+  - `SpriteComponent`は、`sheet`(`AssetRef<SpriteSheetAsset>`)と`sprite`(切り出しのID)で切り出しを指せる。`sheet`を指していれば、`texture`と`region`より優先する。どれを貼るかは`ChooseSpriteTexture`(GPUを使わない。テストできる)が決める。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
 - ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。読み込みは非同期(ジョブ)。

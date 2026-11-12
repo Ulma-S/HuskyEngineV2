@@ -19,6 +19,7 @@
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #endif
 
+#include <cstdint>
 #include <cstdio> // std::printf
 #include <random> // std::mt19937(乱数)
 #include <functional>
@@ -156,10 +157,13 @@ namespace
     }
 
     // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
-    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、4 つの図形を並べた画像(shapes.png、
-    // 64x64)から、右下のひし形(32x32)を切り出して貼る。テクスチャが違うので、描画命令は 2 回になる。
+    // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、スプライトシート(shapes.spritesheet)の
+    // 「diamond」を貼る(4 つの図形を並べた shapes.png から、右下のひし形を切り出したもの)。テクスチャが違うので、描画命令は 2 回になる。
     void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
     {
+        // shapes.spritesheet の「diamond」の切り出しの ID(ファイルに書いてある。名前を変えても、この ID は変わらない)。
+        constexpr std::int32_t DiamondSpriteId = 1917386538;
+
         SpawnBouncers(scene, BouncerCount);
         if (PlayerActor* player = scene.Spawn<PlayerActor>())
         {
@@ -168,10 +172,10 @@ namespace
                 sprite->width = PlayerSize;
                 sprite->height = PlayerSize; // 色は既定の白(テクスチャのまま)
                 // アセットは GUID で指す。読むのは、描くとき(DrawSprites)。
-                if (const husky::core::Guid* shapes = assets.FindGuid("textures/shapes.png"))
+                if (const husky::core::Guid* shapes = assets.FindGuid("sprites/shapes.spritesheet"))
                 {
-                    sprite->texture.guid = *shapes;
-                    sprite->region = {32, 32, 32, 32}; // x, y, 幅, 高さ(ピクセル)
+                    sprite->sheet.guid = *shapes;
+                    sprite->sprite = DiamondSpriteId;
                 }
             }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央

@@ -8,6 +8,8 @@
 #include "engine/AssetLoader.h"
 #include "engine/Component.h"
 #include "engine/RenderReflection.h" // render::Color の型情報(色は色の選び方で編集するため)
+#include "engine/SpriteComponent.h"   // 切り出しの ID を名前で選ぶ表示
+#include "engine/SpriteSheetAsset.h"
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui::InputText(std::string*)
@@ -24,6 +26,90 @@ namespace husky::tools
     {
         using core::Property;
         using core::PropertyType;
+
+        // ---- プロパティごとの表示の差し替え ----
+
+        struct DrawerEntry
+        {
+            const Property* property; // 差し替えるプロパティ(TypeInfo の中にあるもの。登録の後は場所が変わらない)
+            PropertyDrawer drawer;
+        };
+
+        // 差し替えの一覧。関数の中の static 変数なので、最初に呼ばれたときに1回だけ作られる
+        // (グローバル変数にしないのは、ほかのグローバル変数の初期化との順番の問題を避けるため)。
+        std::vector<DrawerEntry>& Drawers()
+        {
+            static std::vector<DrawerEntry> drawers;
+            return drawers;
+        }
+
+        PropertyDrawer FindDrawer(const Property& property);
+
+        // SpriteComponent::sprite(切り出しの ID)を、スプライトシートの切り出しの名前から選ぶ箱で並べる。
+        // スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
+        bool DrawSpriteSlicePicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                                   const engine::AssetDatabase* /*assets*/)
+        {
+            // container はこのプロパティの持ち主(SpriteComponent)の先頭。単一継承なので、そのまま型を戻せる。
+            auto* component = static_cast<engine::SpriteComponent*>(container);
+            std::int32_t* id = property.GetValuePtrAt<std::int32_t>(container);
+            const engine::SpriteSheetAsset* sheet = registry.Resolve<engine::SpriteSheetAsset>(component->sheet.asset);
+            if (sheet == nullptr || !sheet->IsLoaded() || sheet->GetGuid() != component->sheet.guid)
+            {
+                ImGui::Text("%s: %d (sheet not loaded)", property.GetName(), *id);
+                return false;
+            }
+
+            const engine::SpriteSlice* current = sheet->FindSlice(*id);
+            const char* preview = *id == 0 ? "(none)" : (current != nullptr ? current->name.c_str() : "(missing)");
+            bool changed = false;
+            if (ImGui::BeginCombo(property.GetName(), preview))
+            {
+                if (ImGui::Selectable("(none)", *id == 0))
+                {
+                    *id = 0;
+                    changed = true;
+                }
+                // 切り出しは、ファイルに書いた順に並べる(名前が同じでも ID で区別できるように、PushID で区切る)。
+                for (const engine::SpriteSlice& slice : sheet->GetSlices())
+                {
+                    ImGui::PushID(slice.id);
+                    if (ImGui::Selectable(slice.name.c_str(), slice.id == *id) && slice.id != *id)
+                    {
+                        *id = slice.id;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
+        // 最初から入っている差し替えを登録する(1回だけ)。
+        void RegisterBuiltInDrawers()
+        {
+            static bool registered = false;
+            if (registered)
+            {
+                return;
+            }
+            registered = true;
+            RegisterPropertyDrawer(engine::SpriteComponent::StaticType(), "sprite", DrawSpriteSlicePicker);
+        }
+
+        PropertyDrawer FindDrawer(const Property& property)
+        {
+            RegisterBuiltInDrawers();
+            for (const DrawerEntry& entry : Drawers())
+            {
+                if (entry.property == &property)
+                {
+                    return entry.drawer;
+                }
+            }
+            return nullptr;
+        }
 
         // ハンドルが指している相手を、短い文字で表す(名前があるアクターなら名前、それ以外は型の名前)。
         // 文字列を作らずに、相手が持っている文字列をそのまま返す(毎フレームのメモリの確保を避けるため)。
@@ -169,10 +255,32 @@ namespace husky::tools
         type.ForEachProperty([&](const Property& property) {
             // PushID: ImGui は部品を「名前」で見分けるので、同じ名前(x など)が別の場所にあっても混ざらないように、区切りを付ける。
             ImGui::PushID(property.GetName());
-            changed |= DrawProperty(property, container, registry, assets);
+            // 差し替えが登録されていれば、そちらで表示する。無ければ、型に合った標準の部品で表示する。
+            const PropertyDrawer drawer = FindDrawer(property);
+            changed |= drawer != nullptr ? drawer(property, container, registry, assets)
+                                         : DrawProperty(property, container, registry, assets);
             ImGui::PopID();
         });
         return changed;
+    }
+
+    bool RegisterPropertyDrawer(const core::TypeInfo& type, const char* propertyName, PropertyDrawer drawer)
+    {
+        const Property* property = type.FindProperty(propertyName);
+        if (property == nullptr)
+        {
+            return false;
+        }
+        for (DrawerEntry& entry : Drawers())
+        {
+            if (entry.property == property)
+            {
+                entry.drawer = drawer; // 同じプロパティなら置き換える
+                return true;
+            }
+        }
+        Drawers().push_back(DrawerEntry{property, drawer});
+        return true;
     }
 
     void SceneInspector::Draw(engine::Application& app)

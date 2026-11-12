@@ -5,10 +5,17 @@ namespace husky::engine
 {
     namespace
     {
-        // テクスチャのアセットが読めていて、GPU のテクスチャも持っていれば、それを返す。それ以外は nullptr。
+        // 読み終わっているアセットなら、それを返す。読み込み中、失敗、無いなら nullptr。
+        template <typename Asset>
+        Asset* LoadedOrNull(Asset* asset)
+        {
+            return (asset != nullptr && asset->IsLoaded()) ? asset : nullptr;
+        }
+
+        // GPU のテクスチャを持っていれば(描けるなら)、それを返す。無ければ nullptr。
         const TextureAsset* DrawableOrNull(const TextureAsset* asset)
         {
-            return (asset != nullptr && asset->IsLoaded() && !asset->GetTexture().IsNull()) ? asset : nullptr;
+            return (asset != nullptr && !asset->GetTexture().IsNull()) ? asset : nullptr;
         }
     }
 
@@ -32,17 +39,51 @@ namespace husky::engine
         sprite.v1 = static_cast<float>(region.y + region.height) / height;
     }
 
+    const TextureAsset* ChooseSpriteTexture(SpriteComponent& component, AssetLoader& loader, PixelRect& outRegion)
+    {
+        outRegion = {};
+
+        // 1. スプライトシートを指していれば、そちらを使う(texture と region より優先)。
+        if (!component.sheet.IsNull())
+        {
+            SpriteSheetAsset* sheet = LoadedOrNull(loader.Resolve(component.sheet));
+            if (sheet == nullptr)
+            {
+                return nullptr; // 読み込み中か失敗
+            }
+            const TextureAsset* texture = LoadedOrNull(loader.Resolve(sheet->texture));
+            if (texture == nullptr)
+            {
+                return nullptr; // 画像が読み込み中か失敗
+            }
+            if (const SpriteSlice* slice = sheet->FindSlice(component.sprite))
+            {
+                outRegion = slice->rect;
+            }
+            return texture; // 切り出しが見つからなければ、範囲は空(画像の全体)
+        }
+
+        // 2. テクスチャを直接指していれば、その画像と region。
+        const TextureAsset* texture = LoadedOrNull(loader.Resolve(component.texture));
+        if (texture != nullptr)
+        {
+            outRegion = component.region;
+        }
+        return texture;
+    }
+
     void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
                      core::ObjectHandle defaultTexture)
     {
         // 既定のテクスチャは、スプライトごとに引き直さず、最初に1回だけ引く。
-        const TextureAsset* fallback = DrawableOrNull(loader.ResolveTexture(defaultTexture));
+        const TextureAsset* fallback = DrawableOrNull(LoadedOrNull(loader.ResolveTexture(defaultTexture)));
         ForEachSprite(scene, [&](render::Sprite& sprite, SpriteComponent& component) {
-            if (const TextureAsset* texture = DrawableOrNull(loader.Resolve(component.texture)))
+            PixelRect region;
+            if (const TextureAsset* texture = DrawableOrNull(ChooseSpriteTexture(component, loader, region)))
             {
-                // 自分のテクスチャ: 指定された範囲を貼る。
+                // 自分のテクスチャ: 決まった範囲を貼る。
                 sprite.texture = texture->GetTexture();
-                ApplyRegion(component.region, texture->GetWidth(), texture->GetHeight(), sprite);
+                ApplyRegion(region, texture->GetWidth(), texture->GetHeight(), sprite);
             }
             else if (fallback != nullptr)
             {

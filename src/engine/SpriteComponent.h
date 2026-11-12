@@ -17,9 +17,12 @@
 
 #include "engine/AssetLoader.h"
 #include "engine/PixelRect.h"
+#include "engine/SpriteSheetAsset.h"
 #include "engine/Scene.h"
 #include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
 #include "render/RenderDevice.h"
+
+#include <cstdint>
 
 namespace husky::engine
 {
@@ -42,12 +45,20 @@ namespace husky::engine
         // 1 枚の画像に並べた絵(スプライトシート)から、1 つを切り出すのに使う。既定のテクスチャを貼るときは使わない。
         PixelRect region;
 
+        // スプライトシートから切り出して貼るとき: スプライトシートと、その中の切り出しの ID。
+        // sheet を指していれば、texture と region より優先して、「スプライトシートの画像の、切り出しの範囲」を貼る。
+        // sprite が見つからない(0、または消された切り出し)ときは、スプライトシートの画像の全体を貼る。
+        core::AssetRef<SpriteSheetAsset> sheet;
+        std::int32_t sprite = 0; // 切り出しの ID(SpriteSlices.h)。インスペクタでは名前で選べる
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
             HUSKY_PROPERTY(color)   // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
             HUSKY_PROPERTY(texture) // アセットの参照。保存すると "3f2a9c1e-..." のような GUID の文字列になる
             HUSKY_PROPERTY(region)  // 構造体(PixelRect.h で登録)
+            HUSKY_PROPERTY(sheet)   // アセットの参照(スプライトシート)
+            HUSKY_PROPERTY(sprite)  // 切り出しの ID(整数)
         HUSKY_REFLECTION_END()
     };
 
@@ -81,8 +92,16 @@ namespace husky::engine
     // 動作スレッド: どこでもよい
     void ApplyRegion(const PixelRect& region, int textureWidth, int textureHeight, render::Sprite& sprite);
 
+    // コンポーネントが貼る「テクスチャのアセット」と「その中の範囲(ピクセル)」を決める。GPU は使わない(テストできる)。
+    //   1. sheet を指していれば: スプライトシートの画像と、切り出しの範囲(見つからなければ空 = 全体)
+    //   2. そうでなく texture を指していれば: その画像と region
+    // 戻り値: 読み終わったテクスチャのアセット。指していない、読み込み中、失敗なら nullptr(呼んだ側は既定のテクスチャを使う)。
+    // まだ読んでいないアセットは、ここで読み始める(loader.Resolve)ので、コンポーネントを書き換えることがある。
+    // 動作スレッド: ゲームスレッドのみ
+    const TextureAsset* ChooseSpriteTexture(SpriteComponent& component, AssetLoader& loader, PixelRect& outRegion);
+
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
-    // テクスチャは、コンポーネントの texture(アセット)から引く。指していない、もう無い、読めていないときは、
+    // テクスチャと範囲は ChooseSpriteTexture で決める。指していない、もう無い、読めていないときは、
     // defaultTexture(これもアセット)を貼る。それも無ければ、白い板になる。
     // まだ読んでいないテクスチャは、ここで読む(loader.Resolve)ので、コンポーネントを書き換えることがある。
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
