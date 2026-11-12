@@ -16,6 +16,7 @@
 
 #include "core/ObjectRegistry.h"
 #include "core/TypeRegistry.h"
+#include "engine/AssetDatabase.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
@@ -65,6 +66,8 @@ namespace husky::engine
         // 型の登録簿(名前からオブジェクトを作る)。engine の型は登録済み。ゲームの型は、Run の前にゲームが登録する。
         core::TypeRegistry& GetTypeRegistry() { return m_types; }
         Scene& GetScene() { return *m_scene; }
+        // アセットのデータベース(GUID → ファイルのパス)。中身は、ゲームが Run の前に Scan で作る。
+        AssetDatabase& GetAssetDatabase() { return m_assets; }
         const Input& GetInput() const { return m_input; }
         // テストで dt を固定する(FrameClock::SetFixedDelta)ときなどに使う。
         FrameClock& GetClock() { return m_clock; }
@@ -131,6 +134,7 @@ namespace husky::engine
         core::TypeRegistry m_types; // 型の登録簿(オブジェクトより長く生きるように、レジストリより先に宣言する)
         FrameClock m_clock;
         Input m_input;
+        AssetDatabase m_assets;
         core::ObjectRegistry m_registry;
         Scene* m_scene = nullptr; // m_registry が持ち主。ここは借りているだけ
 

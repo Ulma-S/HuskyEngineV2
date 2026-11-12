@@ -206,6 +206,20 @@ int main()
     app.GetTypeRegistry().Register<BouncerActor>();
     app.GetTypeRegistry().Register<PlayerActor>();
 
+    // アセットのデータベース(GUID → パスの表)を作る。読むのは、ビルドのたびに exe の隣へコピーされる assets。
+    const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
+#if HUSKY_DEVELOPMENT
+    // 【開発ビルドだけ】.meta が無いアセットに GUID を振る(エディタの役目)。シーンの保存と同じく、2か所に書く。
+    //   1. ソースの assets … 残しておくため(git で管理する)
+    //   2. exe の隣の assets … ビルドし直さなくても、この起動から表に入るように(1 と同じ GUID を書く)
+    engine::CreateMissingMetaFiles(std::string(HUSKY_SOURCE_DIR) + "assets", assetsDirectory);
+#endif
+    engine::AssetScanReport assetReport;
+    app.GetAssetDatabase().Scan(assetsDirectory, &assetReport);
+    std::printf("アセット: %zu 個(.meta が無い %zu、読めない .meta %zu、対の無い .meta %zu、GUID の重なり %zu)\n",
+                assetReport.assetCount, assetReport.missingMetaCount, assetReport.invalidMetaCount,
+                assetReport.orphanMetaCount, assetReport.duplicateGuidCount);
+
     // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
     // ファイルは、ビルドのたびに exe の隣へコピーされる assets の中にある。
     const std::string scenePath = platform::GetExecutableDirectory() + "assets/scenes/main.json";

@@ -9,6 +9,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace husky::platform
 {
@@ -27,6 +28,17 @@ namespace husky::platform
     bool FileExists(const char* path);
 
     // ファイルを消す。戻り値: 呼んだ後にファイルが無い状態になっていれば true(もともと無いときも true)。
-    // 消せなかった(使用中、権限が無いなど)ときは false。
+    // 消せなかった(使用中、権限が無いなど)ときは false。空のフォルダも消せる(中身があるフォルダは消せない)。
     bool RemoveFile(const char* path);
+
+    // フォルダを作る。途中のフォルダが無ければ、それも作る。すでにあれば何もしない。
+    // 戻り値: 呼んだ後にフォルダがあれば true。
+    // (名前を CreateDirectory にしないのは、Windows のヘッダが同じ名前のマクロを定義していて、ぶつかることがあるため)
+    bool MakeDirectory(const char* path);
+
+    // directory の中のファイルを、下のフォルダの中まですべて集め、outPaths に入れる(前の中身は消す)。
+    // 入れるのは directory からの相対パスで、区切りは「/」(例: "textures/enemy.png")。フォルダそのものは入れない。
+    // 並びは名前の順(OS によって並びが変わらないように、並べ替えてから返す)。
+    // 戻り値: フォルダを読めたら true。
+    bool ListFilesRecursive(const char* directory, std::vector<std::string>& outPaths);
 }

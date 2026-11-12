@@ -3,6 +3,9 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm> // std::sort, std::replace
+#include <utility>   // std::move
+
 namespace husky::platform
 {
     std::string GetExecutableDirectory()
@@ -57,5 +60,55 @@ namespace husky::platform
     bool RemoveFile(const char* path)
     {
         return SDL_RemovePath(path);
+    }
+
+    bool MakeDirectory(const char* path)
+    {
+        // SDL_CreateDirectory は、途中のフォルダもまとめて作り、すでにあるときも true を返す。
+        if (!SDL_CreateDirectory(path))
+        {
+            SDL_Log("フォルダを作れませんでした (%s): %s", path, SDL_GetError());
+            return false;
+        }
+        return true;
+    }
+
+    bool ListFilesRecursive(const char* directory, std::vector<std::string>& outPaths)
+    {
+        outPaths.clear();
+        // SDL_GlobDirectory: フォルダの中を、下のフォルダまでたどって一覧にする。
+        // 第2引数(絞り込みの模様)が nullptr なら、すべてを返す。返すパスは directory からの相対で、区切りは「/」。
+        // 返した配列は1つの確保にまとまっているので、使い終わったら SDL_free で1回返す。
+        int count = 0;
+        char** entries = SDL_GlobDirectory(directory, nullptr, 0, &count);
+        if (entries == nullptr)
+        {
+            SDL_Log("フォルダを読めませんでした (%s): %s", directory, SDL_GetError());
+            return false;
+        }
+
+        std::string base = directory;
+        if (!base.empty() && base.back() != '/' && base.back() != '\\')
+        {
+            base += '/';
+        }
+        for (int i = 0; i < count; ++i)
+        {
+            // フォルダも一覧に入ってくるので、ファイルだけを残す。
+            SDL_PathInfo info;
+            const std::string fullPath = base + entries[i];
+            if (SDL_GetPathInfo(fullPath.c_str(), &info) && info.type == SDL_PATHTYPE_FILE)
+            {
+                // SDL の説明では区切りは「/」だが、Windows では「\」で返ってくる(テストで分かった)。
+                // このヘッダは「区切りは /」と約束しているので、OS による違いは、ここ(platform)で吸収する。
+                std::string path = entries[i];
+                std::replace(path.begin(), path.end(), '\\', '/');
+                outPaths.push_back(std::move(path));
+            }
+        }
+        SDL_free(entries);
+
+        std::sort(outPaths.begin(), outPaths.end());
+        return true;
     }
 }

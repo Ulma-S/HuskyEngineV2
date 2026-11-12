@@ -13,3 +13,4 @@ CMakeUserPresets.json
 # 中身を作り込んだシーンは、別の名前で assets/scenes/ に置いて管理する。
 /assets/scenes/main.json
 /assets/scenes/main.json.tmp
+/assets/scenes/main.json.meta
