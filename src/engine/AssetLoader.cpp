@@ -561,4 +561,10 @@ namespace husky::engine
             m_prefabs.erase(found);
         }
     }
+
+    core::ObjectHandle AssetLoader::ReloadPrefab(const core::Guid& guid)
+    {
+        m_prefabs.erase(guid); // キャッシュから外すだけ(古いアセットの後始末は OnPrefabDestroyed。外した後は何もしない)
+        return LoadPrefab(guid);
+    }
 }

@@ -115,6 +115,9 @@ namespace husky::engine
         PrefabAsset* ResolvePrefab(core::ObjectHandle handle) const;
         // テクスチャの Resolve と同じ(まだ読んでいなければ読み始め、reference.asset に書く)。
         PrefabAsset* Resolve(core::AssetRef<PrefabAsset>& reference);
+        // ファイルを書き直したプレハブを、新しいアセットとして読み直す(読み込んだアセットは変わらないデータなので、その場では書き換えない)。
+        // 次からの LoadPrefab は新しいアセットを返す。古いアセットは、指している人(置いたものの prefab.asset)がいる間は残る。
+        core::ObjectHandle ReloadPrefab(const core::Guid& guid);
 
         // ---- 共通 ----
 

@@ -1355,6 +1355,106 @@ namespace husky::tools
         return command;
     }
 
+
+    EditorCommand MakeApplyPrefabCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "prefab.apply";
+        command.label = "Apply to prefab";
+        command.description = "Write values of an actor that differ from its prefab into the prefab file, so every actor "
+                              "placed from it follows (except ones that changed that value themselves). Give a property to "
+                              "apply one value; leave it out to apply all except name, position and rotation. Cannot be undone "
+                              "(it rewrites the prefab file).";
+        command.modifiesScene = true; // 置いたものの値が変わる(CLI では、シーンも保存する)
+        command.args = MakeOverrideArgs();
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const std::string who = DescribeActor(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const std::vector<const engine::Prefab::Override*> selected = SelectOverrides(found, context.args);
+            const engine::ArchiveValue* propertyValue = context.args.Find("property");
+            if (selected.empty())
+            {
+                if (propertyValue != nullptr)
+                {
+                    return EditorCommandResult::Failure(who + " has no override at '" + propertyValue->AsString() + "'");
+                }
+                return EditorCommandResult::Success("Nothing to apply from " + who);
+            }
+            const core::Guid guid = found.prefab->GetGuid();
+            const std::string* relativePath = app.GetAssetDatabase().FindPath(guid);
+            if (relativePath == nullptr)
+            {
+                return EditorCommandResult::Failure("The prefab " + guid.ToString() + " is not in the asset table");
+            }
+            const std::string prefabPath = *relativePath; // 表を作り直しても消えないように写す
+
+            // 1. 新しいプレハブの値を作り、ファイルに書く(読み込んだアセットは書き換えない。変わらないデータなので)
+            std::vector<engine::Prefab::ValueChange> changes;
+            for (const engine::Prefab::Override* item : selected)
+            {
+                changes.push_back({item->component, item->path, item->prefabValue, item->value});
+            }
+            engine::ArchiveValue newData;
+            std::string text;
+            if (!engine::Prefab::WriteChanges(found.prefab->GetData(), changes, newData, error))
+            {
+                return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+            }
+            const std::string fullPath = directory + "/" + prefabPath;
+            if (!engine::JsonFormat::Write(newData, text, true) || !platform::WriteTextFile(fullPath.c_str(), text))
+            {
+                return EditorCommandResult::Failure("Could not write " + fullPath);
+            }
+
+            // 2. ファイルから読み直す(新しいアセットになる)
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            const core::ObjectHandle reloaded = loader.ReloadPrefab(guid);
+            loader.WaitForAllLoads();
+            const engine::PrefabAsset* newPrefab = loader.ResolvePrefab(reloaded);
+            if (newPrefab == nullptr || !newPrefab->IsLoaded())
+            {
+                return EditorCommandResult::Failure("Wrote " + prefabPath + " but could not load it again");
+            }
+
+            // 3. 同じプレハブから置いた全員に伝える: 古いプレハブの値のままのものだけが、新しい値になる。
+            //    全員が新しいアセットを指すようにする(次の保存では、新しいプレハブと比べた違いになる)。
+            std::size_t followed = 0;
+            app.GetScene().ForEachActor([&](engine::Actor& other) {
+                if (other.prefab.guid == guid)
+                {
+                    if (engine::Prefab::FollowChanges(other, changes) > 0)
+                    {
+                        ++followed;
+                    }
+                    other.prefab.asset = reloaded;
+                }
+            });
+
+            EditorCommandResult result = EditorCommandResult::Success(
+                "Applied " + std::to_string(selected.size()) + " value(s) of " + who + " to " + prefabPath + "; " +
+                std::to_string(followed) + " other actor(s) followed");
+            for (const engine::Prefab::Override* item : selected)
+            {
+                result.details.push_back(DescribeOverride(*item));
+            }
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("prefab", engine::ArchiveValue(prefabPath));
+            result.data.Set("followed", engine::ArchiveValue(static_cast<std::int64_t>(followed)));
+            return result;
+        };
+        return command;
+    }
     EditorCommand MakeCreatePrefabCommand(std::string assetsDirectory)
     {
         EditorCommand command;

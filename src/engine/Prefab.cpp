@@ -193,4 +193,156 @@ namespace husky::engine::Prefab
         }
         return result;
     }
+
+    namespace
+    {
+        // "color.r" のような道筋を、点で区切る。
+        std::vector<std::string> SplitPath(const std::string& path)
+        {
+            std::vector<std::string> parts;
+            std::size_t start = 0;
+            while (start <= path.size())
+            {
+                const std::size_t dot = path.find('.', start);
+                const std::size_t end = dot == std::string::npos ? path.size() : dot;
+                parts.push_back(path.substr(start, end - start));
+                start = end + 1;
+            }
+            return parts;
+        }
+
+        // tree の、道筋 parts の位置に value を入れた写しを返す(途中のオブジェクトが無ければ作る)。
+        // ArchiveValue は中のメンバーを書き換える口を持たないので、外側から順に作り直す。
+        ArchiveValue WithValueAt(const ArchiveValue& tree, const std::vector<std::string>& parts, std::size_t index,
+                                 const ArchiveValue& value)
+        {
+            ArchiveValue copy = tree.GetType() == ArchiveValue::Type::Object ? tree : ArchiveValue::MakeObject();
+            if (index + 1 == parts.size())
+            {
+                copy.Set(parts[index], value);
+                return copy;
+            }
+            const ArchiveValue* child = tree.Find(parts[index]);
+            copy.Set(parts[index], WithValueAt(child != nullptr ? *child : ArchiveValue::MakeObject(), parts, index + 1, value));
+            return copy;
+        }
+
+        // 値1つを、ファイルと同じ入れ子の形({"properties": {"color": {"r": 値}}})にする(ReadProperties に渡す)。
+        ArchiveValue MakePropertyEntry(const std::string& path, const ArchiveValue& value)
+        {
+            ArchiveValue entry = ArchiveValue::MakeObject();
+            entry.Set("properties", WithValueAt(ArchiveValue::MakeObject(), SplitPath(path), 0, value));
+            return entry;
+        }
+    }
+
+    bool WriteChanges(const ArchiveValue& data, const std::vector<ValueChange>& changes, ArchiveValue& out,
+                      std::string& error)
+    {
+        const ArchiveValue* objects = data.Find("objects");
+        const ArchiveValue* actors = data.Find("actors");
+        if (objects == nullptr || actors == nullptr || actors->GetArraySize() != 1)
+        {
+            error = "the prefab has no actor";
+            return false;
+        }
+        std::vector<ArchiveValue> entries; // 書き換える写し("objects" と同じ順)
+        for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
+        {
+            entries.push_back(objects->At(i));
+        }
+        // 番号 id の記録の位置(entries の中)。無ければ entries.size()
+        auto indexOf = [&entries](std::int64_t id) {
+            for (std::size_t i = 0; i < entries.size(); ++i)
+            {
+                const ArchiveValue* entryId = entries[i].Find("id");
+                if (entryId != nullptr && entryId->AsInt(-1) == id)
+                {
+                    return i;
+                }
+            }
+            return entries.size();
+        };
+
+        const std::size_t actorIndex = indexOf(actors->At(0).AsInt(-1));
+        const ArchiveValue* actorProperties = actorIndex < entries.size() ? entries[actorIndex].Find("properties") : nullptr;
+        if (actorProperties == nullptr)
+        {
+            error = "the prefab has no actor";
+            return false;
+        }
+        const ArchiveValue componentIds = actorProperties->Find("components") != nullptr ? *actorProperties->Find("components")
+                                                                                         : ArchiveValue::MakeArray();
+        for (const ValueChange& change : changes)
+        {
+            // 書き込む記録: アクター自身か、型の名前が合う最初のコンポーネント
+            std::size_t target = actorIndex;
+            if (!change.component.empty())
+            {
+                target = entries.size();
+                for (std::size_t i = 0; i < componentIds.GetArraySize() && target == entries.size(); ++i)
+                {
+                    const std::size_t index = indexOf(componentIds.At(i).AsInt(-1));
+                    const ArchiveValue* type = index < entries.size() ? entries[index].Find("type") : nullptr;
+                    if (type != nullptr && type->AsString() == change.component)
+                    {
+                        target = index;
+                    }
+                }
+                if (target == entries.size())
+                {
+                    error = "the prefab has no component " + change.component;
+                    return false;
+                }
+            }
+            const ArchiveValue* properties = entries[target].Find("properties");
+            entries[target].Set("properties", WithValueAt(properties != nullptr ? *properties : ArchiveValue::MakeObject(),
+                                                          SplitPath(change.path), 0, change.newValue));
+        }
+
+        out = data;
+        ArchiveValue& newObjects = out.Set("objects", ArchiveValue::MakeArray());
+        for (ArchiveValue& entry : entries)
+        {
+            newObjects.Append(std::move(entry));
+        }
+        return true;
+    }
+
+    std::size_t FollowChanges(Actor& actor, const std::vector<ValueChange>& changes)
+    {
+        const Scene* scene = actor.GetScene();
+        const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
+        std::size_t changed = 0;
+        for (const ValueChange& change : changes)
+        {
+            // 書き換える相手: アクター自身か、型の名前が合う最初の(生きている)コンポーネント
+            core::Object* owner = change.component.empty() ? static_cast<core::Object*>(&actor) : nullptr;
+            for (std::size_t i = 0; owner == nullptr && registry != nullptr && i < actor.components.size(); ++i)
+            {
+                Component* component = registry->Resolve<Component>(actor.components[i]);
+                if (component != nullptr && !component->IsPendingDestroy() && component->GetType().GetName() == change.component)
+                {
+                    owner = component;
+                }
+            }
+            if (owner == nullptr)
+            {
+                continue;
+            }
+            // 今の値を、保存と同じ道具で値の木にして、道筋のとおりに取り出す
+            const ArchiveValue current = ObjectSerializer::Write(*owner);
+            const ArchiveValue* value = current.Find("properties");
+            for (const std::string& part : SplitPath(change.path))
+            {
+                value = value != nullptr ? value->Find(part) : nullptr;
+            }
+            if (value != nullptr && value->Equals(change.oldValue)) // プレハブの古い値のまま = 違いではない
+            {
+                ObjectSerializer::ReadProperties(MakePropertyEntry(change.path, change.newValue), *owner);
+                ++changed;
+            }
+        }
+        return changed;
+    }
 }

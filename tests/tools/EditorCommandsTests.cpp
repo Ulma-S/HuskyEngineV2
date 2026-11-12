@@ -879,4 +879,74 @@ TEST_CASE("EditorCommands: property.setMany はまとめて書き換え、1つ�
     CHECK(actors.player->transform.position.x == 0.0f);
     CHECK(actors.player->name == "Player");
 }
+
+TEST_CASE("EditorCommands: prefab.apply は違いをプレハブのファイルに書き戻し、同じプレハブから置いた全員に伝える。自分で変えた値はそのまま")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_apply");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeListOverridesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
+
+    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    original->name = "Coin";
+    original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+
+    // 3つ置く。a は幅・色・位置を、b は色だけを自分で変える。c は何も変えない
+    auto place = [&]() {
+        const EditorCommandResult spawned =
+            commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab", "x": 0, "y": 0})"));
+        REQUIRE(spawned.succeeded);
+        return spawned.data.Find("guid")->AsString();
+    };
+    const std::string a = place();
+    const std::string b = place();
+    const std::string c = place();
+    auto sprite = [&app](const std::string& guidText) {
+        husky::core::Guid guid;
+        REQUIRE(husky::core::Guid::Parse(guidText, guid));
+        husky::engine::Actor* actor = app.GetScene().FindActorByGuid(guid);
+        REQUIRE(actor != nullptr);
+        return actor->GetComponent<husky::engine::SpriteComponent>();
+    };
+    auto args = [](const std::string& guid, const std::string& rest) {
+        return Json(("{\"actor\": \"" + guid + "\"" + rest + "}").c_str());
+    };
+    REQUIRE(commands.Execute("property.set", app, args(a, R"(, "component": "SpriteComponent", "property": "width", "value": 40)")).succeeded);
+    REQUIRE(commands.Execute("property.set", app, args(a, R"(, "component": "SpriteComponent", "property": "color.r", "value": 0.5)")).succeeded);
+    REQUIRE(commands.Execute("property.set", app, args(a, R"(, "property": "transform.position.x", "value": 9)")).succeeded);
+    REQUIRE(commands.Execute("property.set", app, args(b, R"(, "component": "SpriteComponent", "property": "color.r", "value": 0.2)")).succeeded);
+
+    // --- 1つだけ書き戻す(幅): b と c にも伝わる ---
+    const EditorCommandResult width = commands.Execute("prefab.apply", app, args(a, R"(, "component": "SpriteComponent", "property": "width")"));
+    REQUIRE(width.succeeded);
+    CHECK(width.data.Find("followed")->AsInt() == 2);
+    CHECK(sprite(b)->width == 40.0f);
+    CHECK(sprite(c)->width == 40.0f);
+    std::string text;
+    REQUIRE(husky::platform::ReadTextFile(folder.PathOf("prefabs/coin.prefab").c_str(), text));
+    ArchiveValue file;
+    REQUIRE(husky::engine::JsonFormat::Read(text, file));
+    CHECK(file.Find("objects")->At(1).Find("properties")->Find("width")->AsFloat() == 40.0);
+
+    // --- 全部を書き戻す: 色は c に伝わり、自分で変えた b はそのまま。位置(1体ずつ違う値)は書き戻さない ---
+    REQUIRE(commands.Execute("prefab.apply", app, args(a, "")).succeeded);
+    CHECK(sprite(c)->color.r == 0.5f);
+    CHECK(sprite(b)->color.r == 0.2f);
+    const EditorCommandResult left = commands.Execute("prefab.overrides", app, args(a, ""));
+    REQUIRE(left.succeeded);
+    REQUIRE(left.data.GetArraySize() == 1); // 残った違いは位置だけ
+    CHECK(left.data.At(0).Find("property")->AsString() == "transform.position.x");
+
+    // 新しく置いたものは、新しいプレハブの値になる
+    const std::string d = place();
+    CHECK(sprite(d)->width == 40.0f);
+    CHECK(sprite(d)->color.r == 0.5f);
+}
 #endif

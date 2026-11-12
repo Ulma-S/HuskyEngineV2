@@ -301,6 +301,12 @@ namespace husky::tools
     // property を指せばその値(構造体ならその中全部)を、省けば名前・位置・回転を除く全部の違いを、プレハブの値に戻す。
     // 戻した値は違いではなくなるので、プレハブを直すと伝わるようになる。Undo できる。
     EditorCommand MakeRevertPrefabCommand();
+
+    // 「プレハブに書き戻す」コマンド(prefab.apply)を作る。引数は prefab.revert と同じ(actor、component、property)。
+    // 選んだ違いを、assetsDirectory の下のプレハブのファイルに書き(Prefab::WriteChanges)、新しいアセットとして読み直し
+    // (AssetLoader::ReloadPrefab)、同じプレハブから置いた全員に伝える(Prefab::FollowChanges。自分で値を変えたものはそのまま)。
+    // プレハブのファイルを書き換えるので、Undo はできない。
+    EditorCommand MakeApplyPrefabCommand(std::string assetsDirectory);
 }
 
 #endif

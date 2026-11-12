@@ -99,6 +99,10 @@ int main()
     tools::EditorCommand revertPrefab = tools::MakeRevertPrefabCommand();
     revertPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(revertPrefab));
+    // プレハブに書き戻す(prefab.apply)。ソースの assets のプレハブを書き換える。編集中だけ。
+    tools::EditorCommand applyPrefab = tools::MakeApplyPrefabCommand(assetsDirectory);
+    applyPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(applyPrefab));
     // 元に戻す・やり直す(editor.undo / editor.redo)。履歴は commands が持つ。戻すコマンドが使えないとき(再生中など)は灰色。
     commands.Register(tools::MakeUndoCommand(commands));
     commands.Register(tools::MakeRedoCommand(commands));

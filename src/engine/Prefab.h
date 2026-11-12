@@ -82,4 +82,22 @@ namespace husky::engine::Prefab
     // 比べないもの: ハンドル(シーンとプレハブで指す相手が違う)、guid、プレハブのファイルに無い値。
     // アクターがプレハブから置いたものでない、プレハブが読み込まれていない、コンポーネントの並びが違うときは、error に理由。
     OverridesResult FindOverrides(const Actor& actor);
+
+    // プレハブの値を1つ変える(prefab.apply で、置いたものの違いをプレハブへ書き戻すとき)。
+    struct ValueChange
+    {
+        std::string component; // コンポーネントの型の名前(その型の最初のもの)。アクター自身なら空
+        std::string path;      // プロパティの道筋("color.r" など)
+        ArchiveValue oldValue; // 今のプレハブの値
+        ArchiveValue newValue; // 新しいプレハブの値
+    };
+
+    // プレハブの値の木 data に changes を書き込んだ、新しい値の木を out に作る(data は変えない)。
+    // 指すコンポーネントがプレハブに無ければ false と error。
+    bool WriteChanges(const ArchiveValue& data, const std::vector<ValueChange>& changes, ArchiveValue& out,
+                      std::string& error);
+
+    // プレハブが changes のとおりに変わったことを、置いたもの actor に伝える。
+    // 値がプレハブの古い値のまま(違いでない)ものだけを新しい値にし、違い(上書き)はそのまま残す。書き換えた値の数を返す。
+    std::size_t FollowChanges(Actor& actor, const std::vector<ValueChange>& changes);
 }
