@@ -81,6 +81,11 @@ int main()
     tools::EditorCommand spawnActor = tools::MakeSpawnActorCommand();
     spawnActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(spawnActor));
+    // アクターの一覧(actor.list。読むだけ)と、プロパティの書き換え(property.set。編集中だけ)。
+    commands.Register(tools::MakeListActorsCommand());
+    tools::EditorCommand setProperty = tools::MakeSetPropertyCommand();
+    setProperty.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(setProperty));
 
     // 起動時のアセットの準備も、ボタンと同じコマンドで行う(手順が1か所にしか無いので、起動時とボタンで食い違わない)。
     commands.Execute("asset.refresh", app);

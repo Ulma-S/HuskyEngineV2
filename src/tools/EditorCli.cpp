@@ -99,6 +99,8 @@ namespace husky::tools
         {
             commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
             commands.Register(MakeSpawnActorCommand());
+            commands.Register(MakeListActorsCommand());
+            commands.Register(MakeSetPropertyCommand());
         }
 
         // value を JSON にして path に書く。書けなければ、理由を out に足して false。
@@ -159,11 +161,16 @@ namespace husky::tools
                 {
                     out += "    Changes the scene: use --scene <file>\n";
                 }
+                else if (command.readsScene)
+                {
+                    out += "    Reads the scene: use --scene <file>\n";
+                }
                 engine::ArchiveValue& item = list.Append(engine::ArchiveValue::MakeObject());
                 item.Set("name", engine::ArchiveValue(command.name));
                 item.Set("label", engine::ArchiveValue(command.label));
                 item.Set("description", engine::ArchiveValue(command.description));
                 item.Set("modifiesScene", engine::ArchiveValue(command.modifiesScene));
+                item.Set("readsScene", engine::ArchiveValue(command.readsScene));
                 // 引数の形も出す(人には一覧で、AI には JSON で「どう呼べばよいか」が分かるように)。
                 engine::ArchiveValue& argList = item.Set("args", engine::ArchiveValue::MakeArray());
                 for (const EditorCommandArg& arg : command.args)
@@ -186,14 +193,21 @@ namespace husky::tools
                     // 選べる値(ゲームの型を登録した後のアプリで決まる)。AI はここから選べば、打ち間違えない。
                     if (arg.choices)
                     {
-                        engine::ArchiveValue& choiceList = argItem.Set("choices", engine::ArchiveValue::MakeArray());
-                        std::string line = "        choices:";
-                        for (const std::string& choice : arg.choices(app))
+                        // シーンを読む前なので、シーンで決まる選択肢(アクターなど)は空になる。空なら書かない。
+                        const std::vector<EditorArgChoice> choices = arg.choices(app, engine::ArchiveValue());
+                        if (!choices.empty())
                         {
-                            line += " " + choice;
-                            choiceList.Append(engine::ArchiveValue(choice));
+                            engine::ArchiveValue& choiceList = argItem.Set("choices", engine::ArchiveValue::MakeArray());
+                            std::string line = "        choices:";
+                            for (const EditorArgChoice& choice : choices)
+                            {
+                                line += " " + choice.value;
+                                engine::ArchiveValue& choiceItem = choiceList.Append(engine::ArchiveValue::MakeObject());
+                                choiceItem.Set("value", engine::ArchiveValue(choice.value));
+                                choiceItem.Set("label", engine::ArchiveValue(choice.label.empty() ? choice.value : choice.label));
+                            }
+                            out += line + "\n";
                         }
-                        out += line + "\n";
                     }
                 }
             }
@@ -216,10 +230,11 @@ namespace husky::tools
             out += "Error: unknown command: " + options.commandName + " (see --list)\n";
             return CliExitCode::UsageError;
         }
-        // シーンを書き換えるコマンドには、相手にするシーンのファイルが要る。
-        if (command->modifiesScene && options.scenePath.empty())
+        // シーンを書き換える・読むコマンドには、相手にするシーンのファイルが要る。
+        if ((command->modifiesScene || command->readsScene) && options.scenePath.empty())
         {
-            out += "Error: " + options.commandName + " changes the scene, so it needs --scene <file>\n";
+            out += "Error: " + options.commandName + (command->modifiesScene ? " changes" : " reads") +
+                   " the scene, so it needs --scene <file>\n";
             return CliExitCode::UsageError;
         }
 
@@ -246,6 +261,11 @@ namespace husky::tools
 
         // --scene: シーンのファイルを読んでから実行する(無ければ、空のシーンから始めて新しく作る)。
         const bool newScene = !options.scenePath.empty() && !platform::FileExists(options.scenePath.c_str());
+        if (newScene && !command->modifiesScene) // 読むだけのコマンドは、無いファイルを作らない
+        {
+            out += "FAILED: the scene file does not exist: " + options.scenePath + "\n";
+            return CliExitCode::CommandFailed;
+        }
         if (!options.scenePath.empty() && !newScene && !app.LoadSceneFile(options.scenePath))
         {
             out += "FAILED: could not load the scene: " + options.scenePath + "\n";
@@ -284,6 +304,10 @@ namespace husky::tools
             for (const std::string& detail : result.details)
             {
                 details.Append(engine::ArchiveValue(detail));
+            }
+            if (!result.data.IsNull())
+            {
+                root.Set("data", result.data); // 機械が読むための結果(actor.list の全件など)
             }
             if (!WriteJsonFile(root, options.jsonOutPath, out))
             {

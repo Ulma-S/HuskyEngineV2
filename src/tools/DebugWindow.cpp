@@ -4,11 +4,13 @@
 #if HUSKY_DEVELOPMENT
 
 #include "core/MemoryTracker.h"
+#include "engine/JsonFormat.h" // 型を問わない引数を、打った文字から読み分ける
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui::InputText(std::string*)
 
 #include <string>
+#include <utility> // std::move
 
 namespace husky::tools
 {
@@ -52,9 +54,38 @@ namespace husky::tools
             case EditorArgType::Int: args.Set(arg.name, engine::ArchiveValue(static_cast<std::int64_t>(input.integer))); break;
             case EditorArgType::Float: args.Set(arg.name, engine::ArchiveValue(input.number)); break;
             case EditorArgType::String: args.Set(arg.name, engine::ArchiveValue(input.text)); break;
+            case EditorArgType::Any:
+            {
+                // 人が打った文字を、JSON の値として読めれば(500、2.5、true、"text")その値に、読めなければ文字列のまま渡す。
+                // 引用符を付けなくても文字列を渡せるようにするため(Player と打てば "Player")。
+                engine::ArchiveValue parsed;
+                const bool isScalar = engine::JsonFormat::Read(input.text, parsed) &&
+                                      parsed.GetType() != engine::ArchiveValue::Type::Array &&
+                                      parsed.GetType() != engine::ArchiveValue::Type::Object && !parsed.IsNull();
+                args.Set(arg.name, isScalar ? std::move(parsed) : engine::ArchiveValue(input.text));
+                break;
+            }
             }
         }
         return args;
+    }
+
+    const std::vector<EditorArgChoice>& DebugWindow::GetChoices(engine::Application& app, const EditorCommand& command,
+                                                               std::size_t argIndex, const engine::ArchiveValue& currentArgs)
+    {
+        constexpr int RefreshFrames = 30; // この数のフレームがたったら作り直す(アクターが増えた・消えたのを、半秒ほどで反映する)
+        ChoiceCache& cache = m_choiceCache[command.name + "/" + command.args[argIndex].name];
+        // ほかの引数が変わったか: 引数を JSON の文字列にして比べる(選んだアクターが変われば、プロパティの一覧も変わる)。
+        std::string argsKey;
+        engine::JsonFormat::Write(currentArgs, argsKey, false);
+        const int frame = ImGui::GetFrameCount();
+        if (cache.frame < 0 || frame - cache.frame >= RefreshFrames || argsKey != cache.argsKey)
+        {
+            cache.items = command.args[argIndex].choices(app, currentArgs);
+            cache.argsKey = std::move(argsKey);
+            cache.frame = frame;
+        }
+        return cache.items;
     }
 
     bool DebugWindow::DrawArgsPopup(engine::Application& app, const EditorCommand& command, engine::ArchiveValue& outArgs)
@@ -63,6 +94,8 @@ namespace husky::tools
         ImGui::TextUnformatted(command.label.c_str());
         ImGui::Separator();
 
+        // 今入力されている引数(ほかの引数で選択肢が変わるもの、たとえば「選んだアクターのプロパティ」のため)。
+        const engine::ArchiveValue currentArgs = BuildArgs(command, inputs);
         bool missingRequired = false;
         for (std::size_t i = 0; i < command.args.size(); ++i)
         {
@@ -88,15 +121,37 @@ namespace husky::tools
                 if (arg.choices)
                 {
                     // 選べる値が決まっている引数は、選択肢の箱にする(打ち間違いが起きない)。
-                    // 一覧は、小窓が開いている間だけ毎フレーム作る(登録された型などが変われば、すぐ反映される)。
-                    if (ImGui::BeginCombo(label, input.text.empty() ? "(choose)" : input.text.c_str()))
+                    // 箱には人向けの表示(label。"Player (PlayerActor)")を並べ、選ぶと値(value。アクターなら guid)が入る。
+                    // 一覧は、小窓が開いている間だけ毎フレーム作る(登録された型やアクター、ほかの引数が変われば、すぐ反映される)。
+                    // 一覧は、ほかの引数が変わったときと、少し時間がたったとき(30 フレームごと)だけ作り直す。
+                    // アクターが 1000 体いると、毎フレーム作るだけで毎秒 200 万回の確保になり、画面も重くなるため。
+                    const std::vector<EditorArgChoice>& choices = GetChoices(app, command, i, currentArgs);
+                    const char* preview = input.text.empty() ? "(choose)" : input.text.c_str();
+                    for (const EditorArgChoice& choice : choices)
                     {
-                        for (const std::string& choice : arg.choices(app))
+                        if (choice.value == input.text && !choice.label.empty())
                         {
-                            if (ImGui::Selectable(choice.c_str(), choice == input.text))
+                            preview = choice.label.c_str(); // 今の値の、人向けの表示
+                        }
+                    }
+                    if (ImGui::BeginCombo(label, preview))
+                    {
+                        // 数が多くても(アクター 1000 体など)軽いように、見えている行だけを作る(ListClipper)。
+                        ImGuiListClipper clipper;
+                        clipper.Begin(static_cast<int>(choices.size()));
+                        while (clipper.Step())
+                        {
+                            for (int c = clipper.DisplayStart; c < clipper.DisplayEnd; ++c)
                             {
-                                input.text = choice;
-                                changed = true;
+                                const EditorArgChoice& choice = choices[static_cast<std::size_t>(c)];
+                                ImGui::PushID(c);
+                                const char* shown = choice.label.empty() ? choice.value.c_str() : choice.label.c_str();
+                                if (ImGui::Selectable(shown, choice.value == input.text))
+                                {
+                                    input.text = choice.value;
+                                    changed = true;
+                                }
+                                ImGui::PopID();
                             }
                         }
                         ImGui::EndCombo();
@@ -106,6 +161,10 @@ namespace husky::tools
                 {
                     changed = ImGui::InputText(label, &input.text);
                 }
+                break;
+            case EditorArgType::Any:
+                // どの種類でもよい引数: 文字で打ってもらい、渡すときに読み分ける(BuildArgs。500 は数、true は bool、ほかは文字列)。
+                changed = ImGui::InputText(label, &input.text);
                 break;
             }
             if (changed)
@@ -117,7 +176,7 @@ namespace husky::tools
                 ImGui::SameLine();
                 ImGui::TextDisabled("*");
                 // 文字列の必須の引数が空なら、Run を押せなくする(押してから断られるより、先に分かるほうが親切)。
-                missingRequired = missingRequired || (arg.type == EditorArgType::String && input.text.empty());
+                missingRequired = missingRequired || ((arg.type == EditorArgType::String || arg.type == EditorArgType::Any) && input.text.empty());
             }
             // 入力欄に乗せると、引数の説明を出す。
             if (ImGui::IsItemHovered())

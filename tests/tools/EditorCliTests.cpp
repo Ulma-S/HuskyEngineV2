@@ -123,6 +123,47 @@ TEST_CASE("EditorCli: シーンを書き換えるコマンドは --scene のフ�
     CHECK(recheck.GetScene().actors.size() == 2);
 }
 
+TEST_CASE("EditorCli: 読むだけのコマンド(actor.list)は --scene を読んで保存しない。property.set は名前で指して保存する")
+{
+    husky::tests::TestFolder folder("husky_test_cli_list_set");
+    const std::string scene = folder.PathOf("level.json");
+    std::string out;
+
+    // 読むだけのコマンドは、無いファイルを作らない
+    CHECK(RunEditorCli({"actor.list", "--scene", scene}, folder.Root(), out) == CliExitCode::CommandFailed);
+    CHECK_FALSE(husky::platform::FileExists(scene.c_str()));
+    out.clear();
+    CHECK(RunEditorCli({"actor.list"}, folder.Root(), out) == CliExitCode::UsageError); // --scene が無い
+
+    // アクターを置いて名前を付け、名前で指して位置を変える
+    REQUIRE(RunEditorCli({"actor.spawn", R"({"type": "Actor"})", "--scene", scene}, folder.Root(), out) == CliExitCode::Success);
+    std::string listText;
+    const std::string listJson = folder.PathOf("list.json");
+    REQUIRE(RunEditorCli({"actor.list", "--scene", scene, "--json-out", listJson}, folder.Root(), out) == CliExitCode::Success);
+    REQUIRE(husky::platform::ReadTextFile(listJson.c_str(), listText));
+    husky::engine::ArchiveValue list;
+    REQUIRE(husky::engine::JsonFormat::Read(listText, list));
+    REQUIRE(list.Find("data") != nullptr);
+    REQUIRE(list.Find("data")->GetArraySize() == 1);
+    const std::string guid = list.Find("data")->At(0).Find("guid")->AsString();
+
+    const std::string rename = R"({"actor": ")" + guid + R"(", "property": "name", "value": "Player"})";
+    CHECK(RunEditorCli({"property.set", rename, "--scene", scene}, folder.Root(), out) == CliExitCode::Success);
+    out.clear();
+    CHECK(RunEditorCli({"property.set", R"({"actor": "Player", "property": "x", "value": 64})", "--scene", scene},
+                       folder.Root(), out) == CliExitCode::Success);
+    CHECK(out.find("was 0.0") != std::string::npos);
+
+    husky::engine::Application check;
+    REQUIRE(check.LoadSceneFile(scene));
+    REQUIRE(check.GetScene().actors.size() == 1);
+    const husky::engine::Actor* actor = check.GetRegistry().Resolve<husky::engine::Actor>(check.GetScene().actors[0]);
+    REQUIRE(actor != nullptr);
+    CHECK(actor->name == "Player");
+    CHECK(actor->x == 64.0f);
+    CHECK(actor->guid.ToString() == guid); // 保存して読み戻しても、同じ guid
+}
+
 TEST_CASE("EditorCli: ゲームの型は、渡した関数(setupApplication)で登録してから使える")
 {
     husky::tests::TestFolder folder("husky_test_cli_setup");
@@ -163,7 +204,7 @@ TEST_CASE("EditorCli: --list は引数の形も出す")
             const husky::engine::ArchiveValue* choices = command.Find("args")->At(0).Find("choices");
             REQUIRE(choices != nullptr);
             CHECK(choices->GetArraySize() >= 1);
-            CHECK(choices->At(0).AsString() == "Actor");
+            CHECK(choices->At(0).Find("value")->AsString() == "Actor");
             REQUIRE(command.Find("args")->At(1).Find("default") != nullptr);
             CHECK(command.Find("args")->At(1).Find("default")->AsFloat() == 0.0);
         }

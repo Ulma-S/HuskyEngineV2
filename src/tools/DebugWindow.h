@@ -70,6 +70,18 @@ namespace husky::tools
         std::string m_requestedArgsInput;
         // 押されたコマンドに渡す引数(毎フレーム作ると確保が起きるので、使い回す)。
         engine::ArchiveValue m_clickedArgs;
+
+        // 選択肢の一覧の使い回し(小窓を開いている間、毎フレーム作り直すと重いため)。
+        struct ChoiceCache
+        {
+            int frame = -1;      // 作ったフレーム(ImGui::GetFrameCount)。-1 はまだ作っていない
+            std::string argsKey; // 作ったときの、ほかの引数(JSON の文字列)
+            std::vector<EditorArgChoice> items;
+        };
+        // 「コマンドの名前/引数の名前」→ 一覧。
+        std::unordered_map<std::string, ChoiceCache> m_choiceCache;
+        const std::vector<EditorArgChoice>& GetChoices(engine::Application& app, const EditorCommand& command,
+                                                       std::size_t argIndex, const engine::ArchiveValue& currentArgs);
     };
 
     // キーの、人に見せる名前("F5" など)。ショートカットの表示に使う。

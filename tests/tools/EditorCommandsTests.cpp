@@ -361,9 +361,155 @@ TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を
     CHECK(commands.GetLastCommandName().empty());
 
     // 選択肢: 型の登録簿にある Actor の子孫(アクターでない型は入らない)
-    const std::vector<std::string> choices = commands.Find("actor.spawn")->args[0].choices(app);
-    CHECK(std::find(choices.begin(), choices.end(), "Actor") != choices.end());
-    CHECK(std::find(choices.begin(), choices.end(), "SpriteComponent") == choices.end());
+    std::vector<std::string> values;
+    for (const husky::tools::EditorArgChoice& choice : commands.Find("actor.spawn")->args[0].choices(app, ArchiveValue()))
+    {
+        values.push_back(choice.value);
+    }
+    CHECK(std::find(values.begin(), values.end(), "Actor") != values.end());
+    CHECK(std::find(values.begin(), values.end(), "SpriteComponent") == values.end());
+}
+
+namespace
+{
+    // property.set と actor.list のテスト用のシーン: 名前の重なる Enemy が2体と、Player が1体。
+    struct NamedActors
+    {
+        husky::engine::Actor* enemyA = nullptr;
+        husky::engine::Actor* enemyB = nullptr;
+        husky::engine::Actor* player = nullptr;
+    };
+
+    NamedActors SpawnNamedActors(Application& app)
+    {
+        NamedActors actors;
+        actors.enemyA = app.GetScene().Spawn<husky::engine::Actor>();
+        actors.enemyB = app.GetScene().Spawn<husky::engine::Actor>();
+        actors.player = app.GetScene().Spawn<husky::engine::Actor>();
+        actors.enemyA->name = "Enemy";
+        actors.enemyB->name = "Enemy";
+        actors.player->name = "Player";
+        actors.enemyB->x = 50.0f;
+        return actors;
+    }
+
+    ArchiveValue Json(const char* text)
+    {
+        ArchiveValue value;
+        REQUIRE(husky::engine::JsonFormat::Read(text, value));
+        return value;
+    }
+}
+
+TEST_CASE("EditorCommands: アクターは名前でも guid でも指せる。名前が重なっていたら、候補を並べて断る")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    std::string error;
+
+    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Player", error) == actors.player);
+    CHECK(husky::tools::FindActorFromArg(app.GetScene(), actors.enemyB->guid.ToString(), error) == actors.enemyB);
+
+    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Enemy", error) == nullptr);
+    CHECK(error.find("matches 2 actors") != std::string::npos);
+    CHECK(error.find(actors.enemyA->guid.ToString()) != std::string::npos); // 候補の guid が並ぶ
+    CHECK(error.find(actors.enemyB->guid.ToString()) != std::string::npos);
+
+    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Nobody", error) == nullptr);
+    CHECK(error.find("No actor named") != std::string::npos);
+    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a99", error) == nullptr);
+    CHECK(error.find("No actor has the guid") != std::string::npos);
+}
+
+TEST_CASE("EditorCommands: actor.list はアクターを名前、型、guid で並べ、data に全件を入れる。名前と型で絞り込める")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeListActorsCommand()));
+
+    EditorCommandResult result = commands.Execute("actor.list", app);
+    CHECK(result.succeeded);
+    CHECK(result.message == "3 actor(s)");
+    REQUIRE(result.data.GetArraySize() == 3);
+    CHECK(result.data.At(2).Find("name")->AsString() == "Player");
+    CHECK(result.data.At(2).Find("guid")->AsString() == actors.player->guid.ToString());
+    CHECK(result.data.At(2).Find("type")->AsString() == "Actor");
+
+    result = commands.Execute("actor.list", app, Json(R"({"name": "Enemy"})"));
+    CHECK(result.data.GetArraySize() == 2);
+    result = commands.Execute("actor.list", app, Json(R"({"type": "Scene"})")); // アクターでない型には当てはまらない
+    CHECK(result.data.GetArraySize() == 0);
+    CHECK_FALSE(commands.Execute("actor.list", app, Json(R"({"type": "NoSuchType"})")).succeeded);
+}
+
+TEST_CASE("EditorCommands: property.set はアクターのプロパティを書き換え、前の値も返す。種類の違う値、guid、無いプロパティは断る")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+
+    EditorCommandResult result = commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "x", "value": 120})"));
+    CHECK(result.succeeded);
+    CHECK(actors.player->x == 120.0f);
+    CHECK(result.message == "Set Player (Actor).x = 120");
+    REQUIRE_FALSE(result.details.empty());
+    CHECK(result.details[0] == "was 0.0");
+
+    // 名前が重なっていると、名前では指せない(2体いる)
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Enemy", "property": "x", "value": 1})")).succeeded);
+    CHECK(actors.enemyA->x == 0.0f);
+
+    // 名前が重なっていても、guid なら指せる
+    const std::string args = std::string(R"({"actor": ")") + actors.enemyB->guid.ToString() +
+                             R"(", "property": "name", "value": "Boss"})";
+    CHECK(commands.Execute("property.set", app, Json(args.c_str())).succeeded);
+    CHECK(actors.enemyB->name == "Boss");
+    CHECK(actors.enemyA->name == "Enemy"); // もう1体は変わらない
+
+    // 断るもの(どれも値は変えない)
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "x", "value": "left"})")).succeeded);
+    CHECK(actors.player->x == 120.0f);
+    const husky::core::Guid guidBefore = actors.player->guid;
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "guid", "value": "x"})")).succeeded);
+    CHECK(actors.player->guid == guidBefore);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "speed", "value": 1})")).succeeded);
+
+    // プロパティの選択肢は、選んだアクターの書き換えられるプロパティ(guid と components は入らない)
+    std::vector<std::string> names;
+    for (const husky::tools::EditorArgChoice& choice :
+         commands.Find("property.set")->args[1].choices(app, Json(R"({"actor": "Player"})")))
+    {
+        names.push_back(choice.value);
+    }
+    CHECK(std::find(names.begin(), names.end(), "x") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "guid") == names.end());
+    CHECK(std::find(names.begin(), names.end(), "components") == names.end());
+
+    // アクターの選択肢は、表示が人向け(名前と型)で、値が guid
+    const std::vector<husky::tools::EditorArgChoice> actorChoices =
+        commands.Find("property.set")->args[0].choices(app, ArchiveValue());
+    REQUIRE(actorChoices.size() == 3);
+    CHECK(actorChoices[2].value == actors.player->guid.ToString());
+    CHECK(actorChoices[2].label == "Player (Actor)");
+}
+
+TEST_CASE("DebugWindow: 種類を問わない引数は、打った文字を数や bool として読めればその値、読めなければ文字列で渡す")
+{
+    int calls = 0;
+    EditorCommand command = MakeCountingCommand("test.any", calls);
+    command.args = {{"value", husky::tools::EditorArgType::Any, "anything", true}};
+    std::vector<husky::tools::CommandArgInput> inputs(1);
+
+    inputs[0].text = "500";
+    CHECK(husky::tools::DebugWindow::BuildArgs(command, inputs).Find("value")->AsInt() == 500);
+    inputs[0].text = "true";
+    CHECK(husky::tools::DebugWindow::BuildArgs(command, inputs).Find("value")->AsBool());
+    inputs[0].text = "Player"; // 引用符が無くても文字列
+    CHECK(husky::tools::DebugWindow::BuildArgs(command, inputs).Find("value")->AsString() == "Player");
+    inputs[0].text = "\"500\""; // 引用符を付ければ、数の形でも文字列
+    CHECK(husky::tools::DebugWindow::BuildArgs(command, inputs).Find("value")->AsString() == "500");
 }
 
 TEST_CASE("DebugWindow: コマンドのボタンと最後の結果を並べても、ImGui の使い方の誤りが無い。並べるだけでは実行しない")

@@ -23,6 +23,7 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "engine/Actor.h"
 #include "engine/Application.h"
 #include "engine/ArchiveValue.h"
 #include "engine/Input.h"
@@ -40,6 +41,9 @@ namespace husky::tools
         bool succeeded = false;
         std::string message;              // 人が読む1行の要約(画面とログに出す)。"Saved scene (1001 actors) to 2 files" など
         std::vector<std::string> details; // 細かい内容(書いたファイルの一覧、失敗の理由など)。無くてもよい
+        // 機械が読むための結果(無ければ Null)。actor.list のアクターの一覧など。CLI の --json-out では "data" に書く。
+        // 人向けの details は読みやすさのために途中で切ることがあるが、data にはすべて入れる。
+        engine::ArchiveValue data;
 
         static EditorCommandResult Success(std::string message);
         static EditorCommandResult Failure(std::string message);
@@ -61,10 +65,19 @@ namespace husky::tools
         Int,    // 整数
         Float,  // 数(整数で書いてもよい: 100 と 100.0 は同じ)
         String, // 文字列
+        Any,    // どの種類でもよい(property.set の value のように、ほかの引数で種類が決まるもの。中身はコマンドが確かめる)
     };
 
     // 画面や説明に出す、種類の名前("float" など)。
     const char* GetArgTypeName(EditorArgType type);
+
+    // 選べる値1つ。value は引数として渡す値(アクターなら guid の文字列)、label は人に見せる文字("Player (PlayerActor)")。
+    // 人は label を見て選び、裏では value が渡る(人は GUID を意識しなくてよい)。label が空なら value をそのまま見せる。
+    struct EditorArgChoice
+    {
+        std::string value;
+        std::string label;
+    };
 
     // 引数1つの形。コマンドが「どんな引数を受け取るか」を、実行する前に分かるように書いておく。
     // Execute が、実行の前にこの形で確かめる(足りない、種類が違う、知らない名前なら、実行せずに理由つきで失敗)。
@@ -80,8 +93,9 @@ namespace husky::tools
         engine::ArchiveValue defaultValue;
         // 選べる値の一覧を返す関数(無ければ空の関数。自由に入力する)。画面では選択肢の箱になり、--list にも並ぶ。
         // 「登録されているアクターの型」のように、そのときのアプリの中身で決まるので、関数で受け取る。
+        // args は、今入力されているほかの引数(「選んだアクターのプロパティ」のように、ほかの引数で一覧が変わるもののため)。
         // 一覧の外の値も Execute は断らない(コマンドの中で確かめる)。
-        std::function<std::vector<std::string>(engine::Application&)> choices;
+        std::function<std::vector<EditorArgChoice>(engine::Application&, const engine::ArchiveValue& args)> choices;
     };
 
     // コマンド1つ。
@@ -104,6 +118,8 @@ namespace husky::tools
         std::vector<EditorCommandArg> args;
         // シーンを書き換えるコマンドなら true。CLI は、シーンのファイル(--scene)を読んでから実行し、成功したら保存する。
         bool modifiesScene = false;
+        // シーンを読むだけのコマンドなら true(actor.list など)。CLI は --scene のファイルを読んでから実行し、保存はしない。
+        bool readsScene = false;
 
         // 省略できない引数があるか(画面のボタンは、引数を入力する欄ができるまで押せない)。
         bool HasRequiredArgs() const;
@@ -172,6 +188,25 @@ namespace husky::tools
     // x、y(位置。省略すると 0)。置くのはアクターだけで、見た目などのコンポーネントは付かない
     // (決まった組み合わせで置くのは、将来のプレハブの役目)。シーンを書き換えるコマンド(modifiesScene)。
     EditorCommand MakeSpawnActorCommand();
+
+    // 引数で書かれたアクター(名前か guid の文字列)を、シーンから探す。
+    //   - guid の形の文字列なら guid で探す(名前より先に見る)
+    //   - そうでなければ名前で探す。1体だけなら、それを返す
+    // 見つからない、または名前が複数のアクターに当てはまるときは nullptr を返し、error に人が読める理由を書く
+    // (複数なら、候補を guid、型、位置つきで並べる。黙ってどれかを選ばない)。
+    engine::Actor* FindActorFromArg(engine::Scene& scene, const std::string& actorText, std::string& error);
+
+    // アクターを人に見せる文字("Player (PlayerActor)"。名前が無ければ "PlayerActor at (12, 34)")。
+    std::string DescribeActor(const engine::Actor& actor);
+
+    // 「アクターの一覧」コマンド(actor.list)を作る。シーンのアクターを、名前、型、guid、位置で並べる(読むだけ)。
+    // 引数: name、type(省略可。名前が同じもの、その型か子孫のものだけに絞る)。data に全件を入れる。
+    EditorCommand MakeListActorsCommand();
+
+    // 「プロパティを書き換える」コマンド(property.set)を作る。引数: actor(名前か guid)、property(プロパティの名前)、
+    // value(新しい値。種類はプロパティに合わせる)。今書き換えられるのは、アクター自身の bool / int / float / string の
+    // プロパティ(guid は変えられない)。値の確かめは、シーンの読み込みと同じ道具(ObjectSerializer)で行う。
+    EditorCommand MakeSetPropertyCommand();
 }
 
 #endif
