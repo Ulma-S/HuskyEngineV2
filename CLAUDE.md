@@ -38,6 +38,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ、エディタの機能(シーンの保存など)。engineに依存する。リリースビルドには含めない。最初はゲームと同じプロセスに組み込み、いずれ別プロセスとプロセス間通信も検討する(設計メモ「UIとツール」)。シーンのファイルを保存するのはtools(開発ビルド)だけで、製品のゲームは読み込むだけ。
   - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースとexeの隣の両方)に保存する(`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。
+  - エディタの操作は、ImGuiの中に直接書かず、関数(将来の「エディタのコマンド」)として外に置く。ImGui、コマンドラインツール、MCP(AIから使う)が同じ操作を呼べるようにするため(設計メモ「AIから使いやすいエディタ」)。
 - game: ゲーム固有のコード。engineに依存する。
 
 ## オブジェクトモデル
