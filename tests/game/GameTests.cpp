@@ -2,6 +2,7 @@
 #include "game/Game.h"
 
 #include "engine/Application.h"
+#include "engine/CameraComponent.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 #include "game/GameActors.h"
@@ -19,12 +20,18 @@ TEST_CASE("Game: ゲームの型を登録すると、名前から作れる")
     CHECK(app.GetTypeRegistry().Find("PlayerActor") != nullptr);
 }
 
-TEST_CASE("Game: 最初の配置は、跳ね回るアクターとプレイヤー。毎回同じ配置で、保存して別のアプリで読み戻せる")
+TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プレイヤー。毎回同じ配置で、保存して別のアプリで読み戻せる")
 {
     Application app;
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     husky::game::SpawnInitialActors(app.GetScene(), app.GetAssetDatabase());
-    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 1);
+    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 2); // + カメラ + プレイヤー
+
+    // カメラは画面の真ん中にいる
+    const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
+    REQUIRE(camera != nullptr);
+    CHECK(camera->GetOwner()->x == doctest::Approx(husky::game::ScreenWidth / 2.0f));
+    CHECK(camera->GetOwner()->y == doctest::Approx(husky::game::ScreenHeight / 2.0f));
 
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());

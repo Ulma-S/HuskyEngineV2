@@ -2,6 +2,7 @@
 #include "engine/EngineTypes.h"
 
 #include "engine/Actor.h"
+#include "engine/CameraComponent.h"
 #include "engine/Component.h"
 #include "engine/Scene.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -16,5 +17,6 @@ namespace husky::engine
         types.Register<Component>();
         types.Register<SpriteComponent>();
         types.Register<SpriteAnimatorComponent>();
+        types.Register<CameraComponent>();
     }
 }

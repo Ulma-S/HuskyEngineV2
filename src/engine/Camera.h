@@ -22,8 +22,15 @@ namespace husky::engine
         glm::mat4 ViewProjection() const { return projection * view; }
     };
 
-    // 画面の大きさ(ピクセル)ちょうどの範囲を映す、2D のカメラ(正射影)。
+    // 2D のカメラ(正射影)。ワールドの (centerX, centerY) が画面の真ん中に映る。
+    // zoom は拡大率: 1 なら 1 単位 = 1 ピクセル、2 なら 1 単位 = 2 ピクセル(見える範囲は縦横とも半分)。
+    // zoom が 0 以下なら 1 として扱う(見える範囲が無限や裏返しになるのを防ぐ)。
+    //   ビュー行列: カメラの位置の「逆」にずらす。カメラが右へ動くと、世界は左へずれて見える。
+    //   射影行列: カメラを中心に、幅 screenWidth / zoom、高さ screenHeight / zoom の箱を、画面いっぱいに映す。
+    CameraMatrices MakeOrthographicCamera(float centerX, float centerY, float zoom, float screenWidth, float screenHeight);
+
+    // 画面の大きさ(ピクセル)ちょうどの範囲を映す、動かないカメラ。シーンにカメラが無いときに使う。
     // ワールドの (0, 0) が画面の左下、(screenWidth, screenHeight) が右上に来る(1 単位 = 1 ピクセル)。
-    // カメラは動かないので、ビュー行列は単位行列(何もしない行列)。カメラを動かすのは CAM-2 から。
+    // 中身は「画面の真ん中を中心にした、zoom 1 の MakeOrthographicCamera」。
     CameraMatrices MakeScreenCamera(float screenWidth, float screenHeight);
 }

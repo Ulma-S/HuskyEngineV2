@@ -1,6 +1,7 @@
 // Game.h と GameActors.h の実装。
 #include "game/Game.h"
 
+#include "engine/CameraComponent.h"
 #include "engine/Input.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
@@ -106,6 +107,17 @@ namespace husky::game
         constexpr std::int32_t CycleAnimationId = 1811624963;
 
         SpawnBouncers(scene, BouncerCount);
+
+        // カメラ: 画面の真ん中を映す(zoom 1 なら、カメラが無いときと同じ見え方)。
+        // カメラは特別な型ではなく、ふつうのアクターにカメラのコンポーネントを付けたもの。
+        if (engine::Actor* camera = scene.Spawn<engine::Actor>())
+        {
+            camera->name = "MainCamera";
+            camera->AddComponent<engine::CameraComponent>();
+            camera->x = ScreenWidth / 2.0f;
+            camera->y = ScreenHeight / 2.0f;
+        }
+
         if (PlayerActor* player = scene.Spawn<PlayerActor>())
         {
             if (engine::SpriteComponent* sprite = player->AddComponent<engine::SpriteComponent>())

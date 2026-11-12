@@ -133,7 +133,8 @@
 - GPUリソースは世代付きハンドルで管理し、解放は数フレーム遅らせる。
   - テクスチャ: `RenderDevice::CreateTexture`で作り、`TextureHandle`(`core::Handle<render::Texture>`。中身は`RenderDevice.cpp`の中だけで定義)で指す。`ReleaseTexture`でハンドルはすぐ無効になり、GPUのメモリは`DeferredReleaseQueue`で3フレーム後に解放する。何も指さない、または手放されたハンドルは白い板として描く。
   - 描画命令は、同じテクスチャが続く区間ごとに1回(`SpriteBatch`)。積んだ順(奥から手前)は変えない。
-- カメラ(CAM-1、2026-11-12): `render::Sprite`の位置はワールドの単位(y上が+、`x`,`y`は左下の角)。描画層は`RenderDevice::SetViewProjection`で行列(射影 × ビュー、`glm::mat4`)を1つ受け取り、頂点シェーダが掛ける。行列を作るのはengine(`engine/Camera.h`の`MakeScreenCamera`。今は画面の大きさちょうどの正射影で、左下が原点、1単位 = 1ピクセル)。`Application`が毎フレーム渡す。
+- カメラ(CAM-1、2026-11-12): `render::Sprite`の位置はワールドの単位(y上が+、`x`,`y`は左下の角)。描画層は`RenderDevice::SetViewProjection`で行列(射影 × ビュー、`glm::mat4`)を1つ受け取り、頂点シェーダが掛ける。行列を作るのはengine(`engine/Camera.h`。`MakeOrthographicCamera`(中心、zoom)と、カメラが無いとき用の`MakeScreenCamera`(画面ちょうど、左下が原点、1単位 = 1ピクセル))。`Application`が毎フレーム`MakeSceneCamera`で作って渡す。
+- カメラのコンポーネント(CAM-2、2026-11-12): `engine::CameraComponent`(`zoom`)をふつうのアクターに付ける。アクターの位置が画面の真ん中に映る(スプライトの左下の角とは違う)。シーンの一覧で最初のカメラを使い(`FindSceneCamera`)、無ければ`MakeScreenCamera`(カメラの無い古いシーンも今までどおり見える)。ゲームの最初の配置は、跳ね回るもの → カメラ("MainCamera") → プレイヤーの順。
 
 ## 禁止事項
 
