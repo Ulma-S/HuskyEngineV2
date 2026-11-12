@@ -6,6 +6,7 @@
 #include "core/MemoryTracker.h"
 #include "engine/Actor.h"
 #include "engine/JsonFormat.h"
+#include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
 #include "tools/DebugWindow.h"
 #include "HeadlessImGui.h"
@@ -479,7 +480,7 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     // プロパティの選択肢は、選んだアクターの書き換えられるプロパティ(guid と components は入らない)
     std::vector<std::string> names;
     for (const husky::tools::EditorArgChoice& choice :
-         commands.Find("property.set")->args[1].choices(app, Json(R"({"actor": "Player"})")))
+         commands.Find("property.set")->args[2].choices(app, Json(R"({"actor": "Player"})")))
     {
         names.push_back(choice.value);
     }
@@ -495,7 +496,7 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     CHECK(actors.player->transform.position.z == 3.0f);
     CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.rotation", "value": 45})")).succeeded);
     CHECK(actors.player->transform.rotation == 45.0f);
-    // 構造体そのもの、構造体の中に無い名前、構造体ではないものの中は、断る
+    // 構造体に構造体ではない値、構造体の中に無い名前、構造体ではないものの中は、断る
     CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform", "value": 1})")).succeeded);
     CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.w", "value": 1})")).succeeded);
     CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "name.x", "value": 1})")).succeeded);
@@ -507,6 +508,135 @@ TEST_CASE("EditorCommands: property.set はアクターのプロパティを書�
     REQUIRE(actorChoices.size() == 3);
     CHECK(actorChoices[2].value == actors.player->guid.ToString());
     CHECK(actorChoices[2].label == "Player (Actor)");
+}
+
+TEST_CASE("EditorCommands: property.set はコンポーネントのプロパティも書き換えられ、構造体は書いた値だけが変わる")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    auto* sprite = actors.player->AddComponent<husky::engine::SpriteComponent>();
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+
+    EditorCommandResult result = commands.Execute(
+        "property.set", app, Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "width", "value": 64})"));
+    CHECK(result.succeeded);
+    CHECK(sprite->width == 64.0f);
+    CHECK(result.message == "Set Player (Actor).SpriteComponent.width = 64");
+
+    // 構造体そのものを {"名前": 値} で渡すと、書いた値だけが変わる
+    CHECK(commands.Execute("property.set", app,
+                           Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "color", "value": {"g": 0.5}})"))
+              .succeeded);
+    CHECK(sprite->color.r == 1.0f);
+    CHECK(sprite->color.g == 0.5f);
+    // 構造体の一部の値が合わなければ、ほかの値も書かずに断る(前の値に戻す)
+    CHECK_FALSE(commands.Execute("property.set", app,
+                                 Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "color", "value": {"r": 0, "b": "blue"}})"))
+                    .succeeded);
+    CHECK(sprite->color.r == 1.0f);
+
+    // 付いていないコンポーネント、知らない型は、付いているものを見せて断る
+    result = commands.Execute("property.set", app,
+                              Json(R"({"actor": "Player", "component": "CameraComponent", "property": "zoom", "value": 2})"));
+    CHECK_FALSE(result.succeeded);
+    CHECK(result.message.find("SpriteComponent") != std::string::npos);
+    CHECK_FALSE(commands.Execute("property.set", app,
+                                 Json(R"({"actor": "Player", "component": "Nope", "property": "width", "value": 1})"))
+                    .succeeded);
+
+    // 選択肢: コンポーネントは付いているもの、プロパティは選んだコンポーネントのもの
+    const EditorCommand& command = *commands.Find("property.set");
+    const std::vector<husky::tools::EditorArgChoice> components = command.args[1].choices(app, Json(R"({"actor": "Player"})"));
+    REQUIRE(components.size() == 1);
+    CHECK(components[0].value == "SpriteComponent");
+    std::vector<std::string> names;
+    for (const husky::tools::EditorArgChoice& choice :
+         command.args[2].choices(app, Json(R"({"actor": "Player", "component": "SpriteComponent"})")))
+    {
+        names.push_back(choice.value);
+    }
+    CHECK(std::find(names.begin(), names.end(), "color.g") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "transform.position.x") == names.end());
+}
+
+TEST_CASE("EditorCommands: 戻せるコマンドは履歴に積まれ、Undo で前の値に、Redo で新しい値になる。新しい変更でやり直しは消える")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+    int calls = 0;
+    REQUIRE(commands.Register(MakeCountingCommand("test.count", calls)));
+
+    // 何も無いうちは、戻せない(理由つきで失敗。落ちない)
+    CHECK(commands.WhyCannotUndo(app) != nullptr);
+    CHECK_FALSE(commands.Execute("editor.undo", app).succeeded);
+
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": 10})")).succeeded);
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": 20})")).succeeded);
+    // 戻せないコマンド(undo を書かない)や、失敗したコマンドは、履歴に入らない
+    CHECK(commands.Execute("test.count", app).succeeded);
+    CHECK_FALSE(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": "x"})")).succeeded);
+    CHECK(commands.GetUndoCount() == 2);
+    CHECK(std::string(commands.PeekUndoLabel()) == "Set Player (Actor).transform.position.x = 20");
+
+    // 名前を変えても、履歴は guid で指しているので、同じアクターを戻せる
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "name", "value": "Hero"})")).succeeded);
+    CHECK(commands.Execute("editor.undo", app).succeeded);
+    CHECK(actors.player->name == "Player");
+
+    EditorCommandResult result = commands.Execute("editor.undo", app);
+    CHECK(result.succeeded);
+    CHECK(result.message == "Undo: Set Player (Actor).transform.position.x = 20");
+    CHECK(actors.player->transform.position.x == 10.0f);
+    CHECK(commands.Execute("editor.undo", app).succeeded);
+    CHECK(actors.player->transform.position.x == 0.0f);
+    CHECK(commands.GetUndoCount() == 0);
+    CHECK(commands.GetRedoCount() == 3);
+
+    // やり直すと、新しい値になる。Undo / Redo の実行そのものは、新しい変更として履歴に積まれない
+    CHECK(commands.Execute("editor.redo", app).succeeded);
+    CHECK(actors.player->transform.position.x == 10.0f);
+    CHECK(commands.GetUndoCount() == 1);
+    CHECK(commands.GetRedoCount() == 2);
+
+    // 新しい変更をすると、やり直しの履歴は消える
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.y", "value": 5})")).succeeded);
+    CHECK(commands.GetRedoCount() == 0);
+    CHECK(commands.WhyCannotRedo(app) != nullptr);
+
+    // 相手のアクターが消えていたら、戻せない。その1件は捨てる(ずっと詰まらないように)
+    actors.player->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+    result = commands.Execute("editor.undo", app);
+    CHECK_FALSE(result.succeeded);
+    CHECK(commands.GetUndoCount() == 1);
+}
+
+TEST_CASE("EditorCommands: 戻すコマンドが今は使えない(再生中など)なら、Undo は灰色になり、履歴はそのまま残る")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    EditorCommandRegistry commands;
+    bool editing = true;
+    EditorCommand setProperty = husky::tools::MakeSetPropertyCommand();
+    setProperty.whyUnavailable = [&editing](Application&) { return editing ? nullptr : "Stop playing first"; };
+    REQUIRE(commands.Register(std::move(setProperty)));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+
+    CHECK(commands.Execute("property.set", app, Json(R"({"actor": "Player", "property": "transform.position.x", "value": 10})")).succeeded);
+    editing = false;
+    CHECK(std::string(commands.WhyCannotUndo(app)) == "Stop playing first");
+    CHECK_FALSE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(commands.GetUndoCount() == 1);
+    CHECK(actors.player->transform.position.x == 10.0f);
+
+    editing = true;
+    CHECK(commands.Execute("editor.undo", app).succeeded);
+    CHECK(actors.player->transform.position.x == 0.0f);
 }
 
 TEST_CASE("DebugWindow: 種類を問わない引数は、打った文字を数や bool として読めればその値、読めなければ文字列で渡す")

@@ -143,6 +143,12 @@ namespace husky::tools
     EditorCommandResult EditorCommandRegistry::Execute(const std::string& name, engine::Application& app,
                                                        const engine::ArchiveValue& args)
     {
+        return Run(name, app, args, true, true);
+    }
+
+    EditorCommandResult EditorCommandRegistry::Run(const std::string& name, engine::Application& app,
+                                                   const engine::ArchiveValue& args, bool record, bool report)
+    {
         EditorCommandResult result;
         if (const EditorCommand* command = Find(name))
         {
@@ -167,6 +173,21 @@ namespace husky::tools
             result = EditorCommandResult::Failure("Unknown command: " + name);
         }
 
+        // 元に戻せる変更なら、履歴に積む。新しい変更をしたら、やり直しの履歴は捨てる。
+        if (record && result.succeeded && !result.undo.IsEmpty() && !result.redo.IsEmpty())
+        {
+            if (m_undoHistory.size() >= MaxHistory)
+            {
+                m_undoHistory.erase(m_undoHistory.begin()); // いちばん古いものを捨てる
+            }
+            m_undoHistory.push_back(HistoryEntry{result.message, result.undo, result.redo});
+            m_redoHistory.clear();
+        }
+
+        if (!report)
+        {
+            return result;
+        }
         // 人が後から追えるように、ログにも出す(画面の窓を閉じていても分かる)。
         if (m_logResults)
         {
@@ -200,6 +221,106 @@ namespace husky::tools
             }
         }
         return executed;
+    }
+
+    EditorCommandResult EditorCommandRegistry::Undo(engine::Application& app)
+    {
+        return Replay(app, m_undoHistory, m_redoHistory, true);
+    }
+
+    EditorCommandResult EditorCommandRegistry::Redo(engine::Application& app)
+    {
+        return Replay(app, m_redoHistory, m_undoHistory, false);
+    }
+
+    const char* EditorCommandRegistry::WhyCannotUndo(engine::Application& app) const
+    {
+        return WhyCannotReplay(app, m_undoHistory, true);
+    }
+
+    const char* EditorCommandRegistry::WhyCannotRedo(engine::Application& app) const
+    {
+        return WhyCannotReplay(app, m_redoHistory, false);
+    }
+
+    void EditorCommandRegistry::ClearHistory()
+    {
+        m_undoHistory.clear();
+        m_redoHistory.clear();
+    }
+
+    const char* EditorCommandRegistry::WhyCannotReplay(engine::Application& app, const std::vector<HistoryEntry>& history,
+                                                       bool isUndo) const
+    {
+        if (history.empty())
+        {
+            return isUndo ? "Nothing to undo" : "Nothing to redo";
+        }
+        // 戻す(やり直す)コマンドが今は使えなければ、その理由をそのまま見せる(再生中は property.set が使えない、など)。
+        const EditorCommandCall& call = isUndo ? history.back().undo : history.back().redo;
+        const EditorCommand* command = Find(call.name);
+        if (command == nullptr)
+        {
+            return "The command to replay is not registered";
+        }
+        return GetUnavailableReason(*command, app);
+    }
+
+    EditorCommandResult EditorCommandRegistry::Replay(engine::Application& app, std::vector<HistoryEntry>& from,
+                                                      std::vector<HistoryEntry>& to, bool isUndo)
+    {
+        if (const char* reason = WhyCannotReplay(app, from, isUndo))
+        {
+            return EditorCommandResult::Failure(reason); // 履歴はそのまま(使えるようになれば、後で戻せる)
+        }
+        // 実行する前に、履歴から取り出しておく(実行の中で履歴が変わっても、取り出した1件は壊れない)。
+        // std::move: 文字列や値の木をコピーせずに移す。
+        HistoryEntry entry = std::move(from.back());
+        from.pop_back();
+        const EditorCommandCall& call = isUndo ? entry.undo : entry.redo;
+        // 戻すときは、新しい変更として履歴に積まない(record = false)。ログと「最後の結果」は、呼んだ側が出す。
+        EditorCommandResult inner = Run(call.name, app, call.args, false, false);
+
+        EditorCommandResult result;
+        result.succeeded = inner.succeeded;
+        result.message = std::string(isUndo ? "Undo: " : "Redo: ") + entry.label;
+        if (inner.succeeded)
+        {
+            result.details.push_back(inner.message); // 実際にしたこと("Set Player (Actor).speed = 1" など)
+            to.push_back(std::move(entry));
+        }
+        else
+        {
+            // 戻せなかった(アクターが消えたなど)。この1件は捨てる(残すと、ずっとそこで詰まるため)。
+            result.message += " (failed, removed from the history)";
+            result.details.push_back(inner.message);
+        }
+        return result;
+    }
+
+    EditorCommand MakeUndoCommand(EditorCommandRegistry& commands)
+    {
+        EditorCommand command;
+        command.name = "editor.undo";
+        command.label = "Undo";
+        command.description = "Undo the last change made by a command (like property.set).";
+        command.group = "history";
+        // &commands: 一覧への参照を持たせる(一覧はコマンドより長く生きる)。
+        command.execute = [&commands](EditorCommandContext& context) { return commands.Undo(context.app); };
+        command.whyUnavailable = [&commands](engine::Application& app) { return commands.WhyCannotUndo(app); };
+        return command;
+    }
+
+    EditorCommand MakeRedoCommand(EditorCommandRegistry& commands)
+    {
+        EditorCommand command;
+        command.name = "editor.redo";
+        command.label = "Redo";
+        command.description = "Redo the last change that was undone.";
+        command.group = "history";
+        command.execute = [&commands](EditorCommandContext& context) { return commands.Redo(context.app); };
+        command.whyUnavailable = [&commands](engine::Application& app) { return commands.WhyCannotRedo(app); };
+        return command;
     }
 
     EditorCommand MakeSaveSceneCommand(std::vector<std::string> paths)
@@ -400,10 +521,56 @@ namespace husky::tools
             case core::PropertyType::Int32:
             case core::PropertyType::Float:
             case core::PropertyType::String:
+            case core::PropertyType::Struct: // 構造体は {"x": 1} のような形で、書いた値だけを書き換える
                 return true;
             default:
-                return false; // ハンドル、配列、構造体、アセットの参照、guid は、今は書き換えない
+                return false; // ハンドル、配列、アセットの参照、guid は、今は書き換えない
             }
+        }
+
+        // アクターのコンポーネントのうち、型の名前が typeName の型(か子孫)の最初のもの。
+        // 見つからなければ nullptr を返し、error に人が読める理由を書く(付いているコンポーネントを並べる)。
+        engine::Component* FindComponentFromArg(engine::Application& app, const engine::Actor& actor,
+                                                const std::string& typeName, std::string& error)
+        {
+            const core::TypeInfo* type = app.GetTypeRegistry().Find(typeName);
+            std::string attached; // 付いているコンポーネントの型の名前(断るときに見せる)
+            for (const core::ObjectHandle handle : actor.components)
+            {
+                engine::Component* component = app.GetRegistry().Resolve<engine::Component>(handle);
+                if (component == nullptr || component->IsPendingDestroy())
+                {
+                    continue;
+                }
+                if (type != nullptr && component->GetType().IsA(*type))
+                {
+                    return component;
+                }
+                attached += attached.empty() ? "" : ", ";
+                attached += component->GetType().GetName();
+            }
+            error = DescribeActor(actor) + " has no component '" + typeName + "' (it has: " +
+                    (attached.empty() ? std::string("none") : attached) + ")";
+            return nullptr;
+        }
+
+        // property.set の引数(actor、component)から、書き換える相手(アクターか、そのコンポーネント)を探す。
+        // 見つからなければ nullptr と理由。actorOut には、見つかったアクターを入れる。
+        core::Object* FindPropertyOwner(engine::Application& app, const engine::ArchiveValue& args,
+                                        engine::Actor*& actorOut, std::string& error)
+        {
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            actorOut = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actorOut == nullptr)
+            {
+                return nullptr;
+            }
+            const engine::ArchiveValue* componentValue = args.Find("component");
+            if (componentValue == nullptr)
+            {
+                return actorOut;
+            }
+            return FindComponentFromArg(app, *actorOut, componentValue->AsString(), error);
         }
 
         // 「transform.position.x」のような、点でつないだ道筋を区切る。
@@ -582,16 +749,16 @@ namespace husky::tools
         EditorCommand command;
         command.name = "property.set";
         command.label = "Set property";
-        command.description = "Change one property of an actor, like its position or speed. "
-                              "The actor can be given by name (if unique) or by guid.";
+        command.description = "Change one property of an actor or of one of its components, like its position or speed. "
+                              "The actor can be given by name (if unique) or by guid. Can be undone (editor.undo).";
         command.modifiesScene = true;
 
         EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
         actorArg.choices = ActorChoices;
-        // 選べるプロパティは、選んだアクターの型で決まる(ほかの引数 actor を見て一覧を作る)。
-        EditorCommandArg propertyArg{"property", EditorArgType::String,
-                                     "Name of the property. Use dots to go inside, like \"transform.position.x\"", true};
-        propertyArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
+        // 選べるコンポーネントは、選んだアクターに付いているもの。
+        EditorCommandArg componentArg{"component", EditorArgType::String,
+                                      "Type name of a component on the actor (leave out to change the actor itself)", false};
+        componentArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string ignored;
@@ -599,74 +766,125 @@ namespace husky::tools
                 actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
             if (actor != nullptr)
             {
-                CollectSettablePaths(actor->GetType(), std::string(), choices);
+                for (const core::ObjectHandle handle : actor->components)
+                {
+                    const engine::Component* component = app.GetRegistry().Resolve<engine::Component>(handle);
+                    if (component != nullptr && !component->IsPendingDestroy())
+                    {
+                        choices.push_back({component->GetType().GetName(), std::string()});
+                    }
+                }
+            }
+            return choices;
+        };
+        // 選べるプロパティは、選んだアクター(か、選んだコンポーネント)の型で決まる(ほかの引数を見て一覧を作る)。
+        EditorCommandArg propertyArg{"property", EditorArgType::String,
+                                     "Name of the property. Use dots to go inside, like \"transform.position.x\"", true};
+        propertyArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
+            std::vector<EditorArgChoice> choices;
+            engine::Actor* actor = nullptr;
+            std::string ignored;
+            if (const core::Object* owner = FindPropertyOwner(app, args, actor, ignored))
+            {
+                CollectSettablePaths(owner->GetType(), std::string(), choices);
             }
             return choices;
         };
         command.args = {
             actorArg,
+            componentArg,
             propertyArg,
-            {"value", EditorArgType::Any, "New value (a number, true/false, or a string, matching the property)", true},
+            {"value", EditorArgType::Any,
+             "New value (a number, true/false, a string, or {\"name\": value} for a struct), matching the property", true},
         };
 
         command.execute = [](EditorCommandContext& context) {
             std::string error;
-            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
-            if (actor == nullptr)
+            engine::Actor* actor = nullptr;
+            core::Object* owner = FindPropertyOwner(context.app, context.args, actor, error);
+            if (owner == nullptr)
             {
                 return EditorCommandResult::Failure(error);
             }
+            const engine::ArchiveValue* componentValue = context.args.Find("component");
+            // 人に見せる相手の説明は、書き換える前のもの(名前や位置を変えたときに、どのアクターだったか分かるように)。
+            const std::string who =
+                DescribeActor(*actor) + (componentValue != nullptr ? "." + std::string(owner->GetType().GetName()) : "");
+
             const std::string& propertyName = context.args.Find("property")->AsString();
             const std::vector<std::string> path = SplitPropertyPath(propertyName);
-            const core::Property* property = FindPropertyByPath(actor->GetType(), path);
+            const core::Property* property = FindPropertyByPath(owner->GetType(), path);
             if (property == nullptr)
             {
-                return EditorCommandResult::Failure(DescribeActor(*actor) + " has no property '" + propertyName + "'");
+                return EditorCommandResult::Failure(who + " has no property '" + propertyName + "'");
             }
             if (!IsSettableProperty(*property))
             {
                 return EditorCommandResult::Failure("'" + propertyName + "' cannot be changed with property.set");
             }
 
-            // 人に見せるアクターの説明は、書き換える前のもの(名前や位置を変えたときに、どのアクターだったか分かるように)。
-            const std::string who = DescribeActor(*actor);
-            // 前の値(人に見せるため)。保存と同じ道具で、このアクターのプロパティを値の木にして、その名前のものを取り出す。
-            const engine::ArchiveValue before = engine::ObjectSerializer::Write(*actor);
-            std::string oldText;
-            // 道筋のとおりに、入れ子のオブジェクトを1段ずつ下りる。
+            // 前の値(Undo と、人に見せるため)。保存と同じ道具で、相手のプロパティを値の木にして、道筋のとおりに取り出す。
+            const engine::ArchiveValue before = engine::ObjectSerializer::Write(*owner);
             const engine::ArchiveValue* old = before.Find("properties");
             for (std::size_t i = 0; i < path.size() && old != nullptr; ++i)
             {
                 old = old->Find(path[i]);
             }
-            if (old != nullptr)
+            if (old == nullptr)
             {
-                engine::JsonFormat::Write(*old, oldText, false);
+                return EditorCommandResult::Failure("Could not read the current value of " + propertyName);
             }
+
+            // 値1つを、ファイルと同じ入れ子の形にする。構造体の読み込みは書いてある値だけを書き換えるので、
+            //   "transform.position.x" → {"properties": {"transform": {"position": {"x": 値}}}}(ほかの値はそのまま)
+            auto makeEntry = [&path](const engine::ArchiveValue& value) {
+                engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
+                engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
+                for (std::size_t i = 0; i + 1 < path.size(); ++i)
+                {
+                    parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
+                }
+                parent->Set(path.back(), value);
+                return entry;
+            };
 
             // 新しい値を書く: シーンの読み込みと同じ道具(ObjectSerializer::ReadProperties)を通すので、
             // 種類の確かめ(「数ではありません」など)も、ファイルを読むときとそろう。
-            // 構造体の中の値は、ファイルと同じ入れ子の形にして渡す。構造体の読み込みは書いてある値だけを書き換えるので、
-            //   "transform.position.x" → {"transform": {"position": {"x": 値}}}(ほかの値はそのまま)
-            engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
-            engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
-            for (std::size_t i = 0; i + 1 < path.size(); ++i)
-            {
-                parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
-            }
-            parent->Set(path.back(), *context.args.Find("value"));
-            const engine::ObjectSerializer::ReadReport report = engine::ObjectSerializer::ReadProperties(entry, *actor);
+            const engine::ArchiveValue& value = *context.args.Find("value");
+            const engine::ObjectSerializer::ReadReport report =
+                engine::ObjectSerializer::ReadProperties(makeEntry(value), *owner);
             if (!report.warnings.empty())
             {
+                // 構造体では、一部のメンバーだけが書けていることがあるので、前の値を書き戻してそろえる。
+                engine::ObjectSerializer::ReadProperties(makeEntry(*old), *owner);
                 return EditorCommandResult::Failure("Could not set " + propertyName + ": " + report.warnings[0]);
             }
 
+            std::string oldText;
             std::string newText;
-            engine::JsonFormat::Write(*context.args.Find("value"), newText, false);
-            EditorCommandResult result =
-                EditorCommandResult::Success("Set " + who + "." + propertyName + " = " + newText);
+            engine::JsonFormat::Write(*old, oldText, false);
+            engine::JsonFormat::Write(value, newText, false);
+            EditorCommandResult result = EditorCommandResult::Success("Set " + who + "." + propertyName + " = " + newText);
             result.details.push_back("was " + oldText);
             result.details.push_back("guid: " + actor->guid.ToString());
+
+            // 戻す呼び出しと、やり直す呼び出し: 同じ property.set を、前の値・新しい値で呼ぶ。
+            // アクターは guid で指す(名前を変えても、名前が重なっても、Play / Stop で作り直されても、同じものを指す)。
+            auto makeCall = [&](const engine::ArchiveValue& callValue) {
+                EditorCommandCall call;
+                call.name = "property.set";
+                call.args = engine::ArchiveValue::MakeObject();
+                call.args.Set("actor", engine::ArchiveValue(actor->guid.ToString()));
+                if (componentValue != nullptr)
+                {
+                    call.args.Set("component", *componentValue);
+                }
+                call.args.Set("property", engine::ArchiveValue(propertyName));
+                call.args.Set("value", callValue);
+                return call;
+            };
+            result.undo = makeCall(*old);
+            result.redo = makeCall(value);
             return result;
         };
         return command;

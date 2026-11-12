@@ -86,6 +86,9 @@ int main()
     tools::EditorCommand setProperty = tools::MakeSetPropertyCommand();
     setProperty.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(setProperty));
+    // 元に戻す・やり直す(editor.undo / editor.redo)。履歴は commands が持つ。戻すコマンドが使えないとき(再生中など)は灰色。
+    commands.Register(tools::MakeUndoCommand(commands));
+    commands.Register(tools::MakeRedoCommand(commands));
 
     // 起動時のアセットの準備も、ボタンと同じコマンドで行う(手順が1か所にしか無いので、起動時とボタンで食い違わない)。
     commands.Execute("asset.refresh", app);

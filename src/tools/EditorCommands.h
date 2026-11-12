@@ -35,6 +35,16 @@
 
 namespace husky::tools
 {
+    // コマンドの呼び出し1つ(名前と引数)。Undo の履歴に「戻すときに呼ぶもの」「やり直すときに呼ぶもの」として入れる。
+    // 戻すことも「コマンドを別の引数で呼ぶ」だけなので、どの入口(画面、CLI、AI)から変えた値も、同じやり方で戻せる。
+    struct EditorCommandCall
+    {
+        std::string name;          // コマンドの名前。空なら「呼び出し無し」
+        engine::ArchiveValue args; // 引数(Object か Null)
+
+        bool IsEmpty() const { return name.empty(); }
+    };
+
     // コマンドを実行した結果。
     struct EditorCommandResult
     {
@@ -44,6 +54,11 @@ namespace husky::tools
         // 機械が読むための結果(無ければ Null)。actor.list のアクターの一覧など。CLI の --json-out では "data" に書く。
         // 人向けの details は読みやすさのために途中で切ることがあるが、data にはすべて入れる。
         engine::ArchiveValue data;
+        // 元に戻せるコマンドは、成功したときに、戻す呼び出し(undo)とやり直す呼び出し(redo)を書く。
+        // 両方が書いてあれば、EditorCommandRegistry が Undo の履歴に入れる(空なら入れない: 読むだけのコマンドなど)。
+        // redo を元の引数のままにしないのは、名前で指したアクターの名前が変わっても、guid で確実に同じものを指すため。
+        EditorCommandCall undo;
+        EditorCommandCall redo;
 
         static EditorCommandResult Success(std::string message);
         static EditorCommandResult Failure(std::string message);
@@ -162,12 +177,63 @@ namespace husky::tools
         // 実行の結果をログに出すか(既定は出す)。結果を自分で出す入口(CLI)は、二重に出ないように止める。
         void SetLogResults(bool enabled) { m_logResults = enabled; }
 
+        // ---- Undo / Redo(設計メモ「Undo はコマンドの単位」)----
+        // Execute で成功し、結果に undo と redo があったコマンドを、履歴に積む。新しく積むと、やり直しの履歴は消える
+        // (戻した後に別の変更をしたら、戻す前の未来には行けない。ふつうのエディタと同じ)。
+        // ふつうは editor.undo / editor.redo のコマンド(MakeUndoCommand / MakeRedoCommand)から呼ぶ。
+
+        // 最後の変更を戻す(履歴の undo を実行する)。戻すものが無ければ失敗。
+        //   - 戻すコマンドが今は使えない(再生中など)なら、履歴はそのままで失敗にする(後で戻せる)
+        //   - 戻すコマンドが失敗した(アクターが消えたなど)なら、その1件を履歴から捨てて失敗にする(ずっと詰まらないように)
+        // この関数自体はログに出さず、「最後の結果」も変えない(editor.undo の Execute が出す)。
+        EditorCommandResult Undo(engine::Application& app);
+        // 最後に戻した変更を、やり直す(履歴の redo を実行する)。決まりは Undo と同じ。
+        EditorCommandResult Redo(engine::Application& app);
+
+        std::size_t GetUndoCount() const { return m_undoHistory.size(); }
+        std::size_t GetRedoCount() const { return m_redoHistory.size(); }
+        // 次に戻す・やり直すものの説明(画面のツールチップに使う)。無ければ nullptr。
+        const char* PeekUndoLabel() const { return m_undoHistory.empty() ? nullptr : m_undoHistory.back().label.c_str(); }
+        const char* PeekRedoLabel() const { return m_redoHistory.empty() ? nullptr : m_redoHistory.back().label.c_str(); }
+        // 次の Undo / Redo が今は使えない理由(使えるなら nullptr)。editor.undo / editor.redo の whyUnavailable に使う。
+        const char* WhyCannotUndo(engine::Application& app) const;
+        const char* WhyCannotRedo(engine::Application& app) const;
+        // 履歴を空にする(シーンを丸ごと読み直して、履歴の相手がいなくなったときなど)。
+        void ClearHistory();
+
+        // 履歴に残す数の上限。超えたら古いものから捨てる。
+        static constexpr std::size_t MaxHistory = 100;
+
     private:
+        // 履歴の1件: 何をしたか(人向け)と、戻す呼び出し、やり直す呼び出し。
+        struct HistoryEntry
+        {
+            std::string label; // 元のコマンドの結果の1行("Set Player (PlayerActor).speed = 3" など)
+            EditorCommandCall undo;
+            EditorCommandCall redo;
+        };
+
+        // Execute の中身。record: 結果の undo / redo を履歴に積むか。report: ログに出し、「最後の結果」として覚えるか。
+        EditorCommandResult Run(const std::string& name, engine::Application& app, const engine::ArchiveValue& args,
+                                bool record, bool report);
+        // Undo と Redo の共通部分。from の最後の1件の call(undo か redo)を実行し、成功したら to へ移す。
+        EditorCommandResult Replay(engine::Application& app, std::vector<HistoryEntry>& from,
+                                   std::vector<HistoryEntry>& to, bool isUndo);
+        const char* WhyCannotReplay(engine::Application& app, const std::vector<HistoryEntry>& history,
+                                    bool isUndo) const;
+
         std::vector<EditorCommand> m_commands;
         std::string m_lastCommandName;
         EditorCommandResult m_lastResult;
         bool m_logResults = true;
+        std::vector<HistoryEntry> m_undoHistory; // 戻せる変更(後ろほど新しい)
+        std::vector<HistoryEntry> m_redoHistory; // 戻した変更(後ろほど最近戻したもの)
     };
+
+    // 「元に戻す」コマンド(editor.undo)と「やり直す」コマンド(editor.redo)を作る。commands の履歴を使うので、
+    // commands はコマンドより長く生きていること(ふつうは commands 自身に登録する)。ショートカットは今は無い。
+    EditorCommand MakeUndoCommand(EditorCommandRegistry& commands);
+    EditorCommand MakeRedoCommand(EditorCommandRegistry& commands);
 
     // 「シーンを保存する」コマンド(scene.save、F5)を作る。今のシーンを、paths のすべてに同じ内容で書く。
     // ふつうは「ソースの assets」(残すため)と「exe の隣の assets」(ビルドし直さずに次の起動で読むため)の2か所。
@@ -203,9 +269,12 @@ namespace husky::tools
     // 引数: name、type(省略可。名前が同じもの、その型か子孫のものだけに絞る)。data に全件を入れる。
     EditorCommand MakeListActorsCommand();
 
-    // 「プロパティを書き換える」コマンド(property.set)を作る。引数: actor(名前か guid)、property(プロパティの名前)、
-    // value(新しい値。種類はプロパティに合わせる)。今書き換えられるのは、アクター自身の bool / int / float / string の
-    // プロパティ(guid は変えられない)。値の確かめは、シーンの読み込みと同じ道具(ObjectSerializer)で行う。
+    // 「プロパティを書き換える」コマンド(property.set)を作る。引数: actor(名前か guid)、
+    // component(省略可。コンポーネントの型の名前。書けば、アクターのその型(か子孫)の最初のコンポーネントを書き換える)、
+    // property(プロパティの名前。構造体の中は "transform.position.x" のように点でつなぐ)、
+    // value(新しい値。種類はプロパティに合わせる。構造体そのものなら {"r": 1, "g": 0} のような形で、書いた値だけが変わる)。
+    // 書き換えられるのは bool / int / float / string と構造体(guid、ハンドル、配列、アセットの参照は、今は変えられない)。
+    // 値の確かめは、シーンの読み込みと同じ道具(ObjectSerializer)で行う。成功すると、前の値に戻す undo を返す(Undo できる)。
     EditorCommand MakeSetPropertyCommand();
 }
 
