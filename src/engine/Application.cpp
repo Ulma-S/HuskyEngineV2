@@ -2,6 +2,7 @@
 #include "engine/Application.h"
 
 #include "core/MemoryTracker.h"
+#include "engine/Camera.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/SceneSerializer.h"
@@ -237,6 +238,12 @@ namespace husky::engine
             // 描画: 描きたいスプライトを積んで、EndFrame でまとめて描く。vsync のため BeginFrame の中で待つ。
             if (renderDevice.BeginFrame(m_clearColor))
             {
+                // カメラ: 今は画面の大きさちょうどの範囲を映す固定のカメラ(1 単位 = 1 ピクセル、左下が原点)。
+                // 画面の大きさは窓を広げると変わるので、毎フレーム作り直す。
+                const CameraMatrices camera = MakeScreenCamera(static_cast<float>(renderDevice.GetScreenWidth()),
+                                                               static_cast<float>(renderDevice.GetScreenHeight()));
+                renderDevice.SetViewProjection(camera.ViewProjection());
+
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
                 DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
 #if HUSKY_DEVELOPMENT

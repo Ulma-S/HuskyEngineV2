@@ -4,6 +4,8 @@
 
 #include "core/Handle.h"
 
+#include <glm/mat4x4.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -34,12 +36,13 @@ namespace husky::render
         float a = 1.0f; // 不透明度。1.0 で不透明
     };
 
-    // 描きたいスプライト1枚分の情報。座標はピクセル単位で、画面の左上が (0, 0)、右が +x、下が +y。
+    // 描きたいスプライト1枚分の情報。座標はワールドの単位で、右が +x、上が +y。
+    // 画面のどこに出るかは、カメラの行列(RenderDevice::SetViewProjection)で決まる。
     struct Sprite
     {
-        float x = 0.0f;      // 左上の位置
+        float x = 0.0f;      // 左下の角の位置(y は上が + なので、x と y がいちばん小さい角)
         float y = 0.0f;
-        float width = 0.0f;  // 画面上の大きさ
+        float width = 0.0f;  // ワールドでの大きさ
         float height = 0.0f;
         Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャの色に掛ける色。白ならテクスチャの色そのまま
         // 貼るテクスチャ。何も指さないか、もう手放されたテクスチャなら、白い板(color の色そのまま)として描く。
@@ -102,6 +105,17 @@ namespace husky::render
         // vsync のため、ここでモニターの書き換えのタイミングまで待つことがある。
         // 戻り値: false ならこのフレームは描けない(DrawSprite も EndFrame も呼ばない)。
         bool BeginFrame(const Color& clearColor);
+
+        // 今回のフレームの画面の大きさ(ピクセル)。BeginFrame が成功した後に正しい値になる。
+        // カメラの射影行列を、画面の大きさに合わせて作るのに使う。
+        int GetScreenWidth() const;
+        int GetScreenHeight() const;
+
+        // カメラの行列(ビュー行列 × 射影行列)を渡す。スプライトの四隅(ワールドの位置)に、GPU がこの行列を掛けて
+        // クリップ座標(画面の左下が (-1, -1)、右上が (+1, +1))にする。
+        // BeginFrame と EndFrame の間で呼ぶ。このフレームで呼ばなければ、前のフレームの行列のまま描く
+        // (一度も呼ばなければ単位行列。ワールドの -1〜+1 が画面いっぱいになる)。
+        void SetViewProjection(const glm::mat4& viewProjection);
 
         // スプライトを1枚、描く予定に加える。後から加えたものほど手前に描かれる。
         // BeginFrame と EndFrame の間で呼ぶ。

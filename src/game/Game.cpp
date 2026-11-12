@@ -83,8 +83,8 @@ namespace husky::game
         float moveY = 0.0f;
         if (input->IsDown(engine::Key::Left) || input->IsDown(engine::Key::A))  { moveX -= 1.0f; }
         if (input->IsDown(engine::Key::Right) || input->IsDown(engine::Key::D)) { moveX += 1.0f; }
-        if (input->IsDown(engine::Key::Up) || input->IsDown(engine::Key::W))    { moveY -= 1.0f; } // 上は -y
-        if (input->IsDown(engine::Key::Down) || input->IsDown(engine::Key::S))  { moveY += 1.0f; }
+        if (input->IsDown(engine::Key::Up) || input->IsDown(engine::Key::W))    { moveY += 1.0f; } // 上は +y
+        if (input->IsDown(engine::Key::Down) || input->IsDown(engine::Key::S))  { moveY -= 1.0f; }
 
         // 速さ × dt = このフレームで進む距離。フレームレートが違っても、1秒で進む距離は同じになる。
         const float step = moveSpeed * static_cast<float>(dt);

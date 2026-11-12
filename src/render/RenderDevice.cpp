@@ -50,12 +50,14 @@ namespace husky::render
             float r, g, b, a; // テクスチャに掛ける色     → TEXCOORD2 / location 2
         };
 
-        // 頂点シェーダの cbuffer FrameUniforms と一致させる(float 4つ = 16 バイト)。
+        // 頂点シェーダの cbuffer FrameUniforms と一致させる(4×4 の行列 = float 16 個 = 64 バイト)。
+        // glm::mat4 は、メモリに「列」を順に並べる(列優先、column-major)。HLSL の cbuffer の行列も既定で列優先なので、
+        // 並べ替えずにそのまま送ればよい。
         struct FrameUniforms
         {
-            float screenWidth, screenHeight;
-            float padding0, padding1; // 16 バイトに揃えるための詰め物
+            glm::mat4 viewProjection;
         };
+        static_assert(sizeof(FrameUniforms) == 64, "FrameUniforms は HLSL の float4x4 と同じ 64 バイトにする");
 
         // スプライト1枚 = 頂点4つ、インデックス6つ(三角形2つ)。
         constexpr Uint32 VerticesPerSprite = 4;
@@ -141,7 +143,8 @@ namespace husky::render
         SDL_GPUTexture* swapchainTexture = nullptr;    // 今回描き込む画面(持ち主は SDL。借りているだけ)
         Uint32 screenWidth = 0;                        // 今回の画面の大きさ(ピクセル)
         Uint32 screenHeight = 0;
-        Color clearColor;                              // 画面を最初に塗りつぶす色
+        glm::mat4 viewProjection = glm::mat4(1.0f);    // カメラの行列(SetViewProjection)。最初は単位行列
+        Color clearColor;                             // 画面を最初に塗りつぶす色
         std::vector<Vertex> vertices;                  // DrawSprite で溜めた頂点(CPU 側)
         std::vector<SpriteBatch> batches;              // 同じテクスチャが続く区間(1区間 = 描画命令1回)
         int droppedSpriteCount = 0;                    // 上限を超えて描けなかった数
@@ -767,15 +770,17 @@ namespace husky::render
             return;
         }
 
-        // スプライトの四隅を、画面上の位置として頂点に書く(バッチ描画では、位置は CPU 側で決めてしまう)。
-        // UV は、スプライトが指定した範囲(既定は全体: u0 = v0 = 0、u1 = v1 = 1)。
+        // スプライトの四隅を、ワールドの位置として頂点に書く(バッチ描画では、位置は CPU 側で決めてしまう)。
+        // 画面の位置にするのは GPU(頂点シェーダがカメラの行列を掛ける)。
+        // y は上が + なので、上の辺は y + height、下の辺は y。
+        // UV は、スプライトが指定した範囲(既定は全体: u0 = v0 = 0、u1 = v1 = 1)。画像の上(v0)を上の辺に貼る。
         //   0 ---- 1      UV: (u0,v0) ---- (u1,v0)
         //   |      |          |                |
         //   3 ---- 2          (u0,v1) ---- (u1,v1)
         const float left = sprite.x;
-        const float top = sprite.y;
+        const float bottom = sprite.y;
         const float right = sprite.x + sprite.width;
-        const float bottom = sprite.y + sprite.height;
+        const float top = sprite.y + sprite.height;
         const Color& c = sprite.color;
 
         // どのテクスチャで描くかを、区間(バッチ)に記録する。ハンドルのまま覚えておき、EndFrame で中身を引く。
@@ -863,11 +868,8 @@ namespace husky::render
                 indexBinding.buffer = m_impl->spriteIndexBuffer;
                 SDL_BindGPUIndexBuffer(renderPass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
-                // 画面の大きさを、頂点シェーダの 0 番の cbuffer に渡す。
-                const FrameUniforms uniforms = {
-                    static_cast<float>(m_impl->screenWidth), static_cast<float>(m_impl->screenHeight),
-                    0.0f, 0.0f,
-                };
+                // カメラの行列を、頂点シェーダの 0 番の cbuffer に渡す。
+                const FrameUniforms uniforms = {m_impl->viewProjection};
                 SDL_PushGPUVertexUniformData(m_impl->commandBuffer, 0, &uniforms, sizeof(uniforms));
 
                 // 4. 区間(同じテクスチャが続くスプライト)ごとに、テクスチャを渡して1回描く。
@@ -917,5 +919,20 @@ namespace husky::render
     FrameStats RenderDevice::GetLastFrameStats() const
     {
         return m_impl->lastFrameStats;
+    }
+
+    int RenderDevice::GetScreenWidth() const
+    {
+        return static_cast<int>(m_impl->screenWidth);
+    }
+
+    int RenderDevice::GetScreenHeight() const
+    {
+        return static_cast<int>(m_impl->screenHeight);
+    }
+
+    void RenderDevice::SetViewProjection(const glm::mat4& viewProjection)
+    {
+        m_impl->viewProjection = viewProjection;
     }
 }

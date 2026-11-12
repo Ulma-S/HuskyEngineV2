@@ -51,3 +51,23 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクターとプレイヤー
     CHECK(report.warnings.empty());
     CHECK(loaded.GetScene().actors.size() == app.GetScene().actors.size());
 }
+
+TEST_CASE("Game: プレイヤーは上キーで +y(上)へ、下キーで -y(下)へ動く(y は上が +)")
+{
+    using husky::platform::Key;
+    using husky::platform::KeyEvent;
+
+    Application app;
+    app.GetClock().SetFixedDelta(0.1);
+    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    REQUIRE(player != nullptr);
+    player->y = 100.0f;
+
+    // 上キーを押したまま 1 フレーム: 速さ 300 × 0.1 秒 = 30 だけ上へ
+    app.StepFrame(0, {KeyEvent{Key::Up, true}});
+    CHECK(player->y == doctest::Approx(130.0f));
+
+    // 上キーを離し、下キーを押したまま 1 フレーム: 30 だけ下へ戻る
+    app.StepFrame(0, {KeyEvent{Key::Up, false}, KeyEvent{Key::Down, true}});
+    CHECK(player->y == doctest::Approx(100.0f));
+}

@@ -86,6 +86,31 @@ FetchContent_Declare(yyjson
 )
 FetchContent_MakeAvailable(yyjson)
 
+# --- 依存ライブラリ: glm(数学。ベクトルと行列。2026-11-12 にユーザーと相談して追加) ---
+# ヘッダだけでできたライブラリ(ビルドするものが無く、#include するだけで使える)。例外を使わない。MIT ライセンス。
+# シェーダの言語(GLSL)と同じ名前と書き方(glm::vec3、glm::mat4、glm::ortho など)で、ゲームでよく使われる。
+set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE) # 静的ライブラリ版は作らない(ヘッダだけを使う)
+set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        1.0.1    # バージョンを固定する
+    GIT_SHALLOW    TRUE
+    SYSTEM                  # glm の中の警告は出さない
+)
+# 注意: glm 1.0.1 の CMakeLists.txt は古い版の CMake を前提に書かれているので、生成(cmake --preset)のときに
+# 「CMake Deprecation Warning」が glm のファイルについて出る。glm 側の書き方の問題で、ビルドには影響しない。
+FetchContent_MakeAvailable(glm)
+
+# エンジンで使う glm の設定を、1つの入れ物(INTERFACE ライブラリ: ビルドするものは無く、設定だけを渡すターゲット)にまとめる。
+# glm を使うターゲットは、glm を直接ではなく husky_glm をリンクする。こうすると、全員が同じ設定で glm を読む
+# (設定が食い違うと、同じ関数が場所によって違う結果を返してしまう)。
+add_library(husky_glm INTERFACE)
+target_link_libraries(husky_glm INTERFACE glm::glm-header-only)
+# 射影行列が作る奥行き(z)の範囲を 0〜1 にする。glm の既定は OpenGL の -1〜+1 だが、
+# SDL_GPU(Direct3D 12、Vulkan、Metal)のクリップ座標の z は 0〜1。3D で奥行きを使うときに必要になる。
+target_compile_definitions(husky_glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+
 # --- 依存ライブラリ: Dear ImGui(開発用の UI。2026-11-12 にユーザーと相談して追加) ---
 # 開発ビルド(Debug)だけでリンクし、製品(Release)には入れない(CLAUDE.md: ImGui のコードをリリースビルドに含めない)。
 # ImGui のリポジトリには CMakeLists.txt が無いので、FetchContent でソースを取ってくるだけにして、
@@ -215,6 +240,7 @@ add_library(husky_engine STATIC
     src/engine/Application.cpp
     src/engine/AssetDatabase.cpp
     src/engine/AssetLoader.cpp
+    src/engine/Camera.cpp
     src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp
     src/engine/Input.cpp
@@ -311,6 +337,7 @@ target_include_directories(husky_render PRIVATE "${HUSKY_SHADER_OUTPUT_DIR}")
 target_link_libraries(husky_render
     PUBLIC  husky_platform
             husky_core
+            husky_glm # RenderDevice.h がカメラの行列(glm::mat4)を受け取るので PUBLIC
     PRIVATE SDL3::SDL3
             # 開発ビルドだけ、ImGui をつなぐ(ジェネレータ式: Debug のときだけ husky_imgui になり、Release では空になる)
             $<$<CONFIG:Debug>:husky_imgui>
@@ -402,6 +429,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetLoaderTests.cpp
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
+        tests/engine/CameraTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp
         tests/render/SpriteBatchTests.cpp

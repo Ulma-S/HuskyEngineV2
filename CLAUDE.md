@@ -31,7 +31,7 @@
 - 言語: C++17(MSVC、Visual Studio 2022)。例外とRTTIは使わない(ビルド設定でも無効にする)。
 - ウィンドウと入力: SDL3。グラフィックス: SDL_GPU。
 - ビルド: CMake。依存はvcpkgかFetchContent。パスはWindows固有にしない。
-- 数学: glm(2026-11-12にユーザーが追加を了承。座標系とカメラのCAM-1で入れる)。自前では作らない。行列は最初から4×4(`glm::mat4`)で、3Dを見越して作る。
+- 数学: glm(1.0.1、FetchContent。2026-11-12にユーザーが了承し、CAM-1で入れた)。自前では作らない。使うターゲットは`glm`ではなく`husky_glm`(設定をそろえる入れ物。奥行きを0〜1にする`GLM_FORCE_DEPTH_ZERO_TO_ONE`)をリンクする。生成のときにglm自身のCMakeの「Deprecation Warning」が出るが、glm側の問題で無視してよい。行列は最初から4×4(`glm::mat4`)で、3Dを見越して作る。
 - 座標系(2026-11-12に決定。詳しくは設計メモ「座標系とカメラ」): yは上が+、ワールドの単位(最初は1単位 = 1ピクセル、換算はカメラ)、位置はx・y・z。カメラはビュー行列と射影行列(2Dは正射影)。親子の階層は今は作らない。
 - JSON: yyjson(0.12.0、FetchContent)。使うのは`engine/JsonFormat.cpp`の中だけ(PRIVATEでリンク)。替えるときはそのファイルだけを書き直す。
 - 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。ASanのビルドでは`husky_imgui`もASan付きでコンパイルする(MSVCのSTLの注釈`annotate_string`をそろえるため)。
@@ -133,6 +133,7 @@
 - GPUリソースは世代付きハンドルで管理し、解放は数フレーム遅らせる。
   - テクスチャ: `RenderDevice::CreateTexture`で作り、`TextureHandle`(`core::Handle<render::Texture>`。中身は`RenderDevice.cpp`の中だけで定義)で指す。`ReleaseTexture`でハンドルはすぐ無効になり、GPUのメモリは`DeferredReleaseQueue`で3フレーム後に解放する。何も指さない、または手放されたハンドルは白い板として描く。
   - 描画命令は、同じテクスチャが続く区間ごとに1回(`SpriteBatch`)。積んだ順(奥から手前)は変えない。
+- カメラ(CAM-1、2026-11-12): `render::Sprite`の位置はワールドの単位(y上が+、`x`,`y`は左下の角)。描画層は`RenderDevice::SetViewProjection`で行列(射影 × ビュー、`glm::mat4`)を1つ受け取り、頂点シェーダが掛ける。行列を作るのはengine(`engine/Camera.h`の`MakeScreenCamera`。今は画面の大きさちょうどの正射影で、左下が原点、1単位 = 1ピクセル)。`Application`が毎フレーム渡す。
 
 ## 禁止事項
 
