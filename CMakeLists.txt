@@ -170,6 +170,7 @@ endfunction()
 # 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
 add_library(husky_core STATIC
     src/core/FreeListAllocator.cpp
+    src/core/Guid.cpp
     src/core/MemoryTracker.cpp
     src/core/Method.cpp
     src/core/ObjectRegistry.cpp
@@ -365,6 +366,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/InspectorTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
+        tests/core/GuidTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
