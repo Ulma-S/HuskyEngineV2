@@ -11,6 +11,7 @@
 
 #include <atomic>  // std::atomic(複数のスレッドから同時に読み書きしても壊れない変数)
 #include <cstdlib> // std::malloc, std::free
+#include <cstring> // std::memcpy, std::memset
 
 namespace husky::core
 {
@@ -124,5 +125,43 @@ namespace husky::core
         // ASan: 自分で付けた印を外してから、malloc に返す。
         HUSKY_ASAN_UNPOISON(raw, offset + size + trailing);
         std::free(raw);
+    }
+
+    void* TrackedReallocate(void* pointer, std::size_t newSize)
+    {
+        if (pointer == nullptr)
+        {
+            return TrackedAllocate(newSize, MallocAlignment);
+        }
+        // 見出しから、今の大きさを読む(見出しがあるので、realloc でも元の大きさが分かる)。
+        const auto* header = reinterpret_cast<const AllocationHeader*>(static_cast<std::byte*>(pointer) - HeaderSize);
+        const std::size_t oldSize = header->size;
+
+        // 新しい場所を借りて中身を写し、古い場所を返す(malloc の realloc のように「その場で伸ばす」ことはしない。
+        // 数え方を TrackedAllocate / TrackedFree の2つに任せて、単純にするため)。
+        void* resized = TrackedAllocate(newSize, MallocAlignment);
+        if (resized == nullptr)
+        {
+            return nullptr; // C の realloc と同じく、失敗したら元のメモリはそのまま
+        }
+        std::memcpy(resized, pointer, oldSize < newSize ? oldSize : newSize);
+        TrackedFree(pointer);
+        return resized;
+    }
+
+    void* TrackedAllocateZeroed(std::size_t count, std::size_t size)
+    {
+        // count * size があふれないか(とても大きな数どうしの掛け算で、小さな数に回り込まないか)を先に確かめる。
+        if (size != 0 && count > static_cast<std::size_t>(-1) / size)
+        {
+            return nullptr;
+        }
+        const std::size_t total = count * size;
+        void* memory = TrackedAllocate(total, MallocAlignment);
+        if (memory != nullptr)
+        {
+            std::memset(memory, 0, total);
+        }
+        return memory;
     }
 }

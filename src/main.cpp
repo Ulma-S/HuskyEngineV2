@@ -10,6 +10,7 @@
 #include "engine/Scene.h"
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
+#include "platform/MemoryHooks.h"
 #include "render/RenderDevice.h"
 
 #if HUSKY_DEVELOPMENT
@@ -179,6 +180,10 @@ namespace
 
 int main()
 {
+    // 一番最初に: SDL のメモリの確保を、エンジンの入口(MemoryTracker)に通す。
+    // SDL が何かを確保するより前でないといけない(platform/MemoryHooks.h)。
+    platform::InstallMemoryHooks();
+
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
     engine::Application app;
 

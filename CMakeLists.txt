@@ -189,6 +189,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 add_library(husky_platform STATIC
     src/platform/FileSystem.cpp
     src/platform/Image.cpp
+    src/platform/MemoryHooks.cpp
     src/platform/Platform.cpp
     src/platform/Window.cpp
 )
@@ -203,7 +204,8 @@ target_include_directories(husky_platform PUBLIC src)
 # PRIVATE にしたので、SDL3 のヘッダのフォルダは platform を使う側(exe)には伝わらない。
 # つまり main.cpp で #include <SDL3/SDL.h> と書くと、コンパイルエラーになる。
 # 「SDL3 は platform だけが触る」というルールを、ビルドの設定で守らせている。
-target_link_libraries(husky_platform PRIVATE SDL3::SDL3)
+# core: SDL のメモリの確保を MemoryTracker に通すため(MemoryHooks.cpp)。ヘッダには出さないので PRIVATE。
+target_link_libraries(husky_platform PRIVATE SDL3::SDL3 husky_core)
 
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
@@ -370,6 +372,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetLoaderTests.cpp
         tests/engine/AssetRefTests.cpp
         tests/platform/FileSystemTests.cpp
+        tests/platform/MemoryHooksTests.cpp
         tests/render/SpriteBatchTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp

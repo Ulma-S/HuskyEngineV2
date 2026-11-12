@@ -39,4 +39,15 @@ namespace husky::core
 
     // TrackedAllocate で確保したものを返し、数を減らす。nullptr なら何もしない。
     HUSKY_NO_SANITIZE_ADDRESS void TrackedFree(void* pointer);
+
+    // 以下の2つは、C の realloc / calloc と同じ働きをするもの。外部のライブラリ(SDL など)の確保を、
+    // この入口に通すために使う(C のライブラリは、malloc / calloc / realloc / free の4つを差し替え口にすることが多い)。
+
+    // pointer(TrackedAllocate で確保したもの)の大きさを newSize に変える。中身は、短いほうの大きさまで残す。
+    // pointer が nullptr なら、新しく確保する。新しい場所を確保できなければ nullptr を返し、pointer はそのまま残す。
+    // 確保のアラインメントは 16(malloc と同じ)。
+    HUSKY_NO_SANITIZE_ADDRESS void* TrackedReallocate(void* pointer, std::size_t newSize);
+
+    // count 個 × size バイトを確保し、中身を 0 で埋める。掛け算があふれるなら nullptr。
+    void* TrackedAllocateZeroed(std::size_t count, std::size_t size);
 }

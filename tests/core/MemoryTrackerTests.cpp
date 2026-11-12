@@ -116,3 +116,56 @@ TEST_CASE("MemoryTracker(ASan): 中身の前後のはみ出しは触れない")
     CHECK(before);
     CHECK(after);
 }
+
+TEST_CASE("MemoryTracker: TrackedReallocate は、中身を残したまま大きさを変え、量を数え直す")
+{
+    using husky::core::TrackedReallocate;
+
+    const MemoryStats before = GetMemoryStats();
+    auto* bytes = static_cast<unsigned char*>(TrackedReallocate(nullptr, 4)); // nullptr なら新しく確保する
+    for (unsigned char i = 0; i < 4; ++i)
+    {
+        bytes[i] = static_cast<unsigned char>(10 + i);
+    }
+    const MemoryStats small = GetMemoryStats();
+
+    bytes = static_cast<unsigned char*>(TrackedReallocate(bytes, 100)); // 伸ばす
+    const MemoryStats grown = GetMemoryStats();
+    const bool keptWhenGrown = bytes[0] == 10 && bytes[3] == 13;
+
+    bytes = static_cast<unsigned char*>(TrackedReallocate(bytes, 2)); // 縮める(先頭の 2 バイトだけ残る)
+    const MemoryStats shrunk = GetMemoryStats();
+    const bool keptWhenShrunk = bytes[0] == 10 && bytes[1] == 11;
+    const bool aligned = IsAligned(bytes, 16);
+
+    TrackedFree(bytes);
+    const MemoryStats after = GetMemoryStats();
+
+    CHECK(small.currentBytes - before.currentBytes == 4);
+    CHECK(grown.currentBytes - before.currentBytes == 100);
+    CHECK(shrunk.currentBytes - before.currentBytes == 2);
+    CHECK(grown.currentCount == small.currentCount); // 件数は増えない(新しく借りて、古いほうを返す)
+    CHECK(keptWhenGrown);
+    CHECK(keptWhenShrunk);
+    CHECK(aligned);
+    CHECK(after.currentBytes == before.currentBytes);
+    CHECK(after.currentCount == before.currentCount);
+}
+
+TEST_CASE("MemoryTracker: TrackedAllocateZeroed は 0 で埋める。掛け算があふれる大きさは確保しない")
+{
+    using husky::core::TrackedAllocateZeroed;
+
+    auto* values = static_cast<std::uint32_t*>(TrackedAllocateZeroed(8, sizeof(std::uint32_t)));
+    REQUIRE(values != nullptr);
+    bool allZero = true;
+    for (int i = 0; i < 8; ++i)
+    {
+        allZero = allZero && values[i] == 0;
+    }
+    TrackedFree(values);
+    CHECK(allZero);
+
+    // (2^63) × 4 は 64 ビットに収まらない。そのまま掛けると小さな数に回り込むので、確かめて断る。
+    CHECK(TrackedAllocateZeroed(static_cast<std::size_t>(1) << 63, 4) == nullptr);
+}

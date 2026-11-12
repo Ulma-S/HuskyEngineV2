@@ -1,6 +1,8 @@
 // Platform.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/Platform.h"
 
+#include "platform/MemoryHooks.h"
+
 #include <SDL3/SDL.h>
 
 namespace husky::platform
@@ -44,6 +46,13 @@ namespace husky::platform
 
     bool Initialize()
     {
+        // SDL のメモリの確保が MemoryTracker を通っていなければ、知らせる(ヒープの集計から SDL の分が抜けるため)。
+        // 差し替えは、ここでは遅すぎる(SDL はもう確保しているかもしれない)ので、main の最初で行う(MemoryHooks.h)。
+        if (!AreMemoryHooksInstalled())
+        {
+            SDL_Log("注意: InstallMemoryHooks が呼ばれていません。SDL のメモリは集計に入りません");
+        }
+
         // SDL の映像(ウィンドウ)まわりを初期化する。イベント処理も一緒に初期化される。
         // SDL3 では成功すると true が返る。
         if (!SDL_Init(SDL_INIT_VIDEO))
