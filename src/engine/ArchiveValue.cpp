@@ -24,6 +24,7 @@ namespace husky::engine
     ArchiveValue::ArchiveValue(bool value) : m_type(Type::Bool), m_bool(value) {}
     ArchiveValue::ArchiveValue(std::int64_t value) : m_type(Type::Int), m_int(value) {}
     ArchiveValue::ArchiveValue(double value) : m_type(Type::Float), m_float(value) {}
+    ArchiveValue::ArchiveValue(float value) : m_type(Type::Float), m_float(value), m_singlePrecision(true) {}
     // std::move: value の中身を、コピーせずに m_string へ移す(移した後の value は空になってよい)。
     ArchiveValue::ArchiveValue(std::string value) : m_type(Type::String), m_string(std::move(value)) {}
     ArchiveValue::ArchiveValue(const char* value) : m_type(Type::String), m_string(value != nullptr ? value : "") {}

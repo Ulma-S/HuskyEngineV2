@@ -64,6 +64,11 @@ namespace husky::engine::JsonFormat
                     ok = false; // JSON には NaN や無限大の書き方が無い
                     return yyjson_mut_null(doc);
                 }
+                if (value.IsSinglePrecision())
+                {
+                    // float の精度で、元の float に戻せる一番短い書き方にする(0.1f → 0.1)。
+                    return yyjson_mut_float(doc, static_cast<float>(value.AsFloat()));
+                }
                 return yyjson_mut_real(doc, value.AsFloat());
             case ArchiveValue::Type::String:
                 // strncpy: 文字列を yyjson の文書の中へコピーする(ArchiveValue が先に消えても大丈夫なように)。

@@ -51,6 +51,9 @@ namespace husky::engine
         explicit ArchiveValue(bool value);
         explicit ArchiveValue(std::int64_t value);
         explicit ArchiveValue(double value);
+        // float から作ると、「float の精度で十分」という印が付く(種類は Float のまま、中身は double)。
+        // 書き出す形式はこの印を見て、短く書ける(0.1f を 0.10000000149011612 ではなく 0.1 と書く)。
+        explicit ArchiveValue(float value);
         explicit ArchiveValue(std::string value);
         // const char* を受けないと、"文字列" が bool に変換されて ArchiveValue(bool) が選ばれてしまう(C++ の落とし穴)。
         explicit ArchiveValue(const char* value);
@@ -60,6 +63,8 @@ namespace husky::engine
 
         Type GetType() const { return m_type; }
         bool IsNull() const { return m_type == Type::Null; }
+        // float から作った小数なら true(上の ArchiveValue(float) を参照)。
+        bool IsSinglePrecision() const { return m_singlePrecision; }
 
         // 値を読む。種類が違うときは fallback を返す。
         // AsFloat は Int も小数に直して返す(JSON では 1 と 1.0 の区別があいまいなため)。
@@ -93,6 +98,7 @@ namespace husky::engine
         bool m_bool = false;
         std::int64_t m_int = 0;
         double m_float = 0.0;
+        bool m_singlePrecision = false;
         std::string m_string;
         // 配列の要素、またはオブジェクトのメンバーの値。
         // std::vector は、まだ定義の途中の型(ここでは ArchiveValue 自身)も要素にできる(C++17 から)。

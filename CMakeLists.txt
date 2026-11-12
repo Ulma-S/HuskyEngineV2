@@ -172,6 +172,7 @@ add_library(husky_engine STATIC
     src/engine/Input.cpp
     src/engine/ArchiveValue.cpp
     src/engine/JsonFormat.cpp
+    src/engine/ObjectSerializer.cpp
     src/engine/Scene.cpp
     src/engine/SpriteComponent.cpp
 )
@@ -296,6 +297,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/SpriteComponentTests.cpp
         tests/engine/ApplicationTests.cpp
         tests/engine/JsonFormatTests.cpp
+        tests/engine/ObjectSerializerTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
