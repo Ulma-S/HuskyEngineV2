@@ -107,14 +107,16 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 個別の結果を見るときは`build/vs2022/Debug/HuskyTests.exe`を直接実行する。
   - テストは`tests/`に、モジュールごとのフォルダ(`tests/engine/`など)で置き、`CMakeLists.txt`の`HuskyTests`に足す。
 - テストはdtを注入したヘッドレス実行で行い、結果が毎回同じになるようにする。
-- ASan、UBSan、TSanを有効にしたビルドを用意し、定期的に回す。
-  - ASan(MSVC、Debug構成。`build/vs2022-asan/`に普段のビルドとは別に作る):
+- サニタイザ(実行中にメモリの誤用などを見つける仕組み)は、環境ごとに使えるものを回す(2026-11-12に決定)。
+  - Windows(MSVC): ASanだけを回す。変更のたびの検証に含めてよい。
+  - ASanのコマンド(MSVC、Debug構成。`build/vs2022-asan/`に普段のビルドとは別に作る):
     - 生成: `cmake --preset vs2022-asan`
     - ビルド: `cmake --build --preset asan`
     - テスト: `ctest --preset asan`(個別の結果は`build/vs2022-asan/Debug/HuskyTests.exe`)
   - ASanの実行時ライブラリ(DLL)は、ビルドのたびにexeの隣へコピーされる。
   - 自作アロケータ(`FreeListAllocator`)で返したメモリへのアクセスも、ポイズニングで検出できる(`use-after-poison`と報告される)。ポイズニングのテストはASanのビルドでだけ確認し、それ以外では何もしない。
-  - UBSanとTSanは、MSVCでは使えない(UBSanはClang、TSanはWindows以外が必要)。扱いは未決。
+  - UBSanとTSanは、MSVCでは使えない(UBSanはClang、TSanはWindows以外が必要)。Mac対応を始めたら、Mac(Clang)で回す。追加のツール(clang-clなど)は入れない。
+  - ただし、ジョブシステムで複数のスレッドを使い始めたときにMac対応がまだなら、TSanの扱いを改めてユーザーに相談する。
 - スマホから依頼されたときは、目視確認を前提にせず、テストと自動検証で完了を判断する。
 
 ## 未決事項
