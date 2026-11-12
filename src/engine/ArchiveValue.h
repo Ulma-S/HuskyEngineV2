@@ -92,6 +92,8 @@ namespace husky::engine
         const ArchiveValue* Find(std::string_view name) const;
         // 名前で値を入れ、入れた値への参照を返す。同じ名前があれば置き換える。オブジェクトでなければ、オブジェクトに変えてから入れる。
         ArchiveValue& Set(std::string_view name, ArchiveValue value);
+        // 名前でメンバーを取り除く。あれば true。ほかのメンバーの順番は変えない。オブジェクトでなければ何もしない(false)。
+        bool Remove(std::string_view name);
 
     private:
         Type m_type = Type::Null;

@@ -3,6 +3,7 @@
 
 #include "engine/ObjectSerializer.h"
 
+#include <algorithm> // std::find
 #include <cstdint>
 #include <unordered_map> // std::unordered_map(C# の Dictionary にあたる、ハッシュ表)
 #include <unordered_set> // std::unordered_set(C# の HashSet にあたる)
@@ -19,13 +20,18 @@ namespace husky::engine::SceneSerializer
         }
 
         // 保存するオブジェクトを、番号の順に集める: アクター、その後ろにそのアクターのコンポーネント、の繰り返し。
-        void CollectObjects(Scene& scene, core::ObjectRegistry& registry, std::vector<const core::Object*>& outObjects,
-                            std::vector<std::int64_t>& outActorIds)
+        void CollectObjects(Scene& scene, core::ObjectRegistry& registry, const std::vector<Actor*>& actors,
+                            std::vector<const core::Object*>& outObjects, std::vector<std::int64_t>& outActorIds)
         {
-            scene.ForEachActor([&](Actor& actor) { // Destroy 済みのアクターは渡されない
+            for (Actor* actor : actors)
+            {
+                if (actor == nullptr || actor->IsPendingDestroy() || actor->GetScene() != &scene)
+                {
+                    continue;
+                }
                 outActorIds.push_back(static_cast<std::int64_t>(outObjects.size()));
-                outObjects.push_back(&actor);
-                for (const core::ObjectHandle handle : actor.components)
+                outObjects.push_back(actor);
+                for (const core::ObjectHandle handle : actor->components)
                 {
                     const Component* component = registry.Resolve<Component>(handle);
                     if (component != nullptr && !component->IsPendingDestroy())
@@ -33,11 +39,18 @@ namespace husky::engine::SceneSerializer
                         outObjects.push_back(component);
                     }
                 }
-            });
+            }
         }
     }
 
     WriteResult Write(Scene& scene)
+    {
+        std::vector<Actor*> actors;
+        scene.ForEachActor([&actors](Actor& actor) { actors.push_back(&actor); }); // Destroy 済みのアクターは渡されない
+        return WriteActors(scene, actors);
+    }
+
+    WriteResult WriteActors(Scene& scene, const std::vector<Actor*>& actors, const WriteOptions& options)
     {
         WriteResult result;
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
@@ -50,7 +63,7 @@ namespace husky::engine::SceneSerializer
         // 1. 保存するオブジェクトを集めて、番号(並んだ順の位置)を振る。
         std::vector<const core::Object*> objects;
         std::vector<std::int64_t> actorIds;
-        CollectObjects(scene, *registry, objects, actorIds);
+        CollectObjects(scene, *registry, actors, objects, actorIds);
 
         std::unordered_map<std::uint64_t, std::int64_t> idOf; // ハンドル → 番号
         for (std::size_t i = 0; i < objects.size(); ++i)
@@ -80,7 +93,13 @@ namespace husky::engine::SceneSerializer
             ArchiveValue& entry = objectArray.Append(ArchiveValue::MakeObject());
             entry.Set("id", ArchiveValue(static_cast<std::int64_t>(i)));
             entry.Set("type", *written.Find("type"));
-            entry.Set("properties", *written.Find("properties"));
+            ArchiveValue& properties = entry.Set("properties", *written.Find("properties"));
+            // アクターかどうかは、actorIds(アクターの番号の一覧)で分かる(RTTI を使わないので dynamic_cast はしない)
+            if (!options.writeActorGuids &&
+                std::find(actorIds.begin(), actorIds.end(), static_cast<std::int64_t>(i)) != actorIds.end())
+            {
+                properties.Remove("guid");
+            }
         }
 
         ArchiveValue& actorArray = result.value.Set("actors", ArchiveValue::MakeArray());
@@ -191,6 +210,7 @@ namespace husky::engine::SceneSerializer
                                           " がほかのアクターと重なっていたので、新しい guid を振りました");
             }
             ++report.addedActorCount;
+            report.addedActors.push_back(actor->GetHandle());
         }
         return report;
     }

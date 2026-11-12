@@ -58,6 +58,22 @@ TEST_CASE("ArchiveValue: オブジェクトは足した順を保ち、同じ名�
     CHECK(object.At(0).IsNull()); // オブジェクトを配列として読むと Null
 }
 
+TEST_CASE("ArchiveValue: Remove は名前のメンバーを取り除き、ほかの順番を保つ")
+{
+    ArchiveValue object = ArchiveValue::MakeObject();
+    object.Set("a", ArchiveValue(std::int64_t{1}));
+    object.Set("b", ArchiveValue(std::int64_t{2}));
+    object.Set("c", ArchiveValue(std::int64_t{3}));
+
+    CHECK(object.Remove("b"));
+    CHECK_FALSE(object.Remove("b")); // もう無い
+    REQUIRE(object.GetMemberCount() == 2);
+    CHECK(object.GetMemberName(0) == "a");
+    CHECK(object.GetMemberName(1) == "c");
+    CHECK(object.Find("c")->AsInt() == 3);
+    CHECK_FALSE(ArchiveValue(std::int64_t{5}).Remove("a")); // オブジェクトでなければ何もしない
+}
+
 TEST_CASE("JsonFormat: 書いて読み戻すと、同じ木になる")
 {
     const ArchiveValue original = MakeSample();

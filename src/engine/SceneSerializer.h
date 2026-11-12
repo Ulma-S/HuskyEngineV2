@@ -53,10 +53,23 @@ namespace husky::engine::SceneSerializer
     // それ以外のオブジェクト(シーンの外のもの)を指すハンドルは、null として書き、warnings に残す。
     WriteResult Write(Scene& scene);
 
+    // 保存の細かい決め事。
+    struct WriteOptions
+    {
+        // アクターの変わらない ID(Actor::guid)を書くか。プレハブ(Prefab.h)は書かない
+        // (置くたびに新しいアクターになるので、置いたときに新しい guid を振ってほしいため)。
+        bool writeActorGuids = true;
+    };
+
+    // scene の中の、指定したアクター(と、その生きているコンポーネント)だけを、シーンと同じ形で保存する。
+    // Destroy 済みのアクターと、scene に入っていないアクターは飛ばす。ここに含まれない相手を指すハンドルは null と書き、warnings に残す。
+    WriteResult WriteActors(Scene& scene, const std::vector<Actor*>& actors, const WriteOptions& options = {});
+
     struct ReadReport
     {
         std::size_t createdCount = 0;       // 作ったオブジェクトの数
         std::size_t addedActorCount = 0;    // シーンに入れたアクターの数
+        std::vector<core::ObjectHandle> addedActors; // シーンに入れたアクター(入れた順)
         std::vector<std::string> warnings;  // 知らない型、読めなかったプロパティなど(途中で止めない)
     };
 

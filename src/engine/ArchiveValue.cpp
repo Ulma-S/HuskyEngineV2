@@ -140,4 +140,23 @@ namespace husky::engine
         m_children.push_back(std::move(value));
         return m_children.back();
     }
+
+    bool ArchiveValue::Remove(std::string_view name)
+    {
+        if (m_type != Type::Object)
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < m_names.size(); ++i)
+        {
+            if (m_names[i] == name)
+            {
+                // erase: 位置を指して1つ取り除き、後ろを前へ詰める(足した順は保たれる)
+                m_names.erase(m_names.begin() + static_cast<std::ptrdiff_t>(i));
+                m_children.erase(m_children.begin() + static_cast<std::ptrdiff_t>(i));
+                return true;
+            }
+        }
+        return false;
+    }
 }
