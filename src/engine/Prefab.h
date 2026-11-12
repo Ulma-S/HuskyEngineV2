@@ -26,6 +26,7 @@
 
 #include "core/TypeRegistry.h"
 #include "engine/ArchiveValue.h"
+#include "engine/PrefabAsset.h"
 #include "engine/Scene.h"
 
 #include <string>
@@ -53,4 +54,8 @@ namespace husky::engine::Prefab
     // プレハブの値から、アクターとコンポーネントを新しく作り、scene の一覧の末尾に置く。guid は新しく振られる。
     // "actors" がちょうど1つでなければ、何も作らずに失敗する(actor が nullptr、理由は warnings)。
     InstantiateResult Instantiate(const ArchiveValue& prefab, Scene& scene, const core::TypeRegistry& types);
+
+    // プレハブのアセットから置き、置いたアクターに元のプレハブ(Actor::prefab)を覚えさせる。
+    // アセットが読み終わっていなければ(読み込み中・失敗)、何も作らずに失敗する。
+    InstantiateResult Instantiate(const PrefabAsset& prefab, Scene& scene, const core::TypeRegistry& types);
 }

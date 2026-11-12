@@ -181,7 +181,7 @@ TEST_CASE("EditorCli: --list は引数の形も出す")
     std::string out;
     const std::string jsonPath = folder.PathOf("list.json");
     CHECK(RunEditorCli({"--list", "--json-out", jsonPath}, folder.Root(), out) == CliExitCode::Success);
-    CHECK(out.find("type (string, required)") != std::string::npos);
+    CHECK(out.find("actor (string, required)") != std::string::npos); // prefab.create の actor
 
     std::string text;
     REQUIRE(husky::platform::ReadTextFile(jsonPath.c_str(), text));
@@ -197,16 +197,17 @@ TEST_CASE("EditorCli: --list は引数の形も出す")
         {
             found = true;
             CHECK(command.Find("modifiesScene")->AsBool());
-            REQUIRE(command.Find("args")->GetArraySize() == 3);
-            CHECK(command.Find("args")->At(0).Find("name")->AsString() == "type");
-            CHECK(command.Find("args")->At(0).Find("required")->AsBool());
+            REQUIRE(command.Find("args")->GetArraySize() == 4); // prefab, type, x, y
+            CHECK(command.Find("args")->At(0).Find("name")->AsString() == "prefab");
+            CHECK(command.Find("args")->At(1).Find("name")->AsString() == "type");
+            CHECK_FALSE(command.Find("args")->At(1).Find("required")->AsBool()); // prefab か type のどちらか一方
             // 選べる値(型の登録簿にある Actor の子孫)と、既定値
-            const husky::engine::ArchiveValue* choices = command.Find("args")->At(0).Find("choices");
+            const husky::engine::ArchiveValue* choices = command.Find("args")->At(1).Find("choices");
             REQUIRE(choices != nullptr);
             CHECK(choices->GetArraySize() >= 1);
             CHECK(choices->At(0).Find("value")->AsString() == "Actor");
-            REQUIRE(command.Find("args")->At(1).Find("default") != nullptr);
-            CHECK(command.Find("args")->At(1).Find("default")->AsFloat() == 0.0);
+            REQUIRE(command.Find("args")->At(2).Find("default") != nullptr);
+            CHECK(command.Find("args")->At(2).Find("default")->AsFloat() == 0.0);
         }
     }
     CHECK(found);

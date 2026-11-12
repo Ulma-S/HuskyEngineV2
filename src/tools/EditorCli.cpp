@@ -99,6 +99,7 @@ namespace husky::tools
         {
             commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
             commands.Register(MakeSpawnActorCommand());
+            commands.Register(MakeCreatePrefabCommand(assetsDirectory));
             commands.Register(MakeListActorsCommand());
             commands.Register(MakeSetPropertyCommand());
         }
@@ -271,6 +272,10 @@ namespace husky::tools
             out += "FAILED: could not load the scene: " + options.scenePath + "\n";
             return CliExitCode::CommandFailed;
         }
+
+        // アセットの表(GUID → パス)を作ってから実行する(actor.spawn の prefab のように、GUID やパスでアセットを指すため)。
+        // ファイルは直さない(直すのは asset.refresh の役目)。
+        app.GetAssetDatabase().Scan(assetsDirectory);
 
         EditorCommandResult result = commands.Execute(options.commandName, app, commandArgs);
 

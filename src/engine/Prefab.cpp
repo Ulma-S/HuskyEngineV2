@@ -18,7 +18,7 @@ namespace husky::engine::Prefab
         }
 
         SceneSerializer::WriteOptions options;
-        options.writeActorGuids = false; // 置くたびに新しい guid を振るため
+        options.writeActorIdentity = false; // 置くたびに新しい guid を振り、元のプレハブは置いたときに書くため
         SceneSerializer::WriteResult saved = SceneSerializer::WriteActors(*scene, {&actor}, options);
         result.value = std::move(saved.value);
         result.warnings = std::move(saved.warnings);
@@ -45,6 +45,23 @@ namespace husky::engine::Prefab
         if (registry != nullptr && report.addedActors.size() == 1)
         {
             result.actor = registry->Resolve<Actor>(report.addedActors[0]);
+        }
+        return result;
+    }
+
+    InstantiateResult Instantiate(const PrefabAsset& prefab, Scene& scene, const core::TypeRegistry& types)
+    {
+        if (!prefab.IsLoaded())
+        {
+            InstantiateResult result;
+            result.warnings.push_back("プレハブ " + prefab.GetGuid().ToString() + " は読み込み中か、読めませんでした");
+            return result;
+        }
+        InstantiateResult result = Instantiate(prefab.GetData(), scene, types);
+        if (result.actor != nullptr)
+        {
+            result.actor->prefab.guid = prefab.GetGuid();
+            result.actor->prefab.asset = prefab.GetHandle(); // 強い参照: 置いたアクターがいる間、アセットも残る
         }
         return result;
     }

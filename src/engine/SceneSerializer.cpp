@@ -95,10 +95,11 @@ namespace husky::engine::SceneSerializer
             entry.Set("type", *written.Find("type"));
             ArchiveValue& properties = entry.Set("properties", *written.Find("properties"));
             // アクターかどうかは、actorIds(アクターの番号の一覧)で分かる(RTTI を使わないので dynamic_cast はしない)
-            if (!options.writeActorGuids &&
+            if (!options.writeActorIdentity &&
                 std::find(actorIds.begin(), actorIds.end(), static_cast<std::int64_t>(i)) != actorIds.end())
             {
                 properties.Remove("guid");
+                properties.Remove("prefab");
             }
         }
 

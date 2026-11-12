@@ -56,9 +56,9 @@ namespace husky::engine::SceneSerializer
     // 保存の細かい決め事。
     struct WriteOptions
     {
-        // アクターの変わらない ID(Actor::guid)を書くか。プレハブ(Prefab.h)は書かない
-        // (置くたびに新しいアクターになるので、置いたときに新しい guid を振ってほしいため)。
-        bool writeActorGuids = true;
+        // 「シーンの中のこの1体」を表す値(Actor::guid と、元のプレハブ Actor::prefab)を書くか。プレハブ(Prefab.h)は書かない
+        // (置くたびに新しいアクターになるので新しい guid を振り、元のプレハブは置いたときに書くため)。
+        bool writeActorIdentity = true;
     };
 
     // scene の中の、指定したアクター(と、その生きているコンポーネント)だけを、シーンと同じ形で保存する。

@@ -81,6 +81,10 @@ int main()
     tools::EditorCommand spawnActor = tools::MakeSpawnActorCommand();
     spawnActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(spawnActor));
+    // 選んだアクターからプレハブを作る(prefab.create)。ソースの assets に書く。再生中の値を写さないよう、編集中だけ。
+    tools::EditorCommand createPrefab = tools::MakeCreatePrefabCommand(assetsDirectory);
+    createPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(createPrefab));
     // アクターの一覧(actor.list。読むだけ)と、プロパティの書き換え(property.set。編集中だけ)。
     commands.Register(tools::MakeListActorsCommand());
     tools::EditorCommand setProperty = tools::MakeSetPropertyCommand();

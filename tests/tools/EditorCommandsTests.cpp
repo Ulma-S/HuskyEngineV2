@@ -372,6 +372,78 @@ TEST_CASE("DebugWindow: 入力欄は引数の形の既定値から始まり、Ru
     CHECK(&window.GetArgInputs(command) == &inputs); // 2回目からは同じ値(閉じても残る)
 }
 
+TEST_CASE("EditorCommands: prefab.create でアクターからプレハブを作り、actor.spawn の prefab で見た目つきで置ける")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_commands");
+    folder.Write("readme.txt", "assets"); // 空のフォルダは Scan できないことがあるので、1つ置いておく
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    CHECK(commands.Find("prefab.create")->readsScene);
+
+    husky::engine::Actor* coin = app.GetScene().Spawn<husky::engine::Actor>();
+    coin->name = "Coin";
+    coin->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+
+    // --- prefab.create: ファイルと .meta ができ、アセットの表にも入る ---
+    ArchiveValue args;
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})", args));
+    const EditorCommandResult created = commands.Execute("prefab.create", app, args);
+    REQUIRE(created.succeeded);
+    CHECK(husky::platform::FileExists(folder.PathOf("prefabs/coin.prefab").c_str()));
+    CHECK(husky::platform::FileExists(folder.PathOf("prefabs/coin.prefab.meta").c_str()));
+    const std::string guidText = created.data.Find("guid")->AsString();
+    const husky::core::Guid* tableGuid = app.GetAssetDatabase().FindGuid("prefabs/coin.prefab");
+    REQUIRE(tableGuid != nullptr);
+    CHECK(tableGuid->ToString() == guidText);
+    CHECK_FALSE(commands.Execute("prefab.create", app, args).succeeded); // すでにある(上書きしない)
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Coin", "path": "../coin.prefab"})", args));
+    CHECK_FALSE(commands.Execute("prefab.create", app, args).succeeded); // assets の外
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Coin", "path": "coin.json"})", args));
+    CHECK_FALSE(commands.Execute("prefab.create", app, args).succeeded); // .prefab ではない
+
+    // --- actor.spawn の prefab: パスでも GUID でも指せ、コンポーネントと値が付き、元のプレハブを覚える ---
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"prefab": "prefabs/coin.prefab", "x": 5})", args));
+    const EditorCommandResult spawned = commands.Execute("actor.spawn", app, args);
+    REQUIRE(spawned.succeeded);
+    CHECK(spawned.message == "Spawned prefabs/coin.prefab at (5, 0)");
+    REQUIRE(app.GetScene().actors.size() == 2);
+    husky::engine::Actor* placed = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetScene().actors[1]);
+    REQUIRE(placed != nullptr);
+    CHECK(placed->name == "Coin");
+    CHECK(placed->transform.position.x == 5.0f);
+    CHECK(placed->guid.ToString() == spawned.data.Find("guid")->AsString());
+    REQUIRE(placed->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+    CHECK(placed->GetComponent<husky::engine::SpriteComponent>()->width == 24.0f);
+    CHECK(placed->prefab.guid.ToString() == guidText);
+    CHECK(coin->prefab.IsNull()); // 元のアクターは、プレハブにつながらない
+
+    // 置いたアクターからプレハブを作っても、ファイルには guid と元のプレハブを書かない(シーンの中の1体を表す値なので)
+    ArchiveValue fromPlaced = ArchiveValue::MakeObject();
+    fromPlaced.Set("actor", ArchiveValue(placed->guid.ToString()));
+    fromPlaced.Set("path", ArchiveValue("prefabs/coin2.prefab"));
+    REQUIRE(commands.Execute("prefab.create", app, fromPlaced).succeeded);
+    std::string text;
+    REQUIRE(husky::platform::ReadTextFile(folder.PathOf("prefabs/coin2.prefab").c_str(), text));
+    CHECK(text.find("\"prefab\"") == std::string::npos);
+    CHECK(text.find("\"guid\"") == std::string::npos);
+
+    ArchiveValue byGuid = ArchiveValue::MakeObject();
+    byGuid.Set("prefab", ArchiveValue(guidText));
+    CHECK(commands.Execute("actor.spawn", app, byGuid).succeeded);
+    CHECK(app.GetScene().actors.size() == 3);
+
+    // prefab と type は、どちらか一方だけ
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"prefab": "prefabs/coin.prefab", "type": "Actor"})", args));
+    CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded);
+    CHECK_FALSE(commands.Execute("actor.spawn", app, ArchiveValue::MakeObject()).succeeded);
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"prefab": "prefabs/none.prefab"})", args));
+    CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded);
+    CHECK(app.GetScene().actors.size() == 3);
+}
+
 TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を開いても、ImGui の使い方の誤りが無い。開くだけでは実行しない")
 {
     husky::tests::HeadlessImGui imgui;
@@ -388,7 +460,7 @@ TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を
 
     // 選択肢: 型の登録簿にある Actor の子孫(アクターでない型は入らない)
     std::vector<std::string> values;
-    for (const husky::tools::EditorArgChoice& choice : commands.Find("actor.spawn")->args[0].choices(app, ArchiveValue()))
+    for (const husky::tools::EditorArgChoice& choice : commands.Find("actor.spawn")->args[1].choices(app, ArchiveValue()))
     {
         values.push_back(choice.value);
     }

@@ -253,10 +253,18 @@ namespace husky::tools
     // (人に直してもらう必要があるため。ファイルの名前はログに出ている)。
     EditorCommand MakeRefreshAssetsCommand(std::string assetsDirectory);
 
-    // 「アクターを置く」コマンド(actor.spawn)を作る。引数: type(型の名前。Actor の子孫で、型の登録簿にあるもの)、
-    // x、y(位置。省略すると 0)。置くのはアクターだけで、見た目などのコンポーネントは付かない
-    // (決まった組み合わせで置くのは、将来のプレハブの役目)。シーンを書き換えるコマンド(modifiesScene)。
+    // 「アクターを置く」コマンド(actor.spawn)を作る。引数は prefab か type のどちらか一方と、x、y(位置。省略すると 0):
+    //   - prefab(GUID か assets の中のパス): プレハブのとおりにアクター、コンポーネント、値を作り、元のプレハブを覚えさせる
+    //     (Actor::prefab)。読み込み中なら、読み終わるまで待つ。
+    //   - type(型の名前。Actor の子孫で、型の登録簿にあるもの): アクターだけを作る(コンポーネントは付かない)。
+    // 結果の data に、置いたアクターの guid を入れる。シーンを書き換えるコマンド(modifiesScene)。
     EditorCommand MakeSpawnActorCommand();
+
+    // 「プレハブを作る」コマンド(prefab.create)を作る。引数: actor(名前か guid)、path(assets の中の、.prefab で終わるパス)。
+    // アクターと、そのコンポーネントと値を Prefab::Write で値の木にし、assetsDirectory の下に JSON で書き、新しい GUID の .meta も書く。
+    // その後アセットの表を作り直すので、すぐに actor.spawn の prefab で指せる。すでにあるファイルは上書きしない。
+    // 元のアクターはそのまま(プレハブにつながりもしない)。シーンは読むだけ(readsScene)。ファイルを書くので Undo はできない。
+    EditorCommand MakeCreatePrefabCommand(std::string assetsDirectory);
 
     // 引数で書かれたアクター(名前か guid の文字列)を、シーンから探す。
     //   - guid の形の文字列なら guid で探す(名前より先に見る)

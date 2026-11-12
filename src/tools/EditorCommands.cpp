@@ -5,11 +5,15 @@
 
 #include "core/TypeRegistry.h"      // actor.spawn: 型の名前から作る
 #include "engine/Actor.h"
+#include "engine/AssetLoader.h"     // actor.spawn: プレハブを読む
+#include "engine/Prefab.h"          // actor.spawn、prefab.create
+#include "platform/FileSystem.h"    // prefab.create: ファイルを書く
 #include "engine/JsonFormat.h"       // property.set: 値を人に見せる
 #include "engine/ObjectSerializer.h" // property.set: 値の確かめと書き込み
 #include "engine/AssetDatabase.h"   // CreateMissingMetaFiles、Scan
 #include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
 
+#include <algorithm> // std::sort
 #include <cstdio>  // std::printf
 #include <utility> // std::move
 
@@ -435,16 +439,79 @@ namespace husky::tools
         return command;
     }
 
+    namespace
+    {
+        // プレハブを選ばせる選択肢: アセットの表にある .prefab すべて(値は GUID、表示はパス。パスの順)。
+        std::vector<EditorArgChoice> PrefabChoices(engine::Application& app, const engine::ArchiveValue&)
+        {
+            std::vector<EditorArgChoice> choices;
+            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
+                if (engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), path))
+                {
+                    choices.push_back({guid.ToString(), path});
+                }
+            });
+            std::sort(choices.begin(), choices.end(),
+                      [](const EditorArgChoice& a, const EditorArgChoice& b) { return a.label < b.label; });
+            return choices;
+        }
+
+        // 引数で書かれたプレハブ(GUID の文字列か、assets の中のパス)を、読み終わったアセットにする。
+        // 読み込み中なら、読み終わるまで待つ(エディタの操作なので、少し止まってもよい。置く操作をその場で終わらせるため)。
+        // 見つからない・読めないときは nullptr を返し、error に理由を書く。
+        const engine::PrefabAsset* LoadPrefabFromArg(engine::Application& app, const std::string& text, std::string& error)
+        {
+            core::Guid guid;
+            if (!core::Guid::Parse(text, guid))
+            {
+                const core::Guid* found = app.GetAssetDatabase().FindGuid(text);
+                if (found == nullptr)
+                {
+                    error = "No prefab: " + text +
+                            " (give its GUID or its path in the assets folder, like \"prefabs/a.prefab\")";
+                    return nullptr;
+                }
+                guid = *found;
+            }
+            const std::string* path = app.GetAssetDatabase().FindPath(guid);
+            if (path == nullptr || !engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), *path))
+            {
+                error = "Not a prefab: " + text +
+                        (path != nullptr ? " (" + *path + ")" : std::string(" (not in the asset table)"));
+                return nullptr;
+            }
+
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            const engine::PrefabAsset* prefab = loader.ResolvePrefab(loader.LoadPrefab(guid));
+            if (prefab != nullptr && prefab->GetState() == engine::AssetState::Loading)
+            {
+                loader.WaitForAllLoads();
+            }
+            if (prefab == nullptr || !prefab->IsLoaded())
+            {
+                error = "Could not load the prefab: " + *path + " (see log)";
+                return nullptr;
+            }
+            return prefab;
+        }
+    }
+
     EditorCommand MakeSpawnActorCommand()
     {
         EditorCommand command;
         command.name = "actor.spawn";
         command.label = "Spawn actor";
-        command.description = "Place a new actor of the given type in the scene. Only the actor is created "
-                              "(no components such as a sprite).";
+        command.description = "Place a new actor in the scene: either from a prefab (with its components and values), "
+                              "or a bare actor of the given type (no components). Give one of prefab or type.";
         command.modifiesScene = true;
+        EditorCommandArg prefabArg{"prefab", EditorArgType::String,
+                                   "Prefab to place: its GUID, or its path in the assets folder like \"prefabs/a.prefab\"",
+                                   false};
+        prefabArg.choices = PrefabChoices;
         EditorCommandArg typeArg{"type", EditorArgType::String,
-                                 "Type name of the actor, like \"BouncerActor\" (must derive from Actor)", true};
+                                 "Type name of a bare actor, like \"BouncerActor\" (must derive from Actor). "
+                                 "Use this when there is no prefab",
+                                 false};
         // 選べるのは、型の登録簿にある Actor の子孫(エンジンの型と、ゲームが登録した型)。
         typeArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
             std::vector<EditorArgChoice> names;
@@ -460,41 +527,80 @@ namespace husky::tools
             return names;
         };
         command.args = {
+            prefabArg,
             typeArg,
-            {"x", EditorArgType::Float, "X position in pixels", false, engine::ArchiveValue(0.0)},
-            {"y", EditorArgType::Float, "Y position in pixels", false, engine::ArchiveValue(0.0)},
+            {"x", EditorArgType::Float, "X position in world units", false, engine::ArchiveValue(0.0)},
+            {"y", EditorArgType::Float, "Y position in world units", false, engine::ArchiveValue(0.0)},
         };
         command.execute = [](EditorCommandContext& context) {
             // 引数は Execute が形で確かめ済みなので、ここでは種類の心配をせずに読める。
-            const std::string& typeName = context.args.Find("type")->AsString();
+            const engine::ArchiveValue* prefabValue = context.args.Find("prefab");
+            const engine::ArchiveValue* typeValue = context.args.Find("type");
             const engine::ArchiveValue* xValue = context.args.Find("x");
             const engine::ArchiveValue* yValue = context.args.Find("y");
             const float x = xValue != nullptr ? static_cast<float>(xValue->AsFloat()) : 0.0f;
             const float y = yValue != nullptr ? static_cast<float>(yValue->AsFloat()) : 0.0f;
+            if ((prefabValue == nullptr) == (typeValue == nullptr)) // 両方ある、または両方無い
+            {
+                return EditorCommandResult::Failure("Give exactly one of prefab or type");
+            }
 
-            // 型の名前から型を探し、アクターの子孫かを確かめてから作る(シーンのファイルを読むときと同じ道具を使う)。
-            const core::TypeRegistry& types = context.app.GetTypeRegistry();
-            const core::TypeInfo* type = types.Find(typeName);
-            if (type == nullptr)
-            {
-                return EditorCommandResult::Failure("Unknown type: " + typeName);
-            }
-            if (!type->IsA(engine::Actor::StaticType()))
-            {
-                return EditorCommandResult::Failure(typeName + " is not an actor");
-            }
             engine::Scene& scene = context.app.GetScene();
-            engine::Actor* actor = core::Cast<engine::Actor>(types.Create(typeName, context.app.GetRegistry()));
-            if (actor == nullptr || !scene.AddLoadedActor(*actor))
+            const core::TypeRegistry& types = context.app.GetTypeRegistry();
+            engine::Actor* actor = nullptr;
+            std::vector<std::string> warnings;
+            std::string what; // 結果の1行に書く、置いたものの名前
+            if (prefabValue != nullptr)
             {
-                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+                // プレハブから置く: アクター、コンポーネント、値がプレハブのとおりに作られ、元のプレハブを覚える。
+                std::string error;
+                const engine::PrefabAsset* prefab = LoadPrefabFromArg(context.app, prefabValue->AsString(), error);
+                if (prefab == nullptr)
+                {
+                    return EditorCommandResult::Failure(error);
+                }
+                engine::Prefab::InstantiateResult placed = engine::Prefab::Instantiate(*prefab, scene, types);
+                warnings = std::move(placed.warnings);
+                actor = placed.actor;
+                what = *context.app.GetAssetDatabase().FindPath(prefab->GetGuid());
+                if (actor == nullptr)
+                {
+                    EditorCommandResult failed = EditorCommandResult::Failure("Could not place the prefab " + what);
+                    failed.details = std::move(warnings);
+                    return failed;
+                }
+            }
+            else
+            {
+                // 型だけで置く: 型の名前から型を探し、アクターの子孫かを確かめてから作る(シーンのファイルを読むときと同じ道具を使う)。
+                const std::string& typeName = typeValue->AsString();
+                const core::TypeInfo* type = types.Find(typeName);
+                if (type == nullptr)
+                {
+                    return EditorCommandResult::Failure("Unknown type: " + typeName);
+                }
+                if (!type->IsA(engine::Actor::StaticType()))
+                {
+                    return EditorCommandResult::Failure(typeName + " is not an actor");
+                }
+                actor = core::Cast<engine::Actor>(types.Create(typeName, context.app.GetRegistry()));
+                if (actor == nullptr || !scene.AddLoadedActor(*actor))
+                {
+                    return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+                }
+                what = typeName;
             }
             actor->transform.position.x = x;
             actor->transform.position.y = y;
             // 位置は %g で短く書く(std::to_string は 100.000000 のように桁を並べて読みにくい)。
             char position[64];
             std::snprintf(position, sizeof(position), " at (%g, %g)", static_cast<double>(x), static_cast<double>(y));
-            return EditorCommandResult::Success("Spawned " + typeName + position);
+            EditorCommandResult result = EditorCommandResult::Success("Spawned " + what + position);
+            result.details = std::move(warnings);
+            // 機械向け: 置いたアクターの guid(続けて property.set などで指すため)。
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("guid", engine::ArchiveValue(actor->guid.ToString()));
+            return result;
         };
         return command;
     }
@@ -893,6 +999,88 @@ namespace husky::tools
             };
             result.undo = makeCall(*old);
             result.redo = makeCall(value);
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeCreatePrefabCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "prefab.create";
+        command.label = "Create prefab";
+        command.description = "Save an actor in the scene (with its components and values) as a new prefab file "
+                              "in the assets folder, and give it a GUID (.meta). Does not overwrite existing files.";
+        command.readsScene = true; // シーンは読むだけ(アクターはそのまま。プレハブにつながりもしない)
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Actor to save: its name or guid", true};
+        actorArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
+            std::vector<EditorArgChoice> choices;
+            app.GetScene().ForEachActor([&choices](engine::Actor& actor) {
+                choices.push_back({actor.guid.ToString(), DescribeActor(actor)});
+            });
+            return choices;
+        };
+        command.args = {
+            actorArg,
+            {"path", EditorArgType::String,
+             "Where to write, relative to the assets folder. Must end with .prefab, like \"prefabs/bouncer.prefab\"", true},
+        };
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+
+            // 書く先を確かめる: 拡張子、assets の外へ出ないこと、まだ無いこと(上書きは、読み込んだアセットとの食い違いを生むので、まだしない)。
+            const std::string& path = context.args.Find("path")->AsString();
+            if (!engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), path))
+            {
+                return EditorCommandResult::Failure("The path must end with .prefab: " + path);
+            }
+            if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos || path.find(':') != std::string::npos)
+            {
+                return EditorCommandResult::Failure("The path must be inside the assets folder: " + path);
+            }
+            const std::string fullPath = directory + "/" + path;
+            const std::string metaPath = fullPath + std::string(engine::AssetDatabase::MetaSuffix);
+            if (platform::FileExists(fullPath.c_str()) || platform::FileExists(metaPath.c_str()))
+            {
+                return EditorCommandResult::Failure("Already exists: " + path + " (choose another path)");
+            }
+
+            // アクターから値の木を作り(Prefab::Write)、JSON にしてファイルに書く。.meta には新しい GUID を書く。
+            engine::Prefab::WriteResult saved = engine::Prefab::Write(*actor);
+            if (!saved.ok)
+            {
+                EditorCommandResult failed = EditorCommandResult::Failure("Could not make a prefab from " + DescribeActor(*actor));
+                failed.details = std::move(saved.warnings);
+                return failed;
+            }
+            std::string text;
+            const core::Guid guid = core::Guid::Generate();
+            const std::size_t slash = fullPath.rfind('/');
+            platform::MakeDirectory(fullPath.substr(0, slash).c_str()); // "prefabs" などのフォルダが無ければ作る
+            if (!engine::JsonFormat::Write(saved.value, text, true) || !platform::WriteTextFile(fullPath.c_str(), text) ||
+                !platform::WriteTextFile(metaPath.c_str(), engine::AssetDatabase::MakeMetaText(guid)))
+            {
+                return EditorCommandResult::Failure("Could not write " + fullPath);
+            }
+
+            // アセットの表を作り直し、すぐに GUID で指せるようにする(actor.spawn の prefab に渡せる)。
+            context.app.GetAssetDatabase().Scan(directory);
+
+            EditorCommandResult result =
+                EditorCommandResult::Success("Created prefab " + path + " from " + DescribeActor(*actor));
+            result.details.push_back("guid: " + guid.ToString());
+            for (std::string& warning : saved.warnings) // アクターの外を指すハンドルを null にした、など
+            {
+                result.details.push_back(std::move(warning));
+            }
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
+            result.data.Set("path", engine::ArchiveValue(path));
             return result;
         };
         return command;

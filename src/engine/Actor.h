@@ -2,9 +2,11 @@
 // 名前と Transform(位置・回転・拡大縮小)だけを持つ薄い入れ物。機能(見た目、体力、AI など)は、コンポーネント(Component.h)で足す。
 #pragma once
 
+#include "core/AssetRef.h"
 #include "core/Guid.h"
 #include "core/ObjectRegistry.h"
 #include "engine/Component.h"
+#include "engine/PrefabAsset.h"
 #include "engine/Transform.h"
 
 #include <cstddef>
@@ -83,6 +85,11 @@ namespace husky::engine
         // 今のカメラ(zoom 1)では 1 単位 = 1 ピクセル。保存すると {"position": {"x", "y", "z"}, "rotation", "scale": {...}}。
         Transform transform;
 
+        // このアクターを作った元のプレハブ(PF-3)。プレハブから置いたとき(Prefab::Instantiate)に書かれ、そうでなければ何も指さない。
+        // 保存される(GUID)。強い参照なので、置いたアクターがいる間は、プレハブのアセットも回収されない。
+        // 今は「どこから来たか」を覚えるだけ。PF-4 で、プレハブとの違いだけを保存し、プレハブを直すと伝わるようにする。
+        core::AssetRef<PrefabAsset> prefab;
+
         // 取り付けたコンポーネントのハンドルの一覧。プロパティとして登録しているので、GC がたどる(強い参照)。
         // アクターが生きている間は、そのコンポーネントも生きている。
         std::vector<core::ObjectHandle> components;
@@ -91,6 +98,7 @@ namespace husky::engine
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(guid)
             HUSKY_PROPERTY(transform)
+            HUSKY_PROPERTY(prefab)
             HUSKY_PROPERTY(components)
         HUSKY_REFLECTION_END()
 
