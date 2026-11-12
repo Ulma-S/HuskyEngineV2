@@ -31,7 +31,7 @@
 - 言語: C++17(MSVC、Visual Studio 2022)。例外とRTTIは使わない(ビルド設定でも無効にする)。
 - ウィンドウと入力: SDL3。グラフィックス: SDL_GPU。
 - ビルド: CMake。依存はvcpkgかFetchContent。パスはWindows固有にしない。
-- 数学: glm(1.0.1、FetchContent。2026-11-12にユーザーが了承し、CAM-1で入れた)。自前では作らない。使うターゲットは`glm`ではなく`husky_glm`(設定をそろえる入れ物。奥行きを0〜1にする`GLM_FORCE_DEPTH_ZERO_TO_ONE`)をリンクする。生成のときにglm自身のCMakeの「Deprecation Warning」が出るが、glm側の問題で無視してよい。行列は最初から4×4(`glm::mat4`)で、3Dを見越して作る。
+- 数学: glm(1.0.1、FetchContent。2026-11-12にユーザーが了承し、CAM-1で入れた)。計算は glm で行い、自前では作らない。ただし、データとして持つ・保存する型(アクターの位置など)は glm に依存させず、自前の型(`core::Vector3`。値だけで計算の機能は持たない)にする(2026-11-13にユーザーと決定)。計算するときは`engine/GlmConversion.h`の`ToGlm` / `FromGlm`で変える。行列(`glm::mat4`、描画層が受け取る)は今は glm のまま。使うターゲットは`glm`ではなく`husky_glm`(設定をそろえる入れ物。奥行きを0〜1にする`GLM_FORCE_DEPTH_ZERO_TO_ONE`)をリンクする。生成のときにglm自身のCMakeの「Deprecation Warning」が出るが、glm側の問題で無視してよい。行列は最初から4×4(`glm::mat4`)で、3Dを見越して作る。
 - 座標系(2026-11-12に決定。詳しくは設計メモ「座標系とカメラ」): yは上が+、ワールドの単位(最初は1単位 = 1ピクセル、換算はカメラ)、位置はx・y・z。カメラはビュー行列と射影行列(2Dは正射影)。親子の階層は今は作らない。
 - JSON: yyjson(0.12.0、FetchContent)。使うのは`engine/JsonFormat.cpp`の中だけ(PRIVATEでリンク)。替えるときはそのファイルだけを書き直す。
 - 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。ASanのビルドでは`husky_imgui`もASan付きでコンパイルする(MSVCのSTLの注釈`annotate_string`をそろえるため)。
@@ -66,7 +66,7 @@
 - フレーム末の順番: `Scene::RemoveDestroyedActors()` → `ObjectRegistry::FlushDestroyed()` → (1秒に1回)`ObjectRegistry::CollectGarbage()`。
 - `Object`の子クラスに、`Object`のメンバーと同じ名前のメンバーを作らない(名前が隠れて、レジストリの設定が壊れる)。
 - アクターは変わらないID(`Actor::guid`、`core::Guid`。2026-11-12)を持つ。シーンに入れたとき(`Spawn`、`AddLoadedActor`)に無ければ振られ、保存しても、読み戻しても、Play / Stopで作り直しても変わらない。名前(`name`)は重なってよく、区別にはguidを使う。読み込みでguidがシーンの中(Destroy済みを除く)で重なったら、後のほうに振り直して警告を出す。探すのは`Scene::FindActorByGuid`。人はGUIDを意識しなくてよいようにする(インスペクタでは灰色で読むだけ。コマンドは名前でも指せるようにする)。
-- アクターの位置・回転・拡大縮小は`Actor::transform`(`engine::Transform`。2026-11-13にユーザーと決定)。付け外しできるコンポーネントではなく、どのアクターも必ず持つ構造体のメンバー(UnityのTransformと同じく外せない)。中身は`position`(`glm::vec3`)、`rotation`(z軸まわりの角度、度、反時計回りが+)、`scale`(`glm::vec3`)。`glm::vec3`は`engine/Transform.h`でリフレクション対応の構造体として登録してある(`namespace glm`の中に書く)。回転と拡大縮小は今は保存するだけで、描画にはまだ効かない。親子の階層は無い。古い形(`"x"`, `"y"`)のシーンのファイルは、知らないプロパティとして警告が出て、位置は原点になる。
+- アクターの位置・回転・拡大縮小は`Actor::transform`(`engine::Transform`。2026-11-13にユーザーと決定)。付け外しできるコンポーネントではなく、どのアクターも必ず持つ構造体のメンバー(UnityのTransformと同じく外せない)。中身は`position`(`core::Vector3`)、`rotation`(z軸まわりの角度、度、反時計回りが+)、`scale`(`core::Vector3`)。回転と拡大縮小は今は保存するだけで、描画にはまだ効かない。親子の階層は無い。古い形(`"x"`, `"y"`)のシーンのファイルは、知らないプロパティとして警告が出て、位置は原点になる。
 - `Pool<T>`とECSは今は作らない(保留)。
 
 ## メモリとGC

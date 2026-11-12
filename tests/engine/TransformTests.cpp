@@ -3,6 +3,7 @@
 
 #include "core/ObjectRegistry.h"
 #include "engine/Actor.h"
+#include "engine/GlmConversion.h"
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
 
@@ -18,9 +19,9 @@ namespace JsonFormat = husky::engine::JsonFormat;
 TEST_CASE("Transform: 既定は原点、回転 0、拡大縮小 1")
 {
     const husky::engine::Transform transform;
-    CHECK(transform.position == glm::vec3(0.0f));
+    CHECK(transform.position == husky::core::Vector3{});
     CHECK(transform.rotation == 0.0f);
-    CHECK(transform.scale == glm::vec3(1.0f));
+    CHECK(transform.scale == (husky::core::Vector3{1.0f, 1.0f, 1.0f}));
 }
 
 TEST_CASE("Transform: 保存すると入れ子のオブジェクトになり、別のアクターにそのまま読み戻せる")
@@ -28,9 +29,9 @@ TEST_CASE("Transform: 保存すると入れ子のオブジェクトになり、�
     husky::core::ObjectRegistry registry;
     Actor* original = registry.Create<Actor>();
     REQUIRE(original != nullptr);
-    original->transform.position = glm::vec3(1.5f, -2.0f, 3.0f);
+    original->transform.position = husky::core::Vector3{1.5f, -2.0f, 3.0f};
     original->transform.rotation = 90.0f;
-    original->transform.scale = glm::vec3(2.0f, 0.5f, 1.0f);
+    original->transform.scale = husky::core::Vector3{2.0f, 0.5f, 1.0f};
 
     const ArchiveValue saved = ObjectSerializer::Write(*original);
     const ArchiveValue* transform = saved.Find("properties")->Find("transform");
@@ -63,5 +64,12 @@ TEST_CASE("Transform: 古い形(位置が x と y だけ)のファイルは、�
     REQUIRE(JsonFormat::Read(R"({"type": "Actor", "properties": {"x": 10, "y": 20}})", loaded));
     const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *actor);
     CHECK(report.warnings.size() == 2); // x と y はもう無い(黙って読み捨てない)
-    CHECK(actor->transform.position == glm::vec3(0.0f));
+    CHECK(actor->transform.position == husky::core::Vector3{});
+}
+
+TEST_CASE("Vector3: 計算するときは glm に変え、結果を自前の型に戻せる(値はそのまま)")
+{
+    const husky::core::Vector3 position{1.0f, 2.0f, 3.0f};
+    const glm::vec3 moved = husky::engine::ToGlm(position) + glm::vec3(10.0f, 0.0f, 0.0f); // 計算は glm で
+    CHECK(husky::engine::FromGlm(moved) == (husky::core::Vector3{11.0f, 2.0f, 3.0f}));
 }

@@ -7,36 +7,24 @@
 //   - 回転は z 軸まわりの角度1つ(度。反時計回りが +)。3D に入ったらクォータニオンに替える
 //   - 拡大縮小は x・y・z(1 で元の大きさ)
 //   - 親子の階層は、今は作らない(位置はいつもワールドでの位置)
+// 値は自前の型(core::Vector3)で持ち、glm には依存しない。行列などの計算をするときは ToGlm で変える(GlmConversion.h)。
 // 回転と拡大縮小は、今は値を持って保存するだけで、描画にはまだ効かない(「回転と拡大縮小」のステップで効かせる)。
 // 動作スレッド: ゲームスレッドのみ(アクターのメンバーとして)
 #pragma once
 
 #include "core/StructReflection.h"
-
-#include <glm/vec3.hpp>
-
-// glm::vec3 を、リフレクション対応の構造体として登録する(x、y、z の3つの float)。
-// 登録は構造体と同じ名前空間に書く決まり(関数を ADL で見つけるため)なので、glm の名前空間の中に書く。
-// glm::vec3 の x、y、z は public なので、型の外からでも登録できる。保存すると {"x": .., "y": .., "z": ..} になる。
-namespace glm
-{
-    HUSKY_STRUCT_BEGIN(vec3)
-        HUSKY_PROPERTY(x)
-        HUSKY_PROPERTY(y)
-        HUSKY_PROPERTY(z)
-    HUSKY_STRUCT_END()
-}
+#include "core/Vector3.h"
 
 namespace husky::engine
 {
     struct Transform
     {
-        glm::vec3 position = glm::vec3(0.0f); // ワールドでの位置
-        float rotation = 0.0f;                // z 軸まわりの角度(度。反時計回りが +)
-        glm::vec3 scale = glm::vec3(1.0f);    // 拡大縮小(1 で元の大きさ)
+        core::Vector3 position;                   // ワールドでの位置(既定は原点)
+        float rotation = 0.0f;                    // z 軸まわりの角度(度。反時計回りが +)
+        core::Vector3 scale = {1.0f, 1.0f, 1.0f}; // 拡大縮小(1 で元の大きさ)
     };
 
-    // 入れ子の構造体(glm::vec3)は、上で先に登録してある。
+    // 入れ子の構造体(core::Vector3)は、core/Vector3.h で先に登録してある。
     HUSKY_STRUCT_BEGIN(Transform)
         HUSKY_PROPERTY(position)
         HUSKY_PROPERTY(rotation)
