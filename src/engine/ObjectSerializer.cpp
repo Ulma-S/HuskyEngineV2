@@ -72,6 +72,12 @@ namespace husky::engine::ObjectSerializer
                 const core::AssetReference& assetRef = *property.GetValuePtrAt<core::AssetReference>(container);
                 return assetRef.IsNull() ? ArchiveValue() : ArchiveValue(assetRef.guid.ToString());
             }
+            case PropertyType::Guid:
+            {
+                // 変わらない ID: GUID の文字列(アセットの参照と同じ書き方)。まだ振られていなければ null。
+                const core::Guid& guid = *property.GetValuePtrAt<core::Guid>(container);
+                return guid.IsNull() ? ArchiveValue() : ArchiveValue(guid.ToString());
+            }
             }
             ok = false;
             return ArchiveValue();
@@ -207,6 +213,17 @@ namespace husky::engine::ObjectSerializer
                 core::AssetReference& assetRef = *property.GetValuePtrAt<core::AssetReference>(container);
                 assetRef.guid = guid;
                 assetRef.asset = {}; // 前に読んでいたアセットは、指す先が変わったので手放す
+                return {};
+            }
+            case PropertyType::Guid:
+            {
+                core::Guid guid; // null なら、振られていない(0)
+                if (!value.IsNull()
+                    && (value.GetType() != ArchiveValue::Type::String || !core::Guid::Parse(value.AsString(), guid)))
+                {
+                    return "GUID の文字列ではありません";
+                }
+                *property.GetValuePtrAt<core::Guid>(container) = guid;
                 return {};
             }
             }

@@ -2,6 +2,7 @@
 // 名前と位置だけを持つ薄い入れ物。機能(見た目、体力、AI など)は、コンポーネント(Component.h)で足す。
 #pragma once
 
+#include "core/Guid.h"
 #include "core/ObjectRegistry.h"
 #include "engine/Component.h"
 
@@ -71,7 +72,12 @@ namespace husky::engine
             return nullptr;
         }
 
-        std::string name;
+        std::string name; // 人が読む名前。ほかのアクターと重なってもよい(区別には guid を使う)
+        // このアクターの変わらない ID。シーンに入れたとき(Scene::Spawn、AddLoadedActor)に、まだ無ければ振られる。
+        // 保存しても読み戻しても、Play / Stop で作り直しても変わらない。エディタのコマンド(CLI や AI)がアクターを指すのに使う。
+        // 人は名前で区別すればよく、GUID を意識しなくてよい(インスペクタでは灰色の文字で読むだけ)。
+        // 書き換えてよいのは、シーンの読み込み(重なりを直すとき)だけ。
+        core::Guid guid;
         float x = 0.0f; // 位置(ピクセル、左上が原点)
         float y = 0.0f;
 
@@ -81,6 +87,7 @@ namespace husky::engine
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(name)
+            HUSKY_PROPERTY(guid)
             HUSKY_PROPERTY(x)
             HUSKY_PROPERTY(y)
             HUSKY_PROPERTY(components)

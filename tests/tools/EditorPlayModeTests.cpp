@@ -82,6 +82,7 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     Walker* original = app.GetScene().Spawn<Walker>();
     REQUIRE(original != nullptr);
     original->x = 10.0f;
+    const husky::core::Guid originalGuid = original->guid;
 
     EditorPlayMode mode;
     EditorCommandRegistry commands;
@@ -109,6 +110,7 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     CHECK(count == 1); // 元の1体だけ(再生中のものと、控えから戻したものが両方いたりしない)
     REQUIRE(restored != nullptr);
     CHECK(restored->x == 10.0f); // Play を押す前の位置
+    CHECK(restored->guid == originalGuid); // 作り直しても、変わらない ID は同じ(コマンドが Stop の後も同じアクターを指せる)
     CHECK(app.GetScene().actors.size() == 1);
 
     app.StepFrame(0, {});

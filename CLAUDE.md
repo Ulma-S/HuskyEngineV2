@@ -53,6 +53,7 @@
 - 設計メモの「ワールド」は、このプロジェクトでは「シーン」(`engine::Scene`)と呼ぶ。シーンはアクターの一覧(`actors`)を持ち、GCの根になる。アクターは`Scene::Spawn<T>()`で作る。
 - フレーム末の順番: `Scene::RemoveDestroyedActors()` → `ObjectRegistry::FlushDestroyed()` → (1秒に1回)`ObjectRegistry::CollectGarbage()`。
 - `Object`の子クラスに、`Object`のメンバーと同じ名前のメンバーを作らない(名前が隠れて、レジストリの設定が壊れる)。
+- アクターは変わらないID(`Actor::guid`、`core::Guid`。2026-11-12)を持つ。シーンに入れたとき(`Spawn`、`AddLoadedActor`)に無ければ振られ、保存しても、読み戻しても、Play / Stopで作り直しても変わらない。名前(`name`)は重なってよく、区別にはguidを使う。読み込みでguidがシーンの中(Destroy済みを除く)で重なったら、後のほうに振り直して警告を出す。探すのは`Scene::FindActorByGuid`。人はGUIDを意識しなくてよいようにする(インスペクタでは灰色で読むだけ。コマンドは名前でも指せるようにする)。
 - `Pool<T>`とECSは今は作らない(保留)。
 
 ## メモリとGC
@@ -71,7 +72,7 @@
 
 ## リフレクション
 
-- プロパティ(名前、型、オフセット、参照フラグ)とメソッドを、マクロで登録する。
+- プロパティ(名前、型、オフセット、参照フラグ)とメソッドを、マクロで登録する。プロパティにできる型は`PropertyType`(bool、int32、float、string、ハンドルとその配列、構造体、`AssetRef`、`core::Guid`。GUIDは保存すると文字列)。
 - 構造体(`Object`ではない値)は、`core/StructReflection.h`の`HUSKY_STRUCT_BEGIN` / `HUSKY_PROPERTY` / `HUSKY_STRUCT_END`で、型の外から登録する。登録は構造体と同じ名前空間に書く(ADLで見つけるため)。入れ子の構造体は中のものを先に登録する。外から触るので、登録するメンバーは public にする。登録した構造体は`HUSKY_PROPERTY`でそのままプロパティにでき、保存は入れ子になり、中のハンドルはGCがたどる。
 - プロパティの値は、必ず`Property`(`GetValuePtr` / `GetValuePtrAt` / `GetStructAddressAt`)を通して読み書きする。シリアライザやGCがオフセットを直接触らない(将来、スクリプトの型など「関数で読み書きするプロパティ」を足すときに、変える場所を`Property`に閉じ込めるため)。
 - メソッドの引数と戻り値は、数値、文字列、ハンドル、GC管理オブジェクトへの参照、リフレクション対応の構造体に限る。オーバーロードは非対応。

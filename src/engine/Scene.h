@@ -56,6 +56,10 @@ namespace husky::engine
                 // 設定するのはコンストラクタの後なので、アクターのコンストラクタの中では GetScene() は nullptr。
                 Actor& base = *actor;
                 base.m_scene = GetHandle();
+                if (base.guid.IsNull())
+                {
+                    base.guid = core::Guid::Generate(); // 変わらない ID(Actor::guid)を振る
+                }
                 actors.push_back(actor->GetHandle());
             }
             return actor;
@@ -71,6 +75,10 @@ namespace husky::engine
         // 持ち主(このアクター)を覚えさせ直す(読み込みでは、持ち主の情報はプロパティではないので、ファイルに入っていないため)。
         // actor は、このシーンと同じレジストリで作ったもので、まだどのシーンにも入っていないこと。戻り値: 入れられたら true。
         bool AddLoadedActor(Actor& actor);
+
+        // 変わらない ID(Actor::guid)で、生きている(Destroy 済みでない)アクターを探す。無ければ nullptr。
+        // アクターの数だけ順に見る(エディタのコマンドから呼ぶ程度なら十分速い。毎フレーム大量に呼ぶなら表を作る)。
+        Actor* FindActorByGuid(const core::Guid& guid);
 
         // エンジンの入力。ゲームループが SetInput で渡す。渡されていなければ nullptr。
         // アクターやコンポーネントは GetScene()->GetInput() で読む(自分で Input を持ったり、配られたりしない)。

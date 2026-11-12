@@ -86,7 +86,7 @@ TEST_CASE("ObjectSerializer: JSON の文字列を通して、別のオブジェ�
     const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *copy);
 
     CHECK(report.warnings.empty());
-    CHECK(report.readCount == 7); // name, x, y, angry, hp, speed, title
+    CHECK(report.readCount == 8); // name, guid(シーンに入れていないので null), x, y, angry, hp, speed, title
     CHECK(copy->name == "ゴブリン");
     CHECK(copy->x == 0.1f); // float は文字列を通しても、ぴったり同じ値に戻る
     CHECK(copy->y == -7.25f);

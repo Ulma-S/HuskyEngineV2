@@ -207,6 +207,79 @@ TEST_CASE("SceneSerializer: 今いるアクターは消さず、読み込んだ�
     CHECK(scene->actors[0] != scene->actors[1]); // 別のオブジェクトとして作られている
 }
 
+TEST_CASE("Actor の guid: シーンに入れると振られ、保存して読み戻しても同じ。名前が重なっても guid で区別できる")
+{
+    const TypeRegistry types = MakeTypes();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* first = scene->Spawn<Actor>();
+    Actor* second = scene->Spawn<Actor>();
+    first->name = "Enemy";
+    second->name = "Enemy"; // 名前は重なってよい
+    CHECK_FALSE(first->guid.IsNull());
+    CHECK(first->guid != second->guid);
+    CHECK(scene->FindActorByGuid(second->guid) == second);
+    CHECK(scene->FindActorByGuid(husky::core::Guid{}) == nullptr);
+
+    // 保存して別のレジストリに読み戻しても、同じ guid
+    const ArchiveValue file = ThroughJson(SceneSerializer::Write(*scene).value);
+    ObjectRegistry otherRegistry;
+    Scene* other = CreateRootScene(otherRegistry);
+    const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *other, types);
+    CHECK(report.warnings.empty());
+    REQUIRE(other->actors.size() == 2);
+    const Actor* loaded = other->FindActorByGuid(second->guid);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded == otherRegistry.Resolve<Actor>(other->actors[1]));
+
+    // Destroy したアクターは、guid で探しても見つからない
+    second->Destroy();
+    CHECK(scene->FindActorByGuid(second->guid) == nullptr);
+}
+
+TEST_CASE("Actor の guid: 読み込んだアクターの guid がシーンの中で重なったら、後のほうに新しい guid を振り、警告を出す")
+{
+    const TypeRegistry types = MakeTypes();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* original = scene->Spawn<Actor>();
+    const husky::core::Guid originalGuid = original->guid;
+    const ArchiveValue file = ThroughJson(SceneSerializer::Write(*scene).value);
+
+    // 同じファイルを、同じシーンにもう一度読む(手でコピーしたのと同じ): 前からいるほうの guid は変えない
+    const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
+    REQUIRE(scene->actors.size() == 2);
+    const Actor* copy = registry.Resolve<Actor>(scene->actors[1]);
+    CHECK(original->guid == originalGuid);
+    CHECK(copy->guid != originalGuid);
+    CHECK_FALSE(copy->guid.IsNull());
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].find("guid") != std::string::npos);
+
+    // Destroy 済みのアクター(Play / Stop で消す途中のものなど)とは、重なりとして扱わない
+    original->Destroy();
+    copy = nullptr;
+    registry.Resolve<Actor>(scene->actors[1])->Destroy();
+    const SceneSerializer::ReadReport again = SceneSerializer::Read(file, *scene, types);
+    CHECK(again.warnings.empty());
+    CHECK(scene->FindActorByGuid(originalGuid) != nullptr);
+}
+
+TEST_CASE("Actor の guid: guid の無い古いファイルも読め、読んだときに振られる")
+{
+    const TypeRegistry types = MakeTypes();
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    ArchiveValue file;
+    REQUIRE(JsonFormat::Read(R"({ "version": 1, "objects": [ { "id": 0, "type": "Actor", "properties": { "name": "old" } } ],
+                                  "actors": [0] })",
+                             file));
+    const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
+    CHECK(report.warnings.empty());
+    REQUIRE(scene->actors.size() == 1);
+    CHECK_FALSE(registry.Resolve<Actor>(scene->actors[0])->guid.IsNull());
+}
+
 TEST_CASE("SceneSerializer: 版が無いファイルは警告を出して、読めるところまで読む")
 {
     const TypeRegistry types = MakeTypes();

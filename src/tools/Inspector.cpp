@@ -288,6 +288,19 @@ namespace husky::tools
             case PropertyType::AssetRef:
                 return DrawAssetRef(name, *property.GetValuePtrAt<core::AssetReference>(container),
                                     *property.GetAssetType(), assets);
+            case PropertyType::Guid:
+            {
+                // 変わらない ID は、人が書き換えるものではないので、灰色の文字で読むだけにする(人は名前で区別すればよい)。
+                // GUID の文字列の形(8-4-4-4-12 桁)を、文字列を作らずに書く(毎フレームの確保を避ける)。
+                const core::Guid& guid = *property.GetValuePtrAt<core::Guid>(container);
+                ImGui::TextDisabled("%s: %08llx-%04llx-%04llx-%04llx-%012llx", name,
+                                    static_cast<unsigned long long>(guid.high >> 32),
+                                    static_cast<unsigned long long>((guid.high >> 16) & 0xffffu),
+                                    static_cast<unsigned long long>(guid.high & 0xffffu),
+                                    static_cast<unsigned long long>(guid.low >> 48),
+                                    static_cast<unsigned long long>(guid.low & 0xffffffffffffull));
+                return false;
+            }
             }
             return false;
         }

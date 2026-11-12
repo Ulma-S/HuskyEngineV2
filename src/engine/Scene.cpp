@@ -83,9 +83,30 @@ namespace husky::engine
             return false;
         }
         actor.m_scene = GetHandle();
+        if (actor.guid.IsNull()) // 古いファイルや、コマンドで作ったアクターには、まだ無い
+        {
+            actor.guid = core::Guid::Generate();
+        }
         actor.RelinkComponentOwners();
         actors.push_back(actor.GetHandle());
         return true;
+    }
+
+    Actor* Scene::FindActorByGuid(const core::Guid& guid)
+    {
+        if (guid.IsNull())
+        {
+            return nullptr;
+        }
+        for (const core::ObjectHandle handle : actors)
+        {
+            Actor* actor = ResolveActor(handle);
+            if (actor != nullptr && !actor->IsPendingDestroy() && actor->guid == guid)
+            {
+                return actor;
+            }
+        }
+        return nullptr;
     }
 
     std::size_t Scene::RemoveDestroyedActors()

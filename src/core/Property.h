@@ -2,6 +2,7 @@
 #pragma once
 
 #include "core/AssetRef.h"
+#include "core/Guid.h"
 #include "core/Handle.h"
 
 #include <cstddef>
@@ -27,6 +28,7 @@ namespace husky::core
         ObjectHandleArray, // std::vector<ObjectHandle>(ほかのオブジェクトへの参照の一覧)
         Struct,            // HUSKY_STRUCT_BEGIN で登録した構造体(中のメンバーも、それぞれプロパティとして持つ)
         AssetRef,          // AssetRef<T>(アセットへの参照。保存すると GUID になる。AssetRef.h)
+        Guid,              // core::Guid(変わらない ID。保存すると GUID の文字列になる。アクターの ID など)
     };
 
     // --- 構造体のリフレクション(登録は StructReflection.h の HUSKY_STRUCT_BEGIN で行う) ---
@@ -103,6 +105,10 @@ namespace husky::core
         else if constexpr (std::is_same_v<T, ObjectHandle>)
         {
             return PropertyType::ObjectHandle;
+        }
+        else if constexpr (std::is_same_v<T, Guid>)
+        {
+            return PropertyType::Guid;
         }
         else if constexpr (std::is_same_v<T, std::vector<ObjectHandle>>)
         {

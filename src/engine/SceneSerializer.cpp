@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <unordered_map> // std::unordered_map(C# の Dictionary にあたる、ハッシュ表)
+#include <unordered_set> // std::unordered_set(C# の HashSet にあたる)
 #include <utility>
 
 namespace husky::engine::SceneSerializer
@@ -164,15 +165,30 @@ namespace husky::engine::SceneSerializer
         }
 
         // 3. アクターを、ファイルに書いてある順でシーンに入れる(コンポーネントの持ち主も、ここで付け直される)。
+        //    変わらない ID(Actor::guid)が、シーンにすでにいる(生きている)アクターや、このファイルの前のアクターと重なっていたら、
+        //    新しい ID を振り直して警告を出す(ファイルを手でコピーした、同じファイルを2回読んだ、など)。
+        //    黙ってどちらかを使うと、コマンドが別のアクターを書き換えてしまうため(アセットの GUID の重なりと同じ考え方)。
+        std::unordered_set<core::Guid> usedGuids;
+        scene.ForEachActor([&usedGuids](Actor& existing) { usedGuids.insert(existing.guid); }); // Destroy 済みは入らない
         const ArchiveValue* actorArray = value.Find("actors");
         for (std::size_t i = 0; actorArray != nullptr && i < actorArray->GetArraySize(); ++i)
         {
             const std::int64_t id = actorArray->At(i).AsInt(-1);
             Actor* actor = registry->Resolve<Actor>(toHandle(id));
-            if (actor == nullptr || !scene.AddLoadedActor(*actor))
+            if (actor == nullptr || !scene.AddLoadedActor(*actor)) // guid が無ければ、ここで振られる
             {
                 report.warnings.push_back("番号 " + std::to_string(id) + " をシーンに入れられません(アクターではないか、ありません)");
                 continue;
+            }
+            if (!usedGuids.insert(actor->guid).second) // insert の .second は「新しく入ったか」。false なら重なっている
+            {
+                const std::string old = actor->guid.ToString();
+                do
+                {
+                    actor->guid = core::Guid::Generate();
+                } while (!usedGuids.insert(actor->guid).second);
+                report.warnings.push_back("番号 " + std::to_string(id) + ": guid " + old +
+                                          " がほかのアクターと重なっていたので、新しい guid を振りました");
             }
             ++report.addedActorCount;
         }
