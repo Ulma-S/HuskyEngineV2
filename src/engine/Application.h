@@ -14,6 +14,7 @@
 // テストでは Run を呼ばず、StepFrame で1フレームずつ進める(ウィンドウも GPU も使わない)。
 #pragma once
 
+#include "core/JobSystem.h"
 #include "core/ObjectRegistry.h"
 #include "core/TypeRegistry.h"
 #include "engine/AssetDatabase.h"
@@ -57,8 +58,11 @@ namespace husky::engine
         static constexpr double GcIntervalSeconds = 1.0;
 
         // objectCapacityBytes: ゲームオブジェクトに使うメモリの大きさ(ObjectRegistry に渡す)。
+        // workerCount: ジョブシステムのワーカースレッドの数。既定の 0 は同期実行(テストの結果が毎回同じになる)。
+        //   ゲームでは core::JobSystem::RecommendedWorkerCount()(コア数 - 1)を渡す。
         // シーンを1つ作り、GC の根にし、入力をシーンに渡す。
-        explicit Application(std::size_t objectCapacityBytes = core::ObjectRegistry::DefaultCapacityBytes);
+        explicit Application(std::size_t objectCapacityBytes = core::ObjectRegistry::DefaultCapacityBytes,
+                             std::size_t workerCount = 0);
 
         // コピーを禁止する(アプリケーションは1つだけで、中のレジストリやシーンを2つに増やせないため)。
         Application(const Application&) = delete;
@@ -72,6 +76,8 @@ namespace husky::engine
         AssetDatabase& GetAssetDatabase() { return m_assets; }
         // アセットのローダ。Run の前にも読める(GPU のテクスチャは、Run の中で描画の準備ができたときに作られる)。
         AssetLoader& GetAssetLoader() { return m_loader; }
+        // ジョブシステム(ワーカーの数は、コンストラクタで決める)。ジョブの中では GC 管理のオブジェクトを触らないこと。
+        core::JobSystem& GetJobSystem() { return m_jobs; }
         const Input& GetInput() const { return m_input; }
         // テストで dt を固定する(FrameClock::SetFixedDelta)ときなどに使う。
         FrameClock& GetClock() { return m_clock; }
@@ -85,7 +91,7 @@ namespace husky::engine
 
         // 1フレーム分の「描画以外」の処理を進める。ウィンドウも GPU も使わないので、テストから呼べる。
         //   1. dt を決める(FrameClock)
-        //   2. 入力を更新する(keyEvents は、このフレームに起きたキーイベント)
+        //   2. 入力を更新する(keyEvents は、このフレームに起きたキーイベント)。読み終わったアセットを書く(AssetLoader::Update)
         //   3. 更新コールバック → シーンの更新(Scene::Tick)
         //   4. フレームの終わり: Destroy 済みのアクターを一覧から外す → 破棄を確定 → (GcIntervalSeconds ごとに)GC
         // 戻り値: このフレームの dt(秒)。
@@ -135,6 +141,8 @@ namespace husky::engine
         FrameClock m_clock;
         Input m_input;
         AssetDatabase m_assets;
+        // ジョブシステムは、ローダより先に宣言する(ローダは壊れるときに、読み込み中のジョブを待つため)。
+        core::JobSystem m_jobs;
         // ローダは、作ったアセット(レジストリの中)より長く生きる必要がある(アセットが回収されるときにローダを呼ぶ)ので、
         // レジストリより先に宣言する(先に作られ、後に壊される)。
         AssetLoader m_loader;

@@ -17,8 +17,9 @@ namespace husky::engine
 {
     // コンストラクタの「: m_registry(...)」は、メンバーの初期化の書き方(C# のフィールド初期化子にあたる)。
     // { } の中が走る前に、メンバーは宣言した順に作られている。
-    Application::Application(std::size_t objectCapacityBytes)
-        : m_loader(m_assets, m_registry) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
+    Application::Application(std::size_t objectCapacityBytes, std::size_t workerCount)
+        : m_jobs(workerCount)
+        , m_loader(m_assets, m_registry, m_jobs) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
         , m_registry(objectCapacityBytes)
     {
         RegisterEngineTypes(m_types); // engine の型(Scene、Actor、SpriteComponent など)を、名前から作れるようにする
@@ -36,6 +37,10 @@ namespace husky::engine
 
         // 2. 入力: このフレームのキーイベントで、キーの状態を更新する
         m_input.BeginFrame(keyEvents);
+
+        // 2'. アセット: ワーカーが読み終わったものを、アセットに書く(GPU に送る)。ゲームの処理より前に行い、
+        //     このフレームの更新と描画から、読み終わったアセットを使えるようにする。
+        m_loader.Update();
 
         // 3. 更新: ゲーム固有の処理 → シーンの全アクターとコンポーネント
         //    std::function は、中身が入っているかを if で確かめられる(空のまま呼ぶとプログラムが止まる)。

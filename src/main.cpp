@@ -185,7 +185,8 @@ int main()
     platform::InstallMemoryHooks();
 
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
-    engine::Application app;
+    // ジョブシステムのワーカーは「コア数 - 1」本(1 本はゲームスレッドの分)。テクスチャの読み込みなどに使う。
+    engine::Application app(husky::core::ObjectRegistry::DefaultCapacityBytes, husky::core::JobSystem::RecommendedWorkerCount());
 
     // ゲームの型を、名前から作れるように登録する(engine の型は Application が登録済み)。
     // シーンをファイルから読み込むときに、"type": "BouncerActor" から本物のオブジェクトを作るのに使う。

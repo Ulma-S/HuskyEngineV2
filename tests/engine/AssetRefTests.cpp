@@ -84,6 +84,8 @@ TEST_CASE("AssetRef: 使うとき(Resolve)に読み、参照している間は G
 
     const TextureAsset* texture = loader.Resolve(sprite->texture);
     REQUIRE(texture != nullptr);
+    CHECK(texture->GetState() == husky::engine::AssetState::Loading); // 読み始めたところ
+    loader.WaitForAllLoads();
     CHECK(texture->IsLoaded());
     CHECK(sprite->texture.asset == texture->GetHandle()); // 読んだアセットを覚えておく
     CHECK(loader.Resolve(sprite->texture) == texture);    // 2回目は読まずに同じものを返す

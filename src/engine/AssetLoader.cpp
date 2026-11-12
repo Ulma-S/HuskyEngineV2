@@ -4,7 +4,7 @@
 #include "platform/Image.h"
 
 #include <cstdio>  // std::printf
-#include <utility> // std::move
+#include <utility> // std::move, std::swap
 
 namespace husky::engine
 {
@@ -32,12 +32,23 @@ namespace husky::engine
         }
     }
 
-    AssetLoader::AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry)
+    AssetLoader::AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry, core::JobSystem& jobs)
         : m_database(database)
         , m_registry(registry)
+        , m_jobs(jobs)
     {
         // registry は、ここではまだ使わない(Application では、このローダより後に作られるため。
         // 参照を覚えておくだけなら、相手が作られる前でもよい)。
+    }
+
+    AssetLoader::~AssetLoader()
+    {
+        // ジョブは記録(m_pending の中身)に書き込むので、記録を壊す前に、すべて終わるのを待つ。
+        for (const std::unique_ptr<PendingTextureLoad>& load : m_pending)
+        {
+            m_jobs.Wait(load->counter);
+        }
+        m_pending.clear(); // 結果は捨てる(レジストリはもう無いことがあるので、アセットには触らない)
     }
 
     void AssetLoader::SetRenderDevice(render::RenderDevice* device)
@@ -61,8 +72,9 @@ namespace husky::engine
         }
         m_device = device;
 
-        // 新しい GPU に、読めているアセットを送り直す。
-        // ReadTexture はキャッシュ(m_textures)を書き換えないので、回しながら呼んでよい。
+        // 新しい GPU のために、読み終わっていて GPU のテクスチャを持っていないアセットを、読み直す。
+        // (読み込み中のものは、終わったとき(Finish)に、その時点の GPU に送られるので、読み直さない)
+        // StartLoad はキャッシュ(m_textures)を書き換えないので、回しながら呼んでよい。
         if (m_device != nullptr)
         {
             for (const auto& entry : m_textures)
@@ -70,7 +82,7 @@ namespace husky::engine
                 TextureAsset* asset = ResolveTexture(entry.second);
                 if (asset != nullptr && asset->IsLoaded() && asset->m_texture.IsNull())
                 {
-                    ReadTexture(*asset);
+                    StartLoad(*asset);
                 }
             }
         }
@@ -78,7 +90,7 @@ namespace husky::engine
 
     core::ObjectHandle AssetLoader::LoadTexture(const core::Guid& guid)
     {
-        // 1. キャッシュ: まだ生きていれば、それを返す。破棄を予約済み(この後で消える)なら、作り直す。
+        // 1. キャッシュ: まだ生きていれば、それを返す(読み込み中でも)。破棄を予約済み(この後で消える)なら、作り直す。
         const auto found = m_textures.find(guid);
         if (found != m_textures.end())
         {
@@ -89,7 +101,7 @@ namespace husky::engine
             }
         }
 
-        // 2〜5. アセットのオブジェクトを作り、読む。失敗しても「失敗」の状態で返す。
+        // 2. アセットのオブジェクトを「読み込み中」で作り、ジョブを積む。
         TextureAsset* asset = m_registry.Create<TextureAsset>();
         if (asset == nullptr)
         {
@@ -98,9 +110,41 @@ namespace husky::engine
         }
         asset->m_guid = guid;
         asset->m_loader = this;
-        ReadTexture(*asset);
+        StartLoad(*asset);
         m_textures[guid] = asset->GetHandle(); // 古いもの(破棄を予約済み)があれば置き換える
         return asset->GetHandle();
+    }
+
+    void AssetLoader::Update()
+    {
+        // ワーカーがいなければ、読み込みのジョブは誰も実行しないので、ここで実行する(同期実行)。
+        if (m_jobs.GetWorkerCount() == 0)
+        {
+            m_jobs.RunPendingJobs();
+        }
+
+        // 終わった記録の結果をアセットに書き、記録を外す。
+        // 外すときは、最後の記録と入れ替えてから末尾を消す(途中を消して後ろを詰めるより速い。順番は気にしない)。
+        for (std::size_t i = 0; i < m_pending.size();)
+        {
+            if (!m_pending[i]->counter.IsDone())
+            {
+                ++i;
+                continue;
+            }
+            Finish(*m_pending[i]);
+            std::swap(m_pending[i], m_pending.back());
+            m_pending.pop_back();
+        }
+    }
+
+    void AssetLoader::WaitForAllLoads()
+    {
+        for (const std::unique_ptr<PendingTextureLoad>& load : m_pending)
+        {
+            m_jobs.Wait(load->counter); // 待っている間、このスレッドも積まれたジョブを実行する
+        }
+        Update();
     }
 
     TextureAsset* AssetLoader::ResolveTexture(core::ObjectHandle handle) const
@@ -136,12 +180,12 @@ namespace husky::engine
         return ResolveTexture(reference.asset);
     }
 
-    void AssetLoader::ReadTexture(TextureAsset& asset)
+    void AssetLoader::StartLoad(TextureAsset& asset)
     {
         asset.m_state = AssetState::Loading;
 
-        // 2. GUID → パス
-        const std::string path = m_database.GetFullPath(asset.m_guid);
+        // 2. GUID → パス(表はゲームスレッドでだけ引く。ジョブには、引いた結果の文字列を渡す)
+        std::string path = m_database.GetFullPath(asset.m_guid);
         if (path.empty())
         {
             std::printf("アセット: GUID が表にありません(%s)\n", asset.m_guid.ToString().c_str());
@@ -149,30 +193,52 @@ namespace husky::engine
             return;
         }
 
-        // 3. 1段目: 元のファイルを読む
-        platform::Image source;
-        if (!ReadTextureSource(path, source))
+        auto load = std::make_unique<PendingTextureLoad>();
+        load->asset = asset.GetHandle();
+        load->guid = asset.m_guid;
+        load->path = std::move(path);
+        PendingTextureLoad* record = load.get(); // ジョブには、記録の場所(ポインタ1つ)だけを渡す
+        m_pending.push_back(std::move(load));
+
+        // 3〜4. ジョブ(ワーカースレッド): 記録のパスを読み、記録の image と succeeded に書く。ほかは触らない。
+        m_jobs.Schedule(
+            [record] {
+                record->succeeded = ReadTextureSource(record->path, record->image);
+                if (record->succeeded)
+                {
+                    record->image = CookTexture(std::move(record->image));
+                }
+            },
+            record->counter);
+    }
+
+    void AssetLoader::Finish(PendingTextureLoad& load)
+    {
+        // 書く先のアセットが、まだ生きていて、読み込み中のままか(途中で回収された、作り直された、なら捨てる)。
+        TextureAsset* asset = ResolveTexture(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
         {
-            asset.m_state = AssetState::Failed;
             return;
         }
-
-        // 4. 2段目: 実行用のデータにする(今は素通し)
-        const platform::Image runtime = CookTexture(std::move(source));
-        asset.m_width = runtime.width;
-        asset.m_height = runtime.height;
+        if (!load.succeeded)
+        {
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        asset->m_width = load.image.width;
+        asset->m_height = load.image.height;
 
         // 5. GPU に送る(描画の準備ができていれば)
         if (m_device != nullptr)
         {
-            asset.m_texture = m_device->CreateTexture(runtime);
-            if (asset.m_texture.IsNull())
+            asset->m_texture = m_device->CreateTexture(load.image);
+            if (asset->m_texture.IsNull())
             {
-                asset.m_state = AssetState::Failed;
+                asset->m_state = AssetState::Failed;
                 return;
             }
         }
-        asset.m_state = AssetState::Loaded;
+        asset->m_state = AssetState::Loaded;
     }
 
     void AssetLoader::OnTextureDestroyed(TextureAsset& asset)
@@ -182,6 +248,7 @@ namespace husky::engine
             m_device->ReleaseTexture(asset.m_texture); // GPU のメモリは、描画層が数フレーム遅らせて解放する
         }
         // キャッシュが、このアセットを指しているときだけ外す(同じ GUID で、もう新しいものを作っていることがある)。
+        // 読み込み中の記録は、ここでは消さない(ジョブがまだ書き込んでいるかもしれない)。終わったときに Finish が捨てる。
         const auto found = m_textures.find(asset.m_guid);
         if (found != m_textures.end() && found->second == asset.GetHandle())
         {

@@ -78,6 +78,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - ジョブシステムはスレッド数1(同期実行)でも動く作りにする。
   - `core::JobSystem`。`Schedule(job, counter)`で積み、`Wait(counter)`で待つ(待つ側も積まれたジョブを実行する)。完了の印`JobCounter`は使う側が持ち、ジョブが終わるまで壊さない。
   - ジョブの中では、GC管理のオブジェクトを触らない(ただのデータだけ)。ワーカーの数は`JobSystem`を作るときに決める。0本なら同期実行(`Wait`を呼んだスレッドが積んだ順に実行する。テストの結果が毎回同じになる)。
+  - `Application`がジョブシステムを持つ(`GetJobSystem`)。ワーカーの数はコンストラクタの引数で、既定は0(テスト)。ゲームの`main`は`JobSystem::RecommendedWorkerCount()`(コア数 - 1)を渡す。
 - 関数とクラスには、動作するスレッドをコメントで明記する。
 
 ## アセットとシリアライズ
@@ -90,7 +91,8 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - GUIDは、アセットの隣の`.meta`(`enemy.png.meta`、中身は`{"guid": "..."}`)に書く。`.meta`はアセットと一緒にgitで管理し、ファイルを動かすときは一緒に動かす。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
-- ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。最初の実装は同期でよい。
+- ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。読み込みは非同期(ジョブ)。
+  - ファイルを読む・実行用のデータにする(1段目と2段目)はジョブで行い、結果は「読み込み中の記録」に書く。ジョブはGC管理のアセットを触らない。ゲームスレッドが毎フレーム`AssetLoader::Update`(`StepFrame`の中)で、終わったものをGPUに送り、アセットの状態を書く。待ちたいときは`WaitForAllLoads`。
   - ローダは`engine::AssetLoader`(`Application::GetAssetLoader`)。テクスチャは`LoadTexture(guid)`で、GC管理の`TextureAsset`を指すハンドル(弱い参照)を返す。失敗しても状態が`Failed`のアセットを返す。同じGUIDは、生きている間は同じアセットを返す。
   - アセットを生かしておくのは、使う側の強い参照(ふつうはプロパティの`AssetRef`、または根)。どこからも指されなければGCで回収され、そのときGPUのテクスチャも手放す。
   - GPU(`RenderDevice`)は`Application::Run`の中でしか無いので、ローダは`SetRenderDevice`で付け外しする。GPUが無いときはファイルだけを読んで「読めた」にし、GPUが付いたときにGPUへ送る。
