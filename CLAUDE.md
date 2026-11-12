@@ -37,6 +37,7 @@
 - 開発用UI: Dear ImGui(v1.92.9b、FetchContent。開発ビルドのみ)。CMakeの`husky_imgui`で、本体とSDL3/SDL_GPUのバックエンドをまとめる。リンクはジェネレータ式でDebugだけ(`$<$<CONFIG:Debug>:husky_imgui>`)。ImGuiを直接使ってよいのは、render(つなぎ込み: `RenderDevice::BeginDevUiFrame`)とtools(画面)だけ。platformはImGuiを知らず、`SetNativeEventHook`でイベントを渡すだけ。ImGuiのメモリも`MemoryTracker`に通す。画面の文字は、日本語のフォントを入れるまで英語で書く。ASanのビルドでは`husky_imgui`もASan付きでコンパイルする(MSVCのSTLの注釈`annotate_string`をそろえるため)。
   - インスペクタ(`tools/Inspector`)は、リフレクション(`TypeInfo`と`Property`)から自動で画面を作る。新しい型やプロパティを足しても、画面のコードは要らない。
     - 型だけでは分からない見せ方(整数のIDを名前の一覧から選ばせるなど)が要るプロパティは、`tools::RegisterPropertyDrawer`で表示を差し替える(例: `SpriteComponent::sprite`は、スプライトシートの切り出しの名前から選ぶ)。
+    - プレハブから置いたアクターは、上に「Prefab: パス (N overrides)」と Revert all / Apply all のボタン(`prefab.revert` / `prefab.apply`を名前で呼ぶ)を出し、プレハブと違う値(か、中に違いのある構造体)の左に青い線を引く(PF-5c)。違いの一覧(`Prefab::FindOverrides`)は、選び直したときと30フレームごとにだけ作り直す。道筋は決まった大きさの文字の並びに積む(毎フレームの確保を避ける)。
 - 依存ライブラリを追加するときは、先にユーザーへ相談する。
 
 ## モジュール構成と依存方向

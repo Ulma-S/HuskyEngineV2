@@ -7,6 +7,8 @@
 #include "engine/Actor.h"
 #include "engine/AssetLoader.h"
 #include "engine/Component.h"
+#include "engine/Prefab.h" // プレハブとの違い(印と、Revert / Apply のボタン)
+#include "tools/EditorCommands.h" // Revert all / Apply all のボタンが、コマンドを名前で呼ぶ
 #include "engine/RenderReflection.h" // render::Color の型情報(色は色の選び方で編集するため)
 #include "engine/SpriteAnimatorComponent.h" // アニメーションの ID を名前で選ぶ表示
 #include "engine/SpriteComponent.h"   // 切り出しの ID を名前で選ぶ表示
@@ -17,6 +19,7 @@
 
 #include <algorithm> // std::sort
 #include <cstdint>
+#include <cstring> // std::strlen、std::memcpy
 #include <string>
 #include <utility>   // std::pair
 #include <vector>
@@ -46,8 +49,62 @@ namespace husky::tools
 
         PropertyDrawer FindDrawer(const Property& property);
 
+        // プレハブと違う値に印を付けるための情報(PF-5c)。描いている道筋("transform.position.x")を、
+        // 決まった大きさの文字の並びに積む(毎フレームの文字列の確保を避けるため。std::string は伸びるたびに確保する)。
+        struct OverrideMarks
+        {
+            const std::vector<std::pair<std::string, std::string>>* overrides = nullptr; // (コンポーネントの型の名前, 道筋)
+            const char* component = "";                                                 // 描いている持ち主(アクターなら "")
+            char path[256] = {};
+            std::size_t length = 0;
+            bool overflow = false; // 道筋が長すぎて積めなかった(印を付けない)
+
+            // 道筋に名前を1つ足す。足せなければ false。
+            bool Push(const char* name)
+            {
+                const std::size_t nameLength = std::strlen(name);
+                const std::size_t dot = length > 0 ? 1 : 0;
+                if (overflow || length + dot + nameLength >= sizeof(path))
+                {
+                    overflow = true;
+                    return false;
+                }
+                if (dot != 0)
+                {
+                    path[length++] = '.';
+                }
+                std::memcpy(path + length, name, nameLength);
+                length += nameLength;
+                path[length] = '\0';
+                return true;
+            }
+
+            // Push の前の長さに戻す。
+            void Pop(std::size_t savedLength)
+            {
+                length = savedLength;
+                path[length] = '\0';
+                overflow = false;
+            }
+
+            // 今の道筋そのもの、またはその中(構造体のメンバー)に、プレハブとの違いがあるか。
+            bool IsOverridden() const
+            {
+                for (const auto& [owner, overridePath] : *overrides)
+                {
+                    if (owner == component && overridePath.compare(0, length, path, length) == 0 &&
+                        (overridePath.size() == length || overridePath[length] == '.'))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        };
+
         bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder);
+                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                                OverrideMarks* marks);
 
         // SpriteComponent::sprite(切り出しの ID)を、スプライトシートの切り出しの名前から選ぶ箱で並べる。
         // スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
@@ -239,7 +296,8 @@ namespace husky::tools
 
         // プロパティ1つを、型に合った部品(チェックボックス、数の入力、文字の入力など)で並べる。
         bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
-                          const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
+                          const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                                OverrideMarks* marks)
         {
             const char* name = property.GetName();
             switch (property.GetType())
@@ -283,7 +341,7 @@ namespace husky::tools
                 bool changed = false;
                 if (ImGui::TreeNode(name))
                 {
-                    changed = DrawPropertiesImpl(*property.GetStructType(), structAddress, registry, assets, recorder);
+                    changed = DrawPropertiesImpl(*property.GetStructType(), structAddress, registry, assets, recorder, marks);
                     ImGui::TreePop();
                 }
                 return changed;
@@ -310,7 +368,8 @@ namespace husky::tools
 
         // recorder: 値の書き換えを property.set の1件にまとめる記録係(nullptr なら記録せず、その場で書き換えるだけ)。
         bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
+                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                                OverrideMarks* marks)
         {
             bool changed = false;
             type.ForEachProperty([&](const Property& property) {
@@ -322,15 +381,28 @@ namespace husky::tools
                     recorder->PushPath(property);
                     recorder->BeforeLeaf(property, container); // 値1つの部品なら、今の値を控える
                 }
+                // プレハブと違う値(か、中に違いのある構造体)なら、左に青い線を引く(Unity の印と同じ)。
+                const std::size_t savedLength = marks != nullptr ? marks->length : 0;
+                if (marks != nullptr && marks->Push(property.GetName()) && marks->IsOverridden())
+                {
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(at.x - 6.0f, at.y),
+                                                              ImVec2(at.x - 3.0f, at.y + ImGui::GetFrameHeight()),
+                                                              IM_COL32(70, 150, 255, 255));
+                }
                 // 差し替えが登録されていれば、そちらで表示する。無ければ、型に合った標準の部品で表示する。
                 const PropertyDrawer drawer = FindDrawer(property);
                 const bool propertyChanged = drawer != nullptr ? drawer(property, container, registry, assets)
-                                                               : DrawProperty(property, container, registry, assets, recorder);
+                                                               : DrawProperty(property, container, registry, assets, recorder, marks);
                 if (recorder != nullptr)
                 {
                     // IsItemActive: 直前の部品が操作中(ドラッグ中、文字の入力中など)か。手を離すと false になる。
                     recorder->AfterLeaf(property, container, propertyChanged, ImGui::IsItemActive());
                     recorder->PopPath();
+                }
+                if (marks != nullptr)
+                {
+                    marks->Pop(savedLength);
                 }
                 changed |= propertyChanged;
                 ImGui::PopID();
@@ -342,7 +414,7 @@ namespace husky::tools
     bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
                         const engine::AssetDatabase* assets)
     {
-        return DrawPropertiesImpl(type, container, registry, assets, nullptr);
+        return DrawPropertiesImpl(type, container, registry, assets, nullptr, nullptr);
     }
 
     bool RegisterPropertyDrawer(const core::TypeInfo& type, const char* propertyName, PropertyDrawer drawer)
@@ -413,8 +485,51 @@ namespace husky::tools
             else
             {
                 ImGui::SeparatorText(selected->GetType().GetName());
+
+                // --- プレハブ(PF-5c) ---
+                // 違いの一覧は、選び直したときと 30 フレームごとにだけ作り直す(毎フレーム比べると、値の木を毎回作るため)。
+                if (m_selected != m_overridesFor || ++m_overridesAge >= 30)
+                {
+                    RefreshOverrides(*selected);
+                }
+                if (!selected->prefab.IsNull())
+                {
+                    const std::string* prefabPath = app.GetAssetDatabase().FindPath(selected->prefab.guid);
+                    ImGui::Text("Prefab: %s (%zu overrides)", prefabPath != nullptr ? prefabPath->c_str() : "(missing)",
+                                m_overrides.size());
+                    // ボタンは名前でコマンドを呼ぶだけ(全部: 名前・位置・回転は除く)。押したら、すぐに印を作り直す。
+                    if (commands != nullptr)
+                    {
+                        const std::pair<const char*, const char*> buttons[] = {{"prefab.revert", "Revert all"},
+                                                                               {"prefab.apply", "Apply all"}};
+                        for (const auto& [name, label] : buttons)
+                        {
+                            const EditorCommand* command = commands->Find(name);
+                            if (command == nullptr)
+                            {
+                                continue;
+                            }
+                            if (label != buttons[0].second)
+                            {
+                                ImGui::SameLine(); // ボタンは文字の次の行に並べる(窓が狭くても切れないように)
+                            }
+                            ImGui::BeginDisabled(commands->GetUnavailableReason(*command, app) != nullptr);
+                            if (ImGui::SmallButton(label))
+                            {
+                                engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                                args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                                commands->Execute(name, app, args);
+                                m_overridesAge = 30;
+                            }
+                            ImGui::EndDisabled();
+                        }
+                    }
+                }
+
+                OverrideMarks marks;
+                marks.overrides = &m_overrides;
                 m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
-                DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder);
+                DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
                 if (ImGui::Button("Destroy"))
                 {
                     selected->Destroy(); // フレームの終わりに消える(弱い参照なので、選択は自然に外れる)
@@ -432,7 +547,9 @@ namespace husky::tools
                     if (ImGui::CollapsingHeader(component->GetType().GetName(), ImGuiTreeNodeFlags_DefaultOpen))
                     {
                         m_recorder.SetOwner(*component);
-                        DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder);
+                        marks.component = component->GetType().GetName();
+                        DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder,
+                                           &marks);
                     }
                     ImGui::PopID();
                 }
@@ -441,6 +558,17 @@ namespace husky::tools
         ImGui::End();
         // 描き終わった: 編集の途中の部品が描かれなくなっていたら(選択を変えたなど)、ここで確定する。
         m_recorder.EndFrame();
+    }
+
+    void SceneInspector::RefreshOverrides(const engine::Actor& actor)
+    {
+        m_overrides.clear(); // 入れ物は使い回す(中の文字列は作り直す)
+        for (const engine::Prefab::Override& item : engine::Prefab::FindOverrides(actor).overrides)
+        {
+            m_overrides.emplace_back(item.component, item.path);
+        }
+        m_overridesFor = actor.GetHandle();
+        m_overridesAge = 0;
     }
 }
 

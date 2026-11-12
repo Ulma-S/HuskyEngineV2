@@ -8,7 +8,9 @@
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
+#include "tools/EditorCommands.h"
 #include "tools/Inspector.h"
+#include "TestFolder.h"
 #include "HeadlessImGui.h"
 
 #include <doctest/doctest.h>
@@ -165,4 +167,50 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     });
 }
 
+
+TEST_CASE("Inspector: プレハブから置いたアクターは、プレハブとの違いに印を付け、Revert all / Apply all のボタンを出しても誤りが無い")
+{
+    HeadlessImGui imgui;
+    husky::tests::TestFolder folder("husky_test_inspector_prefab");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    husky::tools::EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetManyPropertiesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRevertPrefabCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
+
+    Actor* original = app.GetScene().Spawn<Actor>();
+    original->name = "Coin";
+    original->AddComponent<SpriteComponent>()->width = 24.0f;
+    husky::engine::ArchiveValue args = husky::engine::ArchiveValue::MakeObject();
+    args.Set("actor", husky::engine::ArchiveValue("Coin"));
+    args.Set("path", husky::engine::ArchiveValue("prefabs/coin.prefab"));
+    REQUIRE(commands.Execute("prefab.create", app, args).succeeded);
+    husky::engine::ArchiveValue spawnArgs = husky::engine::ArchiveValue::MakeObject();
+    spawnArgs.Set("prefab", husky::engine::ArchiveValue("prefabs/coin.prefab"));
+    const husky::tools::EditorCommandResult spawned = commands.Execute("actor.spawn", app, spawnArgs);
+    REQUIRE(spawned.succeeded);
+    husky::core::Guid guid;
+    REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
+    Actor* placed = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(placed != nullptr);
+
+    SceneInspector inspector;
+    inspector.Select(placed->GetHandle());
+    imgui.Frame([&] { inspector.Draw(app, &commands); });
+    CHECK(inspector.GetOverrideCount() == 0);
+
+    // 幅と色の r を変えると、選び直したとき(か 30 フレーム後)に、違いが 2 つになる
+    placed->GetComponent<SpriteComponent>()->width = 40.0f;
+    placed->GetComponent<SpriteComponent>()->color.r = 0.5f;
+    inspector.Select(original->GetHandle());
+    imgui.Frame([&] { inspector.Draw(app, &commands); });
+    inspector.Select(placed->GetHandle());
+    imgui.Frame([&] { inspector.Draw(app, &commands); });
+    CHECK(inspector.GetOverrideCount() == 2);
+}
 #endif

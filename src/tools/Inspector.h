@@ -16,6 +16,11 @@
 #include "engine/Application.h"
 #include "tools/PropertyEditRecorder.h"
 
+#include <cstddef>
+#include <string>
+#include <utility> // std::pair
+#include <vector>
+
 namespace husky::tools
 {
     // 型 type のプロパティを、container(その型のオブジェクトか構造体の先頭のアドレス)について、編集できる形で並べる。
@@ -49,12 +54,21 @@ namespace husky::tools
         // 選ぶアクターを決める(テストや、ほかの道具から使う)。どこも指さないハンドルなら、選ばない。
         void Select(core::ObjectHandle actor) { m_selected = actor; }
         core::ObjectHandle GetSelected() const { return m_selected; }
+        // 選んでいるアクターの、プレハブとの違いの数(印の数。確認とテスト用)。
+        std::size_t GetOverrideCount() const { return m_overrides.size(); }
 
     private:
         // 選んでいるアクター。弱い参照(Destroy されたら、引くと nullptr になるので、選んでいないのと同じに扱う)。
         core::ObjectHandle m_selected;
         // 値の書き換えを、property.set の1件にまとめる記録係(ドラッグ中の前の値を覚えておく)。
         PropertyEditRecorder m_recorder;
+
+        // 選んでいるアクターの、プレハブとの違いを作り直す(印を付けるため。Prefab::FindOverrides)。
+        void RefreshOverrides(const engine::Actor& actor);
+        // プレハブとの違いの(コンポーネントの型の名前、道筋)。アクター自身の値なら、型の名前は空。
+        std::vector<std::pair<std::string, std::string>> m_overrides;
+        core::ObjectHandle m_overridesFor; // m_overrides を作ったアクター
+        int m_overridesAge = 0;            // 作ってから経ったフレームの数(30 で作り直す)
     };
 }
 
