@@ -117,11 +117,17 @@ endfunction()
 # 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
 add_library(husky_core STATIC
     src/core/FreeListAllocator.cpp
+    src/core/MemoryTracker.cpp
     src/core/Method.cpp
     src/core/ObjectRegistry.cpp
 )
 husky_set_compile_options(husky_core)
 target_include_directories(husky_core PUBLIC src)
+
+# プログラム全体の operator new / delete の差し替え(core/GlobalOperatorNew.cpp)。
+# 静的ライブラリ(husky_core)には入れず、exe ごとに直接ソースとして入れる。
+# 静的ライブラリの中に置くと、リンカが標準の operator new を先に選んで、差し替えが効かないことがあるため。
+set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperatorNew.cpp")
 
 # --- platform モジュール(静的ライブラリ) ---
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
@@ -241,6 +247,7 @@ target_link_libraries(husky_render
 # src/main.cpp をコンパイルして HuskyEngineV2.exe を作る。
 add_executable(HuskyEngineV2
     src/main.cpp
+    ${HUSKY_GLOBAL_NEW_SOURCE} # すべての new を MemoryTracker に通す
 )
 husky_set_compile_options(HuskyEngineV2)
 husky_copy_asan_runtime(HuskyEngineV2)
@@ -264,6 +271,7 @@ add_custom_command(TARGET HuskyEngineV2 POST_BUILD
 if(HUSKY_BUILD_TESTS)
     add_executable(HuskyTests
         tests/TestMain.cpp
+        ${HUSKY_GLOBAL_NEW_SOURCE} # ゲームと同じく、すべての new を MemoryTracker に通す
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
         tests/engine/SceneTests.cpp
@@ -277,6 +285,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/GarbageCollectionTests.cpp
         tests/core/MethodTests.cpp
         tests/core/FreeListAllocatorTests.cpp
+        tests/core/MemoryTrackerTests.cpp
     )
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)

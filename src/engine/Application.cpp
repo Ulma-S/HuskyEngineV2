@@ -1,6 +1,7 @@
 // Application.h の実装。
 #include "engine/Application.h"
 
+#include "core/MemoryTracker.h"
 #include "engine/SpriteComponent.h"
 #include "platform/Image.h"
 #include "platform/Platform.h"
@@ -106,6 +107,8 @@ namespace husky::engine
         // FPS 表示用の集計(1秒ごとにリセットする)
         int framesThisSecond = 0;
         double secondsThisSecond = 0.0;
+        // 前回のログの時点での、起動からの確保の回数。差を取って「この1秒に何回確保したか」を出す。
+        std::uint64_t totalAllocationsAtLastLog = core::GetMemoryStats().totalAllocations;
 
         // ゲームループ。1周 = 1フレーム。
         while (true)
@@ -128,12 +131,18 @@ namespace husky::engine
             if (secondsThisSecond >= 1.0)
             {
                 const render::FrameStats stats = renderDevice.GetLastFrameStats();
+                const core::MemoryStats memory = core::GetMemoryStats();
                 std::printf("FPS: %d  平均 dt: %.2f ms  スプライト: %d  描画命令: %d 回  描けなかった数: %d"
-                            "  オブジェクト: %zu  直前の GC で回収: %zu\n",
+                            "  オブジェクト: %zu  直前の GC で回収: %zu"
+                            "  ヒープ: %.2f MB(%zu 件、最大 %.2f MB、この1秒の確保 %llu 回)\n",
                             framesThisSecond,
                             secondsThisSecond / framesThisSecond * 1000.0,
                             stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount,
-                            m_registry.GetObjectCount(), m_collectedLastGc);
+                            m_registry.GetObjectCount(), m_collectedLastGc,
+                            static_cast<double>(memory.currentBytes) / (1024.0 * 1024.0), memory.currentCount,
+                            static_cast<double>(memory.peakBytes) / (1024.0 * 1024.0),
+                            static_cast<unsigned long long>(memory.totalAllocations - totalAllocationsAtLastLog));
+                totalAllocationsAtLastLog = memory.totalAllocations;
                 std::fflush(stdout); // 出力を溜めずに、すぐ画面(やファイル)へ書き出す
                 framesThisSecond = 0;
                 secondsThisSecond = 0.0;
