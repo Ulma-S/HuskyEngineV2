@@ -116,6 +116,7 @@
   - スプライトシートを読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。スプライトシートの`texture`はプロパティの`AssetRef`なので、スプライトシートが生きている間は画像も回収されない。アセットの種類を足すときは、ローダの読み込み中の記録(`PendingLoad`の子)と`Start〜`/`Finish〜`を足す。
   - `SpriteComponent`は、`sheet`(`AssetRef<SpriteSheetAsset>`)と`sprite`(切り出しのID)で切り出しを指せる。`sheet`を指していれば、`texture`と`region`より優先する。どれを貼るかは`ChooseSpriteTexture`(GPUを使わない。テストできる)が決める。
   - アニメーションは`SpriteAnimatorComponent`(`animation`(ID)、`playing`、`speed`を保存。経った時間は保存しない)が再生し、同じアクターの`SpriteComponent::sprite`を書き換える(実行順は`PreRender`)。スプライトシートを読み始めるのは描画なので、読めるまでは時間を進めない。スプライト専用で、骨のアニメーションは別の仕組みにする(設計メモ「保留事項と将来拡張」)。
+  - 読み込んだアセットは変わらないデータ(2026-11-13にユーザーと確認)。中身を書くのはローダだけで、読み終わったときの1回だけ(ゲームスレッドで書く)。ゲーム中の変更は、置いたもの(アクターやコンポーネントのメモリ)にだけ入れ、アセットは変えない。エディタがアセットを直すときも、読み込んだアセットをその場で書き換えず、ファイルを書き直して読み直す。
   - プレハブ(PF-1/PF-2、2026-11-13): 「アクター + コンポーネント + 値」の型紙。形はシーンのファイルと同じでアクターが1つ(`engine/Prefab.h`の`Prefab::Write` / `Prefab::Instantiate`。`SceneSerializer`をそのまま使う)。アクターの`guid`は書かない(置くたびに新しく振る)。アクターの外を指すハンドルは null にして警告する。ファイルは`.prefab`(+ `.meta`)で、`AssetLoader::LoadPrefab`が非同期に読み、`PrefabAsset`は値の木(`GetData`)だけを持つ。置いたものとプレハブのつながりは、ユーザーの決定で案 C(Unityと同じく、シーンにはプレハブとの違いだけを保存し、プレハブを直すと置いたものに伝わる。PF-4で作る)。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースの assets に書く)。すでにある`.meta`は作り直さない。
