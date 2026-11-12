@@ -61,6 +61,17 @@ namespace husky::engine
             return actor;
         }
 
+        // このシーンを作ったレジストリ(アクターやコンポーネントもここにある)。レジストリで作っていなければ nullptr。
+        // 保存・読み込み(SceneSerializer)で、ハンドルを引いたりオブジェクトを作ったりするのに使う。
+        // (Object::GetRegistry は protected。同じ名前のメンバーを作ると名前が隠れるので、別の名前にしている)
+        core::ObjectRegistry* GetObjectRegistry() const { return GetRegistry(); }
+
+        // Spawn ではなく、ほかの方法(ファイルからの読み込みなど)で作ったアクターを、一覧の末尾に入れる。
+        // Spawn と同じく、アクターにシーンを覚えさせる。あわせて、アクターの components に並んでいるコンポーネントに、
+        // 持ち主(このアクター)を覚えさせ直す(読み込みでは、持ち主の情報はプロパティではないので、ファイルに入っていないため)。
+        // actor は、このシーンと同じレジストリで作ったもので、まだどのシーンにも入っていないこと。戻り値: 入れられたら true。
+        bool AddLoadedActor(Actor& actor);
+
         // エンジンの入力。ゲームループが SetInput で渡す。渡されていなければ nullptr。
         // アクターやコンポーネントは GetScene()->GetInput() で読む(自分で Input を持ったり、配られたりしない)。
         const Input* GetInput() const { return m_input; }

@@ -175,6 +175,7 @@ add_library(husky_engine STATIC
     src/engine/JsonFormat.cpp
     src/engine/ObjectSerializer.cpp
     src/engine/Scene.cpp
+    src/engine/SceneSerializer.cpp
     src/engine/SpriteComponent.cpp
 )
 husky_set_compile_options(husky_engine)
@@ -299,6 +300,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ApplicationTests.cpp
         tests/engine/JsonFormatTests.cpp
         tests/engine/ObjectSerializerTests.cpp
+        tests/engine/SceneSerializerTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp

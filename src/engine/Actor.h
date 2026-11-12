@@ -91,6 +91,10 @@ namespace husky::engine
         // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
         friend class Scene;
 
+        // components に並んでいる全コンポーネントに、持ち主(このアクター)を覚えさせ直す。
+        // ファイルから読み込んだときに、Scene::AddLoadedActor が呼ぶ。
+        void RelinkComponentOwners();
+
         // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、Scene が呼ぶ。
         void DestroyComponents();
 

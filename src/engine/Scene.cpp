@@ -70,6 +70,24 @@ namespace husky::engine
         }
     }
 
+    bool Scene::AddLoadedActor(Actor& actor)
+    {
+        core::ObjectRegistry* registry = GetRegistry();
+        // 同じレジストリのものでなければ、ハンドルが別の表を指してしまうので入れない。
+        if (registry == nullptr || registry->Resolve<Actor>(actor.GetHandle()) != &actor)
+        {
+            return false;
+        }
+        if (!actor.m_scene.IsNull()) // もうどこかのシーンにいる
+        {
+            return false;
+        }
+        actor.m_scene = GetHandle();
+        actor.RelinkComponentOwners();
+        actors.push_back(actor.GetHandle());
+        return true;
+    }
+
     std::size_t Scene::RemoveDestroyedActors()
     {
         // 先にコンポーネントを片付ける。

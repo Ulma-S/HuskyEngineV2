@@ -8,9 +8,10 @@
 //     "properties": { "name": "...", "hp": 10 }     ← 親クラスのプロパティから順に
 //   }
 //
-// 今はハンドルのプロパティ(ObjectHandle、std::vector<ObjectHandle>)は書かず、読み込みでも飛ばす。
-// ハンドルの値(番号と世代)は、そのときのメモリの状態でしか意味が無いので、ファイルにそのまま書いても役に立たない。
-// シーン全体を保存するとき(J-3)に、「ファイルの中の番号」に置き換えて扱う。
+// ハンドルのプロパティ(ObjectHandle、std::vector<ObjectHandle>)の値(表の場所と世代)は、そのときのメモリの状態でしか
+// 意味が無いので、ファイルにそのまま書いても役に立たない。そこで、呼ぶ側(SceneSerializer)が
+// 「ハンドル ⇄ ファイルの中の番号」の対応(HandleToId / IdToHandle)を渡したときだけ、番号に置き換えて読み書きする。
+// 対応を渡さなければ、ハンドルは書かず、読み込みでも飛ばす。
 //
 // 使い方:
 //   ArchiveValue saved = ObjectSerializer::Write(*enemy);
@@ -25,13 +26,22 @@
 #include "engine/ArchiveValue.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace husky::engine::ObjectSerializer
 {
-    // object の型の名前と、値のプロパティ(ハンドル以外)を書き出す。
-    ArchiveValue Write(const core::Object& object);
+    // ハンドル → ファイルの中の番号。番号が無い(保存しない相手)なら負の数を返す。
+    // std::function: 関数(ラムダ式も)を入れておける型。C# の Func<ObjectHandle, long> にあたる。
+    using HandleToId = std::function<std::int64_t(core::ObjectHandle)>;
+    // ファイルの中の番号 → ハンドル。知らない番号なら、どこも指さないハンドル(IsNull)を返す。
+    using IdToHandle = std::function<core::ObjectHandle(std::int64_t)>;
+
+    // object の型の名前と、プロパティを書き出す。
+    // toId を渡すと、ハンドルのプロパティも番号で書く(相手に番号が無ければ null)。渡さなければ、ハンドルは書かない。
+    ArchiveValue Write(const core::Object& object, const HandleToId& toId = {});
 
     // ReadProperties の結果。
     struct ReadReport
@@ -44,5 +54,6 @@ namespace husky::engine::ObjectSerializer
     //   - value に無いプロパティは、今の値のまま(ファイルが古くて、後から足したプロパティが無い場合など)
     //   - object に無い名前や、型が合わない値は、飛ばして warnings に理由を残す(途中で止めない)
     //   - "type" が object の型と違っても、名前が合うものは読み込み、warnings に残す
-    ReadReport ReadProperties(const ArchiveValue& value, core::Object& object);
+    //   - toHandle を渡すと、ハンドルのプロパティも番号から読む(null はどこも指さないハンドル)。渡さなければ、飛ばして warnings に残す
+    ReadReport ReadProperties(const ArchiveValue& value, core::Object& object, const IdToHandle& toHandle = {});
 }

@@ -19,6 +19,20 @@ namespace husky::engine
         return registry != nullptr ? registry->Resolve<Scene>(m_scene) : nullptr;
     }
 
+    void Actor::RelinkComponentOwners()
+    {
+        for (const core::ObjectHandle handle : components)
+        {
+            if (Component* component = ResolveComponent<Component>(handle))
+            {
+                // Component の m_owner は private だが、Actor は Component の friend なので書ける。
+                // Component& として書くのは、AddComponent と同じく、名前の隠蔽を避けるため。
+                Component& base = *component;
+                base.m_owner = GetHandle();
+            }
+        }
+    }
+
     void Actor::DestroyComponents()
     {
         for (const core::ObjectHandle handle : components)
