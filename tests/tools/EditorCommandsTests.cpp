@@ -855,6 +855,75 @@ TEST_CASE("EditorCommands: prefab.overrides はプレハブとの違いを並べ
     CHECK(sprite->width == 24.0f);
 }
 
+TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.restore)で同じ guid・プレハブとの違いのまま作り直す")
+{
+    husky::tests::TestFolder folder("husky_test_actor_destroy");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    // プレハブから置き、幅だけを変える(プレハブとの違いが1つある)
+    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    original->name = "Coin";
+    original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+    const EditorCommandResult spawned =
+        commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab", "x": 7, "y": 0})"));
+    REQUIRE(spawned.succeeded);
+    const std::string guidText = spawned.data.Find("guid")->AsString();
+    husky::core::Guid guid;
+    REQUIRE(husky::core::Guid::Parse(guidText, guid));
+    const std::string actorArg = "{\"actor\": \"" + guidText + "\"}";
+    REQUIRE(commands.Execute("property.set", app, Json(("{\"actor\": \"" + guidText +
+                                                        R"(", "component": "SpriteComponent", "property": "width", "value": 30})")
+                                                           .c_str()))
+                .succeeded);
+
+    // --- 消す: Destroy の印が付き、guid では見つからなくなる。フレームの終わりで一覧から外れる ---
+    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(placed != nullptr);
+    REQUIRE(commands.Execute("actor.destroy", app, Json(actorArg.c_str())).succeeded);
+    CHECK(placed->IsPendingDestroy());
+    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
+    CHECK_FALSE(commands.Execute("actor.destroy", app, Json(actorArg.c_str())).succeeded); // もういない
+    app.GetScene().RemoveDestroyedActors();
+    app.GetRegistry().FlushDestroyed();
+
+    // --- Undo: 同じ guid で戻る。プレハブとのつながり、違い(幅 30)、プレハブの値、位置もそのまま ---
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    husky::engine::Actor* restored = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(restored != nullptr);
+    CHECK(restored->name == "Coin");
+    CHECK(restored->transform.position.x == 7.0f);
+    CHECK_FALSE(restored->prefab.guid.IsNull());
+    CHECK_FALSE(restored->prefab.asset.IsNull());
+    husky::engine::SpriteComponent* sprite = restored->GetComponent<husky::engine::SpriteComponent>();
+    REQUIRE(sprite != nullptr);
+    CHECK(sprite->width == 30.0f);
+    CHECK(sprite->GetOwner() == restored);
+
+    // 生きているものと同じ guid では戻せない(guid が振り直されて履歴と食い違うので、先に断る)
+    const EditorCommandResult twice = commands.Execute("actor.destroy", app, Json(actorArg.c_str()));
+    REQUIRE(twice.succeeded);
+    REQUIRE(commands.Execute("actor.restore", app, twice.undo.args).succeeded);
+    CHECK_FALSE(commands.Execute("actor.restore", app, twice.undo.args).succeeded);
+    CHECK_FALSE(commands.Execute("actor.restore", app, Json(R"({"data": {"objects": [], "actors": []}})")).succeeded);
+
+    // --- Redo / Undo を続けても、同じ guid のアクターが消えたり戻ったりする ---
+    REQUIRE(commands.Execute("editor.undo", app).succeeded); // actor.restore を戻す = 消す
+    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(app.GetScene().FindActorByGuid(guid) != nullptr);
+}
+
 TEST_CASE("EditorCommands: property.setMany はまとめて書き換え、1つでも書けなければ何も変えない")
 {
     Application app;

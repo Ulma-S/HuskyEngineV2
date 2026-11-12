@@ -81,6 +81,13 @@ int main()
     tools::EditorCommand spawnActor = tools::MakeSpawnActorCommand();
     spawnActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(spawnActor));
+    // 消す(actor.destroy)と、その Undo で使う戻す(actor.restore)。置くと同じく、編集中だけ。
+    tools::EditorCommand destroyActor = tools::MakeDestroyActorCommand();
+    destroyActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(destroyActor));
+    tools::EditorCommand restoreActor = tools::MakeRestoreActorCommand();
+    restoreActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(restoreActor));
     // 選んだアクターからプレハブを作る(prefab.create)。ソースの assets に書く。再生中の値を写さないよう、編集中だけ。
     tools::EditorCommand createPrefab = tools::MakeCreatePrefabCommand(assetsDirectory);
     createPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };

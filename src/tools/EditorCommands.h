@@ -293,6 +293,17 @@ namespace husky::tools
     // 1つでも書けなければ、何も変えずに失敗する。Undo は、前の値での property.setMany(prefab.revert の Undo にも使う)。
     EditorCommand MakeSetManyPropertiesCommand();
 
+    // 「アクターを消す」コマンド(actor.destroy)を作る。引数: actor(名前か guid)。アクターに Destroy の印を付ける
+    // (フレームの終わりに、コンポーネントと一緒に消える)。消す前に、シーンのファイルと同じ形でアクター1体を控え、
+    // Undo は、その控えでの actor.restore(同じ guid で作り直す)。ほかのアクターからの参照(カメラの追う相手など)は、
+    // 戻してもつながり直らない(今の制限)。
+    EditorCommand MakeDestroyActorCommand();
+
+    // 「アクターを戻す」コマンド(actor.restore)を作る。引数: data(actor.destroy が控えた、アクター1体のシーンの形)。
+    // シーンを読むときと同じ道具(SceneSerializer::Read)で、同じ guid のアクターを一覧の末尾に作る。プレハブから置いたものは、
+    // プレハブから作ってから違いを重ねる。同じ guid のアクターが生きていれば断る。ふつうは editor.undo から呼ばれる。
+    EditorCommand MakeRestoreActorCommand();
+
     // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
     // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
     EditorCommand MakeListOverridesCommand();

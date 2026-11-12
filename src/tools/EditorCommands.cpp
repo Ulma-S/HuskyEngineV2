@@ -10,6 +10,7 @@
 #include "platform/FileSystem.h"    // prefab.create: ファイルを書く
 #include "engine/JsonFormat.h"       // property.set: 値を人に見せる
 #include "engine/ObjectSerializer.h" // property.set: 値の確かめと書き込み
+#include "engine/SceneSerializer.h"  // actor.destroy / actor.restore: アクター1体を控える・作り直す
 #include "engine/AssetDatabase.h"   // CreateMissingMetaFiles、Scan
 #include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
 
@@ -1139,6 +1140,141 @@ namespace husky::tools
                 EditorCommandResult::Success("Set " + std::to_string(values.GetArraySize()) + " value(s) of " + who);
             result.undo = MakeSetManyCall(*actor, olds);
             result.redo = MakeSetManyCall(*actor, values);
+            return result;
+        };
+        return command;
+    }
+
+    namespace
+    {
+        // actor.destroy の呼び出し(actor.restore の Undo、actor.destroy の Redo 用)。アクターは guid で指す。
+        EditorCommandCall MakeDestroyCall(const core::Guid& guid)
+        {
+            EditorCommandCall call;
+            call.name = "actor.destroy";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("actor", engine::ArchiveValue(guid.ToString()));
+            return call;
+        }
+
+        // actor.restore の呼び出し(actor.destroy の Undo、actor.restore の Redo 用)。data は控えたアクター1体。
+        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data)
+        {
+            EditorCommandCall call;
+            call.name = "actor.restore";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("data", data);
+            return call;
+        }
+
+        // 控え(シーンのファイルと同じ形、アクター1体)から、そのアクターの guid を読む。
+        // 形: {"objects": [{"id": 0, "properties": {"guid": "..."}}, ...], "actors": [0]}。読めなければ false。
+        bool ReadSavedActorGuid(const engine::ArchiveValue& data, core::Guid& out)
+        {
+            const engine::ArchiveValue* actors = data.Find("actors");
+            const engine::ArchiveValue* objects = data.Find("objects");
+            if (actors == nullptr || objects == nullptr || actors->GetType() != engine::ArchiveValue::Type::Array ||
+                objects->GetType() != engine::ArchiveValue::Type::Array || actors->GetArraySize() != 1)
+            {
+                return false;
+            }
+            const std::int64_t id = actors->At(0).AsInt(-1);
+            for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
+            {
+                const engine::ArchiveValue& object = objects->At(i);
+                const engine::ArchiveValue* objectId = object.Find("id");
+                if (objectId == nullptr || objectId->AsInt(-1) != id)
+                {
+                    continue;
+                }
+                const engine::ArchiveValue* properties = object.Find("properties");
+                const engine::ArchiveValue* guid = properties != nullptr ? properties->Find("guid") : nullptr;
+                return guid != nullptr && guid->GetType() == engine::ArchiveValue::Type::String &&
+                       core::Guid::Parse(guid->AsString(), out);
+            }
+            return false;
+        }
+    }
+
+    EditorCommand MakeDestroyActorCommand()
+    {
+        EditorCommand command;
+        command.name = "actor.destroy";
+        command.label = "Destroy actor";
+        command.description = "Remove an actor (and its components) from the scene. "
+                              "The actor can be given by name (if unique) or by guid. Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
+        actorArg.choices = ActorChoices;
+        command.args = {actorArg};
+        command.execute = [](EditorCommandContext& context) {
+            engine::Scene& scene = context.app.GetScene();
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            // 消す前に、シーンのファイルと同じ形で控える(guid、プレハブとの違い、コンポーネントが入る)。
+            // Undo はこの控えを actor.restore に渡し、同じ guid のアクターを作り直す。
+            engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::WriteActors(scene, {actor});
+            const std::string who = DescribeActor(*actor);
+            const core::Guid guid = actor->guid;
+            actor->Destroy(); // フレームの終わりに一覧から外れる(コンポーネントもそのときに消える)
+            EditorCommandResult result = EditorCommandResult::Success("Destroyed " + who);
+            // 外を指すハンドル(カメラの追う相手など)は控えに入らない。戻しても null になることを人に知らせる。
+            result.details = std::move(saved.warnings);
+            result.undo = MakeRestoreCall(saved.value);
+            result.redo = MakeDestroyCall(guid);
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeRestoreActorCommand()
+    {
+        EditorCommand command;
+        command.name = "actor.restore";
+        command.label = "Restore actor";
+        command.description = "Put back an actor saved by actor.destroy (used by editor.undo), with the same guid. "
+                              "The actor is added at the end of the scene list.";
+        command.modifiesScene = true;
+        command.args = {
+            {"data", EditorArgType::Any,
+             "One actor in the same form as a scene file ({\"objects\": [...], \"actors\": [id]}), with its guid", true},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            engine::Scene& scene = context.app.GetScene();
+            const engine::ArchiveValue& data = *context.args.Find("data");
+            core::Guid guid;
+            if (!ReadSavedActorGuid(data, guid))
+            {
+                return EditorCommandResult::Failure("\"data\" is not one saved actor with a guid");
+            }
+            // 同じ guid が生きていれば、読み込みが guid を振り直してしまい、Undo の履歴の guid と食い違う。先に断る。
+            if (engine::Actor* alive = scene.FindActorByGuid(guid))
+            {
+                return EditorCommandResult::Failure("The actor is already in the scene: " + DescribeActor(*alive));
+            }
+            // シーンを読むときと同じ道具で作る。プレハブから置いたものは、プレハブから作ってから違いを重ねる。
+            // プレハブの探し方はシーンのファイルを読むときと同じ(Application::FindPrefabForScene)。
+            engine::Application& app = context.app;
+            engine::SceneSerializer::ReadReport report = engine::SceneSerializer::Read(
+                data, scene, app.GetTypeRegistry(),
+                [&app](const core::Guid& prefabGuid) { return app.FindPrefabForScene(prefabGuid); });
+            engine::Actor* actor = scene.FindActorByGuid(guid);
+            if (report.addedActorCount != 1 || actor == nullptr)
+            {
+                EditorCommandResult failed = EditorCommandResult::Failure("Could not restore the actor");
+                failed.details = std::move(report.warnings);
+                return failed;
+            }
+            EditorCommandResult result = EditorCommandResult::Success("Restored " + DescribeActor(*actor));
+            result.details = std::move(report.warnings);
+            result.undo = MakeDestroyCall(guid);
+            result.redo = MakeRestoreCall(data);
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
             return result;
         };
         return command;
