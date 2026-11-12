@@ -91,6 +91,8 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - 公開するのは`RenderDevice`と、エンジン独自の型(`Texture`、`Buffer`、`Pipeline`など)だけ。SDL_GPUの型は、描画層の実装の外に出さない。
 - ゲーム側は描画コマンドを積むだけにする。GPUの呼び出しは描画層だけが行う。
 - GPUリソースは世代付きハンドルで管理し、解放は数フレーム遅らせる。
+  - テクスチャ: `RenderDevice::CreateTexture`で作り、`TextureHandle`(`core::Handle<render::Texture>`。中身は`RenderDevice.cpp`の中だけで定義)で指す。`ReleaseTexture`でハンドルはすぐ無効になり、GPUのメモリは`DeferredReleaseQueue`で3フレーム後に解放する。何も指さない、または手放されたハンドルは白い板として描く。
+  - 描画命令は、同じテクスチャが続く区間ごとに1回(`SpriteBatch`)。積んだ順(奥から手前)は変えない。
 
 ## 禁止事項
 

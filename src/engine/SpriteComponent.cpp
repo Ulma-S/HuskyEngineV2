@@ -3,8 +3,15 @@
 
 namespace husky::engine
 {
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice)
+    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, render::TextureHandle defaultTexture)
     {
-        ForEachSprite(scene, [&](const render::Sprite& sprite) { renderDevice.DrawSprite(sprite); });
+        // render::Sprite sprite は、ForEachSprite が渡したものの写し(値渡し)。書き換えても元のコンポーネントは変わらない。
+        ForEachSprite(scene, [&](render::Sprite sprite) {
+            if (sprite.texture.IsNull())
+            {
+                sprite.texture = defaultTexture;
+            }
+            renderDevice.DrawSprite(sprite);
+        });
     }
 }

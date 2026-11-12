@@ -1,7 +1,10 @@
 // RenderDevice.h の SDL_GPU による実装。ここでは SDL を直接呼んでよい。
 #include "render/RenderDevice.h"
 
+#include "core/HandleTable.h"
 #include "platform/Image.h"
+#include "render/DeferredReleaseQueue.h"
+#include "render/SpriteBatch.h"
 #include "platform/Window.h"
 
 #include <SDL3/SDL.h>
@@ -28,6 +31,15 @@
 
 namespace husky::render
 {
+    // RenderDevice.h で前方宣言した Texture の中身。SDL_GPU の型を持つので、このファイルの中でだけ定義する。
+    // 外からは TextureHandle でしか指せないので、SDL_GPU の型が描画層の外に出ることはない。
+    struct Texture
+    {
+        SDL_GPUTexture* gpuTexture = nullptr; // 持ち主はこの Texture(手放すときに解放の待ち行列へ渡す)
+        Uint32 width = 0;
+        Uint32 height = 0;
+    };
+
     namespace
     {
         // 頂点1つ分のデータ。Sprite.vert.hlsl の VertexInput と、並び・型を一致させる。
@@ -115,8 +127,14 @@ namespace husky::render
         SDL_GPUBuffer* spriteVertexBuffer = nullptr;          // 全スプライトの頂点(毎フレーム書き換える)
         SDL_GPUBuffer* spriteIndexBuffer = nullptr;           // 全スプライトのインデックス(起動時に1回だけ書く)
         SDL_GPUTransferBuffer* spriteTransferBuffer = nullptr; // 頂点を GPU に送るための受け渡し場所
-        SDL_GPUTexture* testTexture = nullptr;                // スプライトに貼るテクスチャ(今は1枚だけ)
         SDL_GPUSampler* pointSampler = nullptr;               // テクスチャの読み方(最近傍、ぼかさない)
+
+        // テクスチャ。ハンドルの表(HandleTable)に入れ、外には TextureHandle だけを渡す。
+        core::HandleTable<Texture> textures;
+        TextureHandle whiteTexture; // 1x1 の白。テクスチャ無しのスプライトに貼る(起動時に作り、表にも入れる)
+        // 手放したテクスチャの、解放の待ち行列。frameNumber は BeginFrame のたびに 1 増える、フレームの番号。
+        DeferredReleaseQueue<SDL_GPUTexture*> pendingReleases;
+        std::uint64_t frameNumber = 0;
 
         // 1フレームの間だけ使うもの。BeginFrame で用意し、EndFrame で手放す。
         SDL_GPUCommandBuffer* commandBuffer = nullptr; // GPU への命令を溜める入れ物
@@ -125,6 +143,7 @@ namespace husky::render
         Uint32 screenHeight = 0;
         Color clearColor;                              // 画面を最初に塗りつぶす色
         std::vector<Vertex> vertices;                  // DrawSprite で溜めた頂点(CPU 側)
+        std::vector<SpriteBatch> batches;              // 同じテクスチャが続く区間(1区間 = 描画命令1回)
         int droppedSpriteCount = 0;                    // 上限を超えて描けなかった数
 
         FrameStats lastFrameStats; // 直前のフレームの集計
@@ -139,6 +158,7 @@ namespace husky::render
         bool CreateSpritePipeline();
         bool CreateSpriteBuffers();
         bool CreateSampler();
+        SDL_GPUTexture* CreateGpuTexture(const platform::Image& image);
         void UploadVertices(Uint32 bytes);
         void ResetFrame();
 
@@ -157,10 +177,12 @@ namespace husky::render
                 {
                     SDL_ReleaseGPUSampler(device, pointSampler);
                 }
-                if (testTexture != nullptr)
-                {
-                    SDL_ReleaseGPUTexture(device, testTexture);
-                }
+                // GPU は止まっているので、待たずにすべて解放してよい。
+                // 解放を待っているテクスチャと、まだ手放されていないテクスチャ(白いテクスチャも含む)。
+                pendingReleases.ReleaseAll([this](SDL_GPUTexture* texture) { SDL_ReleaseGPUTexture(device, texture); });
+                textures.ForEach([this](TextureHandle, Texture& texture) {
+                    SDL_ReleaseGPUTexture(device, texture.gpuTexture);
+                });
                 if (spriteTransferBuffer != nullptr)
                 {
                     SDL_ReleaseGPUTransferBuffer(device, spriteTransferBuffer);
@@ -474,6 +496,7 @@ namespace husky::render
         commandBuffer = nullptr;
         swapchainTexture = nullptr;
         vertices.clear(); // 中身だけ消す。確保したメモリは残るので、次のフレームで再確保しない
+        batches.clear();
         droppedSpriteCount = 0;
     }
 
@@ -482,6 +505,8 @@ namespace husky::render
     {
         // 上限いっぱいの頂点が入る大きさを、最初に確保しておく(毎フレームのメモリ確保を避ける)。
         m_impl->vertices.reserve(MaxSprites * VerticesPerSprite);
+        // 区間の数は、最も多くてもスプライトの数(1枚ごとにテクスチャが変わる場合)。同じく最初に確保しておく。
+        m_impl->batches.reserve(MaxSprites);
     }
 
     // = default は「コンパイラが作る標準の処理でよい」という意味。m_impl の破棄から ~Impl が呼ばれる。
@@ -538,6 +563,18 @@ namespace husky::render
         {
             return false;
         }
+
+        // テクスチャ無しのスプライトに貼る、1x1 の白いテクスチャ。シェーダは「テクスチャの色 × スプライトの色」なので、
+        // 白を貼ると、スプライトの色そのままの板になる(シェーダを分けずに済む)。
+        platform::Image white;
+        white.width = 1;
+        white.height = 1;
+        white.pixels = {255, 255, 255, 255};
+        m_impl->whiteTexture = CreateTexture(white);
+        if (m_impl->whiteTexture.IsNull())
+        {
+            return false;
+        }
 #if HUSKY_DEVELOPMENT
         // 開発用の UI は、用意できなくてもゲームは動かせるので、失敗してもログを出すだけにする。
         if (!m_impl->InitializeDevUi())
@@ -548,20 +585,15 @@ namespace husky::render
         return true;
     }
 
-    bool RenderDevice::LoadTestTexture(const platform::Image& image)
+    SDL_GPUTexture* RenderDevice::Impl::CreateGpuTexture(const platform::Image& image)
     {
-        if (m_impl->testTexture != nullptr)
-        {
-            SDL_Log("RenderDevice::LoadTestTexture: すでに読み込まれています");
-            return false;
-        }
         const Uint32 width = static_cast<Uint32>(image.width);
         const Uint32 height = static_cast<Uint32>(image.height);
         const Uint32 bytes = width * height * 4;
-        if (width == 0 || height == 0 || image.pixels.size() != bytes)
+        if (image.width <= 0 || image.height <= 0 || image.pixels.size() != bytes)
         {
-            SDL_Log("RenderDevice::LoadTestTexture: 画像の大きさが不正です");
-            return false;
+            SDL_Log("CreateTexture: 画像の大きさが不正です");
+            return nullptr;
         }
 
         // 1. GPU のメモリにテクスチャを作る(中身は空)。
@@ -573,40 +605,45 @@ namespace husky::render
         textureInfo.height = height;
         textureInfo.layer_count_or_depth = 1;
         textureInfo.num_levels = 1; // ミップマップ(縮小版)は作らない
-        m_impl->testTexture = SDL_CreateGPUTexture(m_impl->device, &textureInfo);
-        if (m_impl->testTexture == nullptr)
+        SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureInfo);
+        if (texture == nullptr)
         {
             SDL_Log("SDL_CreateGPUTexture に失敗しました: %s", SDL_GetError());
-            return false;
+            return nullptr;
         }
 
         // 2〜4. 頂点バッファと同じく、転送用バッファ → コピーパス の順で GPU に送る。
         SDL_GPUTransferBufferCreateInfo transferInfo{};
         transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
         transferInfo.size = bytes;
-        SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_impl->device, &transferInfo);
+        SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
         if (transferBuffer == nullptr)
         {
             SDL_Log("SDL_CreateGPUTransferBuffer に失敗しました: %s", SDL_GetError());
-            return false;
+            SDL_ReleaseGPUTexture(device, texture);
+            return nullptr;
         }
 
-        void* mapped = SDL_MapGPUTransferBuffer(m_impl->device, transferBuffer, false);
+        void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
         if (mapped == nullptr)
         {
             SDL_Log("SDL_MapGPUTransferBuffer に失敗しました: %s", SDL_GetError());
-            SDL_ReleaseGPUTransferBuffer(m_impl->device, transferBuffer);
-            return false;
+            SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+            SDL_ReleaseGPUTexture(device, texture);
+            return nullptr;
         }
         std::memcpy(mapped, image.pixels.data(), bytes);
-        SDL_UnmapGPUTransferBuffer(m_impl->device, transferBuffer);
+        SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
-        SDL_GPUCommandBuffer* uploadCommands = SDL_AcquireGPUCommandBuffer(m_impl->device);
+        // フレームの途中で呼ばれても、そのフレームの命令とは混ぜず、別の入れ物(コマンドバッファ)で送る。
+        // GPU は提出された順に実行するので、このフレームの描画より先にテクスチャの中身が届く。
+        SDL_GPUCommandBuffer* uploadCommands = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommands == nullptr)
         {
             SDL_Log("SDL_AcquireGPUCommandBuffer に失敗しました: %s", SDL_GetError());
-            SDL_ReleaseGPUTransferBuffer(m_impl->device, transferBuffer);
-            return false;
+            SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+            SDL_ReleaseGPUTexture(device, texture);
+            return nullptr;
         }
         SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(uploadCommands);
 
@@ -615,7 +652,7 @@ namespace husky::render
         source.pixels_per_row = width; // 1行のピクセル数(行の間に隙間がないので幅と同じ)
 
         SDL_GPUTextureRegion destination{};
-        destination.texture = m_impl->testTexture;
+        destination.texture = texture;
         destination.w = width;
         destination.h = height;
         destination.d = 1;
@@ -623,14 +660,72 @@ namespace husky::render
         SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
         SDL_EndGPUCopyPass(copyPass);
         SDL_SubmitGPUCommandBuffer(uploadCommands);
-        SDL_ReleaseGPUTransferBuffer(m_impl->device, transferBuffer);
-        return true;
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+        return texture;
+    }
+
+    TextureHandle RenderDevice::CreateTexture(const platform::Image& image)
+    {
+        if (m_impl->device == nullptr)
+        {
+            SDL_Log("RenderDevice::CreateTexture: まだ初期化されていません");
+            return {};
+        }
+        SDL_GPUTexture* gpuTexture = m_impl->CreateGpuTexture(image);
+        if (gpuTexture == nullptr)
+        {
+            return {}; // {} は何も指さないハンドル
+        }
+        Texture texture;
+        texture.gpuTexture = gpuTexture;
+        texture.width = static_cast<Uint32>(image.width);
+        texture.height = static_cast<Uint32>(image.height);
+        return m_impl->textures.Add(texture);
+    }
+
+    void RenderDevice::ReleaseTexture(TextureHandle texture)
+    {
+        if (texture == m_impl->whiteTexture)
+        {
+            return; // 中で使う白いテクスチャは、終了まで手放さない
+        }
+        const Texture* found = m_impl->textures.Get(texture);
+        if (found == nullptr)
+        {
+            return; // すでに手放した、または何も指さない
+        }
+        // GPU のテクスチャは、解放の待ち行列へ。ハンドルの表からはすぐ外す(世代が進み、古いハンドルは無効になる)。
+        m_impl->pendingReleases.Push(found->gpuTexture, m_impl->frameNumber);
+        m_impl->textures.Remove(texture);
+    }
+
+    bool RenderDevice::IsTextureAlive(TextureHandle texture) const
+    {
+        return texture != m_impl->whiteTexture && m_impl->textures.Contains(texture);
+    }
+
+    std::size_t RenderDevice::GetTextureCount() const
+    {
+        const std::size_t whiteCount = m_impl->textures.Contains(m_impl->whiteTexture) ? 1 : 0;
+        return m_impl->textures.Size() - whiteCount;
+    }
+
+    std::size_t RenderDevice::GetPendingReleaseCount() const
+    {
+        return m_impl->pendingReleases.Size();
     }
 
     bool RenderDevice::BeginFrame(const Color& clearColor)
     {
         m_impl->ResetFrame();
         m_impl->clearColor = clearColor;
+
+        // 0. フレームの番号を進め、手放してから十分に経ったテクスチャを、本当に解放する。
+        //    描けないフレーム(最小化など)でも GPU は進むので、描けるかどうかに関係なく、ここで数える。
+        ++m_impl->frameNumber;
+        m_impl->pendingReleases.ReleaseReady(m_impl->frameNumber, [this](SDL_GPUTexture* texture) {
+            SDL_ReleaseGPUTexture(m_impl->device, texture);
+        });
 
         // 1. GPU への命令を溜める入れ物を用意する。
         m_impl->commandBuffer = SDL_AcquireGPUCommandBuffer(m_impl->device);
@@ -682,6 +777,10 @@ namespace husky::render
         const float bottom = sprite.y + sprite.height;
         const Color& c = sprite.color;
 
+        // どのテクスチャで描くかを、区間(バッチ)に記録する。ハンドルのまま覚えておき、EndFrame で中身を引く。
+        const auto spriteIndex = static_cast<std::uint32_t>(m_impl->vertices.size() / VerticesPerSprite);
+        AddSpriteToBatches(m_impl->batches, sprite.texture, spriteIndex);
+
         // push_back は vector の末尾に1つ足す(C# の List.Add)。
         m_impl->vertices.push_back({left,  top,    0.0f, 0.0f, c.r, c.g, c.b, c.a}); // 0: 左上
         m_impl->vertices.push_back({right, top,    1.0f, 0.0f, c.r, c.g, c.b, c.a}); // 1: 右上
@@ -725,7 +824,7 @@ namespace husky::render
 #endif
 
         const Uint32 spriteCount = static_cast<Uint32>(m_impl->vertices.size()) / VerticesPerSprite;
-        const bool canDraw = spriteCount > 0 && m_impl->testTexture != nullptr;
+        const bool canDraw = spriteCount > 0;
 
         // 1. 溜めた頂点を、まとめて GPU に送る(描画パスの前に、コピーパスで)。
         if (canDraw)
@@ -752,7 +851,7 @@ namespace husky::render
         {
             if (canDraw)
             {
-                // 3. 全スプライトを、1回の描画命令で描く。
+                // 3. 全スプライトで共通のもの(パイプライン、頂点とインデックスのバッファ、画面の大きさ)を1回だけ渡す。
                 SDL_BindGPUGraphicsPipeline(renderPass, m_impl->spritePipeline);
 
                 SDL_GPUBufferBinding vertexBinding{};
@@ -763,12 +862,6 @@ namespace husky::render
                 indexBinding.buffer = m_impl->spriteIndexBuffer;
                 SDL_BindGPUIndexBuffer(renderPass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
-                // ピクセルシェーダの 0 番に、テクスチャとサンプラーの組を渡す。
-                SDL_GPUTextureSamplerBinding textureBinding{};
-                textureBinding.texture = m_impl->testTexture;
-                textureBinding.sampler = m_impl->pointSampler;
-                SDL_BindGPUFragmentSamplers(renderPass, 0, &textureBinding, 1);
-
                 // 画面の大きさを、頂点シェーダの 0 番の cbuffer に渡す。
                 const FrameUniforms uniforms = {
                     static_cast<float>(m_impl->screenWidth), static_cast<float>(m_impl->screenHeight),
@@ -776,9 +869,30 @@ namespace husky::render
                 };
                 SDL_PushGPUVertexUniformData(m_impl->commandBuffer, 0, &uniforms, sizeof(uniforms));
 
-                // インデックス (スプライト数 × 6) 個、インスタンス1つで描く。これが唯一の描画命令。
-                SDL_DrawGPUIndexedPrimitives(renderPass, spriteCount * IndicesPerSprite, 1, 0, 0, 0);
-                ++drawCallCount;
+                // 4. 区間(同じテクスチャが続くスプライト)ごとに、テクスチャを渡して1回描く。
+                const Texture* white = m_impl->textures.Get(m_impl->whiteTexture);
+                for (const SpriteBatch& batch : m_impl->batches)
+                {
+                    // ハンドルから中身を引く。何も指さない、または手放された後なら、白いテクスチャを使う。
+                    const Texture* texture = m_impl->textures.Get(batch.texture);
+                    if (texture == nullptr)
+                    {
+                        texture = white;
+                    }
+
+                    // ピクセルシェーダの 0 番に、テクスチャとサンプラーの組を渡す。
+                    SDL_GPUTextureSamplerBinding textureBinding{};
+                    textureBinding.texture = texture->gpuTexture;
+                    textureBinding.sampler = m_impl->pointSampler;
+                    SDL_BindGPUFragmentSamplers(renderPass, 0, &textureBinding, 1);
+
+                    // インデックスのうち、この区間の分だけを描く。
+                    //   第2引数: 描くインデックスの数(スプライト数 × 6)
+                    //   第4引数: インデックスバッファの何番目から読むか(区間の最初のスプライト × 6)
+                    SDL_DrawGPUIndexedPrimitives(renderPass, batch.spriteCount * IndicesPerSprite, 1,
+                                                 batch.firstSprite * IndicesPerSprite, 0, 0);
+                    ++drawCallCount;
+                }
             }
 #if HUSKY_DEVELOPMENT
             // 開発用の UI を、スプライトの後に(手前に)描く。描画命令の数(drawCallCount)には数えない。

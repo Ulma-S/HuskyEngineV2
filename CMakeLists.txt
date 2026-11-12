@@ -299,11 +299,12 @@ target_include_directories(husky_render PUBLIC src)
 # 生成したシェーダのヘッダを #include "shaders/Sprite.vert.dxil.h" のように読めるようにする。
 # render の中だけで使うので PRIVATE。
 target_include_directories(husky_render PRIVATE "${HUSKY_SHADER_OUTPUT_DIR}")
-# RenderDevice.h は platform::Window を使うので platform は PUBLIC。SDL3 は外に出さないので PRIVATE。
+# RenderDevice.h は platform::Window と core::Handle(TextureHandle)を使うので、platform と core は PUBLIC。
+# SDL3 は外に出さないので PRIVATE。
 target_link_libraries(husky_render
     PUBLIC  husky_platform
+            husky_core
     PRIVATE SDL3::SDL3
-            husky_core # ImGui のメモリを MemoryTracker に通すため
             # 開発ビルドだけ、ImGui をつなぐ(ジェネレータ式: Debug のときだけ husky_imgui になり、Release では空になる)
             $<$<CONFIG:Debug>:husky_imgui>
 )
@@ -363,6 +364,8 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
         tests/platform/FileSystemTests.cpp
+        tests/render/SpriteBatchTests.cpp
+        tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp

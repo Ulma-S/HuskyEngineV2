@@ -98,3 +98,20 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     REQUIRE(sprites.size() == 1);
     CHECK(sprites[0].x == 5.0f);
 }
+
+TEST_CASE("ForEachSprite: コンポーネントのテクスチャをそのまま渡す。テクスチャはプロパティではない(保存されない)")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+
+    Actor* withTexture = scene->Spawn<Actor>();
+    withTexture->AddComponent<SpriteComponent>()->texture = husky::render::TextureHandle{3, 2};
+    scene->Spawn<Actor>()->AddComponent<SpriteComponent>(); // テクスチャを指さない
+
+    const std::vector<Sprite> sprites = CollectSprites(*scene);
+    REQUIRE(sprites.size() == 2);
+    CHECK(sprites[0].texture == husky::render::TextureHandle{3, 2});
+    CHECK(sprites[1].texture.IsNull()); // 何も指さない(描くときに Application の既定のテクスチャになる)
+
+    CHECK(SpriteComponent::StaticType().FindProperty("texture") == nullptr);
+}

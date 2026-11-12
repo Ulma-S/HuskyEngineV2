@@ -32,6 +32,11 @@ namespace husky::engine
         float height = 32.0f;
         render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
 
+        // 貼るテクスチャ。何も指さなければ、Application の既定のテクスチャ(DrawSprites の defaultTexture)を貼る。
+        // 【仮】プロパティには登録しない(保存されない)。ハンドルは実行中だけの値で、ファイルに書いても次の起動では意味が無いため。
+        // A-4 で、ファイルに書ける AssetRef<Texture>(中身は GUID)に替える。
+        render::TextureHandle texture;
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
@@ -59,12 +64,14 @@ namespace husky::engine
             sprite.width = spriteComponent->width;
             sprite.height = spriteComponent->height;
             sprite.color = spriteComponent->color;
+            sprite.texture = spriteComponent->texture;
             function(sprite);
         });
     }
 
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
+    // テクスチャを指していないスプライトには、defaultTexture を貼る。
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
     // 動作スレッド: ゲームスレッドのみ
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice);
+    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, render::TextureHandle defaultTexture);
 }

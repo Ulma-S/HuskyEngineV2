@@ -138,11 +138,19 @@ namespace husky::engine
 
                 // テクスチャは2段で用意する: ① PNG を CPU のメモリに読む(platform) → ② GPU に送る(render)
                 platform::Image image;
-                if (renderDevice.Initialize(window)
-                    && platform::LoadPng(desc.testTexturePath.c_str(), image)
-                    && renderDevice.LoadTestTexture(image))
+                if (renderDevice.Initialize(window) && platform::LoadPng(desc.testTexturePath.c_str(), image))
                 {
+                    m_defaultSpriteTexture = renderDevice.CreateTexture(image);
+                }
+                if (!m_defaultSpriteTexture.IsNull())
+                {
+                    if (m_renderStartCallback)
+                    {
+                        m_renderStartCallback(*this, renderDevice);
+                    }
                     RunLoop(renderDevice);
+                    // renderDevice と一緒に、テクスチャも無くなる。古いハンドルを残さない。
+                    m_defaultSpriteTexture = {};
                 }
                 else
                 {
@@ -208,7 +216,7 @@ namespace husky::engine
             if (renderDevice.BeginFrame(m_clearColor))
             {
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
-                DrawSprites(*m_scene, renderDevice);
+                DrawSprites(*m_scene, renderDevice, m_defaultSpriteTexture);
 #if HUSKY_DEVELOPMENT
                 // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。
                 if (m_devUiCallback)

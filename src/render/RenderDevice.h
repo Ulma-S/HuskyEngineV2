@@ -2,6 +2,10 @@
 // このヘッダには SDL_GPU の型を一切書かない(CLAUDE.md: SDL_GPU の型は描画層の実装の外に出さない)。
 #pragma once
 
+#include "core/Handle.h"
+
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace husky::platform
@@ -12,6 +16,15 @@ namespace husky::platform
 
 namespace husky::render
 {
+    // GPU に送ったテクスチャ1枚。中身(SDL_GPU のテクスチャ)は RenderDevice.cpp の中でだけ定義する。
+    // ここでは「Texture という型がある」とだけ伝え(前方宣言)、外からは TextureHandle を通してしか指せないようにする。
+    struct Texture;
+
+    // テクスチャを指す世代付きハンドル。RenderDevice::CreateTexture で受け取る。
+    // 手放した(ReleaseTexture)後の古いハンドルは、世代が合わないので「もう無い」と分かる。
+    // 何も指さない(既定の)ハンドルは「テクスチャ無し」= 白い板として描く。
+    using TextureHandle = core::Handle<Texture>;
+
     // 色。各要素は 0.0〜1.0。
     struct Color
     {
@@ -29,13 +42,15 @@ namespace husky::render
         float width = 0.0f;  // 画面上の大きさ
         float height = 0.0f;
         Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャの色に掛ける色。白ならテクスチャの色そのまま
+        // 貼るテクスチャ。何も指さないか、もう手放されたテクスチャなら、白い板(color の色そのまま)として描く。
+        TextureHandle texture;
     };
 
     // 直前のフレームの描画の集計。性能の確認に使う。
     struct FrameStats
     {
         int spriteCount = 0;        // 描いたスプライトの数
-        int drawCallCount = 0;      // GPU に出した描画命令の回数
+        int drawCallCount = 0;      // GPU に出した描画命令の回数(テクスチャが変わるたびに 1 回増える)
         int droppedSpriteCount = 0; // 上限を超えて描けなかったスプライトの数
     };
 
@@ -61,10 +76,21 @@ namespace husky::render
         // GPU を初期化し、window に描けるようにする。戻り値: 成功したら true。
         bool Initialize(platform::Window& window);
 
-        // 動作確認用のテクスチャを GPU に送る。DrawSprite はすべてこのテクスチャを貼って描く。
-        // 1回だけ呼べる。テクスチャを複数持てる仕組み(ハンドル)ができたら消す、仮のもの。
-        // 戻り値: 成功したら true。
-        bool LoadTestTexture(const platform::Image& image);
+        // 画像を GPU に送り、テクスチャを作る。Initialize の後なら、いつ呼んでもよい(フレームの途中でもよい)。
+        // 戻り値: 作ったテクスチャのハンドル。失敗したら何も指さないハンドル(IsNull() が true)。
+        TextureHandle CreateTexture(const platform::Image& image);
+
+        // テクスチャを手放す。ハンドルはすぐに無効になる(この後の DrawSprite では白い板になる)が、
+        // GPU のメモリは、GPU が使い終わるまで数フレーム待ってから解放する(DeferredReleaseQueue.h)。
+        // すでに手放したハンドルや、何も指さないハンドルを渡しても何もしない。
+        void ReleaseTexture(TextureHandle texture);
+
+        // ハンドルが、まだ手放されていないテクスチャを指しているか。
+        bool IsTextureAlive(TextureHandle texture) const;
+
+        // 今あるテクスチャの数(中で使う白いテクスチャは数えない)と、解放を待っている数。確認とテスト用。
+        std::size_t GetTextureCount() const;
+        std::size_t GetPendingReleaseCount() const;
 
         // 1フレームの描画を始める。clearColor は、EndFrame で最初に画面を塗りつぶす色。
         // vsync のため、ここでモニターの書き換えのタイミングまで待つことがある。
@@ -82,7 +108,8 @@ namespace husky::render
         void BeginDevUiFrame();
 #endif
 
-        // 溜めたスプライトをまとめて GPU に送り、1回の描画命令で描いて、画面に出す。
+        // 溜めたスプライトをまとめて GPU に送り、画面に出す。
+        // 描画命令は、同じテクスチャが続く区間ごとに1回(SpriteBatch.h)。全部同じテクスチャなら1回で済む。
         void EndFrame();
 
         // 直前の EndFrame の集計を返す。

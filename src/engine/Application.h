@@ -37,7 +37,8 @@ namespace husky::engine
         std::string title = "HuskyEngineV2";
         int width = 1280;  // ウィンドウの中の大きさ(ピクセル)
         int height = 720;
-        // DrawSprite で貼るテクスチャ(仮。テクスチャをアセットとして扱えるようになったら消す)。
+        // テクスチャを指していないスプライトに貼る、既定のテクスチャ
+        // (仮。スプライトがアセットとしてテクスチャを持てるようになったら(A-4)消す)。
         std::string testTexturePath = "assets/textures/test_sprite.png";
     };
 
@@ -70,6 +71,12 @@ namespace husky::engine
 
         // ゲーム固有の毎フレームの処理を渡す。空の関数(nullptr)を渡すと外せる。
         void SetUpdateCallback(UpdateCallback callback) { m_updateCallback = std::move(callback); }
+
+        // Run の中で、描画の準備ができた直後(最初のフレームの前)に1回だけ呼ぶ関数の型。
+        // GPU を使う用意(テクスチャを作るなど)は、ウィンドウと RenderDevice ができてからでないとできないので、ここで行う。
+        // 【仮】テクスチャをアセットとして読めるようになったら(A-3)、アセットのローダが受け持つ。
+        using RenderStartCallback = std::function<void(Application&, render::RenderDevice&)>;
+        void SetRenderStartCallback(RenderStartCallback callback) { m_renderStartCallback = std::move(callback); }
 
         // 画面を塗りつぶす色(背景色)。
         void SetClearColor(const render::Color& color) { m_clearColor = color; }
@@ -128,6 +135,8 @@ namespace husky::engine
         Scene* m_scene = nullptr; // m_registry が持ち主。ここは借りているだけ
 
         UpdateCallback m_updateCallback;
+        RenderStartCallback m_renderStartCallback;
+        render::TextureHandle m_defaultSpriteTexture; // desc.testTexturePath から作る(Run の中で)
         render::Color m_clearColor = {0.10f, 0.12f, 0.20f, 1.0f}; // 紺
 
         double m_secondsSinceGc = 0.0;
