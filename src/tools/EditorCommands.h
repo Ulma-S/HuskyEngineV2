@@ -287,6 +287,20 @@ namespace husky::tools
     // 書き換えられるのは bool / int / float / string、構造体、アセットの参照(GUID の文字列か null。guid、ハンドル、配列は変えられない)。
     // 値の確かめは、シーンの読み込みと同じ道具(ObjectSerializer)で行う。成功すると、前の値に戻す undo を返す(Undo できる)。
     EditorCommand MakeSetPropertyCommand();
+
+    // 「まとめて書き換える」コマンド(property.setMany)を作る。引数: actor(名前か guid)、
+    // values(property.set の引数と同じ形 {"component", "property", "value"} の配列。component は省略可)。
+    // 1つでも書けなければ、何も変えずに失敗する。Undo は、前の値での property.setMany(prefab.revert の Undo にも使う)。
+    EditorCommand MakeSetManyPropertiesCommand();
+
+    // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
+    // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
+    EditorCommand MakeListOverridesCommand();
+
+    // 「プレハブに戻す」コマンド(prefab.revert)を作る。引数: actor、component、property(どちらも省略可)。
+    // property を指せばその値(構造体ならその中全部)を、省けば名前・位置・回転を除く全部の違いを、プレハブの値に戻す。
+    // 戻した値は違いではなくなるので、プレハブを直すと伝わるようになる。Undo できる。
+    EditorCommand MakeRevertPrefabCommand();
 }
 
 #endif

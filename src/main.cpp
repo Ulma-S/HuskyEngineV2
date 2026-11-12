@@ -90,6 +90,15 @@ int main()
     tools::EditorCommand setProperty = tools::MakeSetPropertyCommand();
     setProperty.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(setProperty));
+    // まとめて書き換える(property.setMany)。prefab.revert の Undo もこれを呼ぶので、編集中だけ(property.set と同じ)。
+    tools::EditorCommand setManyProperties = tools::MakeSetManyPropertiesCommand();
+    setManyProperties.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(setManyProperties));
+    // プレハブとの違いの一覧(prefab.overrides。読むだけ)と、プレハブに戻す(prefab.revert。編集中だけ)。
+    commands.Register(tools::MakeListOverridesCommand());
+    tools::EditorCommand revertPrefab = tools::MakeRevertPrefabCommand();
+    revertPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(revertPrefab));
     // 元に戻す・やり直す(editor.undo / editor.redo)。履歴は commands が持つ。戻すコマンドが使えないとき(再生中など)は灰色。
     commands.Register(tools::MakeUndoCommand(commands));
     commands.Register(tools::MakeRedoCommand(commands));

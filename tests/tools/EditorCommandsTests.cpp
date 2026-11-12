@@ -784,4 +784,99 @@ TEST_CASE("DebugWindow: コマンドのボタンと最後の結果を並べて�
     CHECK(std::string(husky::tools::GetKeyDisplayName(Key::F5)) == "F5");
 }
 
+
+TEST_CASE("EditorCommands: prefab.overrides はプレハブとの違いを並べ、prefab.revert は1つか全部(名前・位置・回転を除く)をプレハブの値に戻す。Undo できる")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_revert");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetManyPropertiesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeListOverridesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRevertPrefabCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    // 幅 24 の白いスプライトのプレハブを作って置き、3つの値を変える
+    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    original->name = "Coin";
+    original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+    const EditorCommandResult spawned =
+        commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab", "x": 0, "y": 0})"));
+    REQUIRE(spawned.succeeded);
+    const std::string guid = spawned.data.Find("guid")->AsString();
+    husky::core::Guid parsed;
+    REQUIRE(husky::core::Guid::Parse(guid, parsed));
+    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(parsed);
+    REQUIRE(placed != nullptr);
+    husky::engine::SpriteComponent* sprite = placed->GetComponent<husky::engine::SpriteComponent>();
+    REQUIRE(sprite != nullptr);
+    auto args = [&guid](const std::string& rest) { return Json(("{\"actor\": \"" + guid + "\"" + rest + "}").c_str()); };
+    REQUIRE(commands.Execute("property.set", app, args(R"(, "property": "transform.position.x", "value": 5)")).succeeded);
+    REQUIRE(commands.Execute("property.set", app, args(R"(, "component": "SpriteComponent", "property": "width", "value": 30)")).succeeded);
+    REQUIRE(commands.Execute("property.set", app, args(R"(, "component": "SpriteComponent", "property": "color.r", "value": 0.5)")).succeeded);
+
+    // --- prefab.overrides: 3つ。位置は「1体ずつ違う値」 ---
+    const EditorCommandResult listed = commands.Execute("prefab.overrides", app, args(""));
+    REQUIRE(listed.succeeded);
+    REQUIRE(listed.data.GetArraySize() == 3);
+    CHECK(listed.data.At(0).Find("property")->AsString() == "transform.position.x");
+    CHECK(listed.data.At(0).Find("perInstance")->AsBool());
+    CHECK(listed.data.At(1).Find("component")->AsString() == "SpriteComponent");
+    CHECK(listed.data.At(1).Find("property")->AsString() == "width");
+    CHECK(listed.data.At(1).Find("prefabValue")->AsFloat() == 24.0);
+    CHECK_FALSE(commands.Execute("prefab.overrides", app, Json(R"({"actor": "Coin"})")).succeeded); // 名前が2体に重なる
+
+    // --- 1つだけ戻す ---
+    REQUIRE(commands.Execute("prefab.revert", app, args(R"(, "component": "SpriteComponent", "property": "width")")).succeeded);
+    CHECK(sprite->width == 24.0f);
+    CHECK(sprite->color.r == 0.5f);
+    CHECK_FALSE(commands.Execute("prefab.revert", app, args(R"(, "component": "SpriteComponent", "property": "width")")).succeeded); // もう違わない
+
+    // --- 全部を戻す: 色は戻るが、位置(1体ずつ違う値)は残る ---
+    const EditorCommandResult reverted = commands.Execute("prefab.revert", app, args(""));
+    REQUIRE(reverted.succeeded);
+    CHECK(reverted.message.find("Reverted 1") == 0);
+    CHECK(sprite->color.r == 1.0f);
+    CHECK(placed->transform.position.x == 5.0f);
+    CHECK(commands.Execute("prefab.revert", app, args("")).message.find("Nothing") == 0);
+
+    // --- Undo / Redo: 全部を戻したのを戻す → 色が 0.5 に。もう1回で幅が 30 に。やり直すと幅は 24 ---
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(sprite->color.r == 0.5f);
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(sprite->width == 30.0f);
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(sprite->width == 24.0f);
+}
+
+TEST_CASE("EditorCommands: property.setMany はまとめて書き換え、1つでも書けなければ何も変えない")
+{
+    Application app;
+    const NamedActors actors = SpawnNamedActors(app);
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetManyPropertiesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+
+    const EditorCommandResult result = commands.Execute("property.setMany", app, Json(R"({"actor": "Player", "values": [
+        {"property": "transform.position.x", "value": 1}, {"property": "name", "value": "Hero"}]})"));
+    REQUIRE(result.succeeded);
+    CHECK(actors.player->transform.position.x == 1.0f);
+    CHECK(actors.player->name == "Hero");
+
+    // 2つ目が書けない(種類が違う)ので、1つ目も元に戻る
+    CHECK_FALSE(commands.Execute("property.setMany", app, Json(R"({"actor": "Hero", "values": [
+        {"property": "transform.position.x", "value": 7}, {"property": "name", "value": 3}]})")).succeeded);
+    CHECK(actors.player->transform.position.x == 1.0f);
+
+    // Undo で、まとめて前の値に戻る
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(actors.player->transform.position.x == 0.0f);
+    CHECK(actors.player->name == "Player");
+}
 #endif

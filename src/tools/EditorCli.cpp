@@ -102,6 +102,9 @@ namespace husky::tools
             commands.Register(MakeCreatePrefabCommand(assetsDirectory));
             commands.Register(MakeListActorsCommand());
             commands.Register(MakeSetPropertyCommand());
+            commands.Register(MakeSetManyPropertiesCommand());
+            commands.Register(MakeListOverridesCommand());
+            commands.Register(MakeRevertPrefabCommand());
         }
 
         // value を JSON にして path に書く。書けなければ、理由を out に足して false。

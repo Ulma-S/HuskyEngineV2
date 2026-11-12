@@ -858,6 +858,159 @@ namespace husky::tools
         return command;
     }
 
+    namespace
+    {
+        // property.set の1件分(引数 actor、component(省略可)、property、value)を書き換える。property.set と property.setMany の中身。
+        // 成功なら true と、actorOut(書き換えたアクター)、old(前の値)、who(人に見せる相手の説明。書き換える前のもの)。
+        // 失敗なら false と error(構造体の一部だけが書けたときも、前の値に戻してある)。
+        bool SetOneProperty(engine::Application& app, const engine::ArchiveValue& item, engine::Actor*& actorOut,
+                            engine::ArchiveValue& old, std::string& who, std::string& error)
+        {
+            core::Object* owner = FindPropertyOwner(app, item, actorOut, error);
+            if (owner == nullptr)
+            {
+                return false;
+            }
+            const engine::ArchiveValue* componentValue = item.Find("component");
+            who = DescribeActor(*actorOut) + (componentValue != nullptr ? "." + std::string(owner->GetType().GetName()) : "");
+
+            const engine::ArchiveValue* propertyValue = item.Find("property");
+            const engine::ArchiveValue* value = item.Find("value");
+            if (propertyValue == nullptr || value == nullptr)
+            {
+                error = "\"property\" and \"value\" are needed";
+                return false;
+            }
+            const std::string& propertyName = propertyValue->AsString();
+            const std::vector<std::string> path = SplitPropertyPath(propertyName);
+            const core::Property* property = FindPropertyByPath(owner->GetType(), path);
+            if (property == nullptr)
+            {
+                error = who + " has no property '" + propertyName + "'";
+                return false;
+            }
+            if (!IsSettableProperty(*property))
+            {
+                error = "'" + propertyName + "' cannot be changed with property.set";
+                return false;
+            }
+
+            // 前の値(Undo と、人に見せるため)。保存と同じ道具で、相手のプロパティを値の木にして、道筋のとおりに取り出す。
+            const engine::ArchiveValue before = engine::ObjectSerializer::Write(*owner);
+            const engine::ArchiveValue* found = before.Find("properties");
+            for (std::size_t i = 0; i < path.size() && found != nullptr; ++i)
+            {
+                found = found->Find(path[i]);
+            }
+            if (found == nullptr)
+            {
+                error = "Could not read the current value of " + propertyName;
+                return false;
+            }
+            old = *found;
+
+            // 値1つを、ファイルと同じ入れ子の形にする。構造体の読み込みは書いてある値だけを書き換えるので、
+            //   "transform.position.x" → {"properties": {"transform": {"position": {"x": 値}}}}(ほかの値はそのまま)
+            auto makeEntry = [&path](const engine::ArchiveValue& entryValue) {
+                engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
+                engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
+                for (std::size_t i = 0; i + 1 < path.size(); ++i)
+                {
+                    parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
+                }
+                parent->Set(path.back(), entryValue);
+                return entry;
+            };
+
+            // 新しい値を書く: シーンの読み込みと同じ道具(ObjectSerializer::ReadProperties)を通すので、
+            // 種類の確かめ(「数ではありません」など)も、ファイルを読むときとそろう。
+            const engine::ObjectSerializer::ReadReport report =
+                engine::ObjectSerializer::ReadProperties(makeEntry(*value), *owner);
+            if (!report.warnings.empty())
+            {
+                // 構造体では、一部のメンバーだけが書けていることがあるので、前の値を書き戻してそろえる。
+                engine::ObjectSerializer::ReadProperties(makeEntry(old), *owner);
+                error = "Could not set " + propertyName + ": " + report.warnings[0];
+                return false;
+            }
+            return true;
+        }
+
+        // property.set の引数の形の、書き換え1件(Undo / Redo の呼び出しと、property.setMany の values の要素)。
+        // actorGuid が空なら actor を書かない(property.setMany の要素)。component が空なら、アクター自身のプロパティ。
+        engine::ArchiveValue MakeSetItem(const std::string& actorGuid, const std::string& component, const std::string& property,
+                                         const engine::ArchiveValue& value)
+        {
+            engine::ArchiveValue item = engine::ArchiveValue::MakeObject();
+            if (!actorGuid.empty())
+            {
+                item.Set("actor", engine::ArchiveValue(actorGuid));
+            }
+            if (!component.empty())
+            {
+                item.Set("component", engine::ArchiveValue(component));
+            }
+            item.Set("property", engine::ArchiveValue(property));
+            item.Set("value", value);
+            return item;
+        }
+
+        // 1体のアクターの値を、まとめて書き換える(values は MakeSetItem の形の配列)。property.setMany と prefab.revert の中身。
+        // 途中で失敗したら、それまでに書き換えたものを逆の順に戻し、false と error を返す(全部か、何もしないか)。
+        // 成功なら olds に、同じ形の「前の値」の配列を、逆の順で入れる(そのまま Undo に使える)。
+        bool SetManyProperties(engine::Application& app, engine::Actor& actor, const engine::ArchiveValue& values,
+                               engine::ArchiveValue& olds, std::string& error)
+        {
+            const std::string guid = actor.guid.ToString();
+            std::vector<engine::ArchiveValue> undone; // 書き換えた順の「前の値」
+            for (std::size_t i = 0; i < values.GetArraySize(); ++i)
+            {
+                engine::ArchiveValue item = values.At(i);
+                item.Set("actor", engine::ArchiveValue(guid));
+                engine::Actor* found = nullptr;
+                engine::ArchiveValue old;
+                std::string who;
+                if (item.GetType() != engine::ArchiveValue::Type::Object ||
+                    !SetOneProperty(app, item, found, old, who, error))
+                {
+                    if (error.empty())
+                    {
+                        error = "each value must be {\"component\", \"property\", \"value\"}";
+                    }
+                    error = "value #" + std::to_string(i) + ": " + error;
+                    for (auto it = undone.rbegin(); it != undone.rend(); ++it) // 逆の順に戻す
+                    {
+                        engine::ArchiveValue back = *it;
+                        back.Set("actor", engine::ArchiveValue(guid));
+                        std::string ignored;
+                        SetOneProperty(app, back, found, old, who, ignored);
+                    }
+                    return false;
+                }
+                const engine::ArchiveValue* component = values.At(i).Find("component");
+                undone.push_back(MakeSetItem(std::string(), component != nullptr ? component->AsString() : std::string(),
+                                             item.Find("property")->AsString(), old));
+            }
+            olds = engine::ArchiveValue::MakeArray();
+            for (auto it = undone.rbegin(); it != undone.rend(); ++it)
+            {
+                olds.Append(*it);
+            }
+            return true;
+        }
+
+        // property.setMany の呼び出し(Undo / Redo 用)。アクターは guid で指す。
+        EditorCommandCall MakeSetManyCall(const engine::Actor& actor, const engine::ArchiveValue& values)
+        {
+            EditorCommandCall call;
+            call.name = "property.setMany";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("actor", engine::ArchiveValue(actor.guid.ToString()));
+            call.args.Set("values", values);
+            return call;
+        }
+    }
+
     EditorCommand MakeSetPropertyCommand()
     {
         EditorCommand command;
@@ -913,70 +1066,19 @@ namespace husky::tools
         };
 
         command.execute = [](EditorCommandContext& context) {
-            std::string error;
             engine::Actor* actor = nullptr;
-            core::Object* owner = FindPropertyOwner(context.app, context.args, actor, error);
-            if (owner == nullptr)
+            engine::ArchiveValue old;
+            std::string who;
+            std::string error;
+            if (!SetOneProperty(context.app, context.args, actor, old, who, error))
             {
                 return EditorCommandResult::Failure(error);
             }
-            const engine::ArchiveValue* componentValue = context.args.Find("component");
-            // 人に見せる相手の説明は、書き換える前のもの(名前や位置を変えたときに、どのアクターだったか分かるように)。
-            const std::string who =
-                DescribeActor(*actor) + (componentValue != nullptr ? "." + std::string(owner->GetType().GetName()) : "");
-
             const std::string& propertyName = context.args.Find("property")->AsString();
-            const std::vector<std::string> path = SplitPropertyPath(propertyName);
-            const core::Property* property = FindPropertyByPath(owner->GetType(), path);
-            if (property == nullptr)
-            {
-                return EditorCommandResult::Failure(who + " has no property '" + propertyName + "'");
-            }
-            if (!IsSettableProperty(*property))
-            {
-                return EditorCommandResult::Failure("'" + propertyName + "' cannot be changed with property.set");
-            }
-
-            // 前の値(Undo と、人に見せるため)。保存と同じ道具で、相手のプロパティを値の木にして、道筋のとおりに取り出す。
-            const engine::ArchiveValue before = engine::ObjectSerializer::Write(*owner);
-            const engine::ArchiveValue* old = before.Find("properties");
-            for (std::size_t i = 0; i < path.size() && old != nullptr; ++i)
-            {
-                old = old->Find(path[i]);
-            }
-            if (old == nullptr)
-            {
-                return EditorCommandResult::Failure("Could not read the current value of " + propertyName);
-            }
-
-            // 値1つを、ファイルと同じ入れ子の形にする。構造体の読み込みは書いてある値だけを書き換えるので、
-            //   "transform.position.x" → {"properties": {"transform": {"position": {"x": 値}}}}(ほかの値はそのまま)
-            auto makeEntry = [&path](const engine::ArchiveValue& value) {
-                engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
-                engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
-                for (std::size_t i = 0; i + 1 < path.size(); ++i)
-                {
-                    parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
-                }
-                parent->Set(path.back(), value);
-                return entry;
-            };
-
-            // 新しい値を書く: シーンの読み込みと同じ道具(ObjectSerializer::ReadProperties)を通すので、
-            // 種類の確かめ(「数ではありません」など)も、ファイルを読むときとそろう。
             const engine::ArchiveValue& value = *context.args.Find("value");
-            const engine::ObjectSerializer::ReadReport report =
-                engine::ObjectSerializer::ReadProperties(makeEntry(value), *owner);
-            if (!report.warnings.empty())
-            {
-                // 構造体では、一部のメンバーだけが書けていることがあるので、前の値を書き戻してそろえる。
-                engine::ObjectSerializer::ReadProperties(makeEntry(*old), *owner);
-                return EditorCommandResult::Failure("Could not set " + propertyName + ": " + report.warnings[0]);
-            }
-
             std::string oldText;
             std::string newText;
-            engine::JsonFormat::Write(*old, oldText, false);
+            engine::JsonFormat::Write(old, oldText, false);
             engine::JsonFormat::Write(value, newText, false);
             EditorCommandResult result = EditorCommandResult::Success("Set " + who + "." + propertyName + " = " + newText);
             result.details.push_back("was " + oldText);
@@ -984,21 +1086,270 @@ namespace husky::tools
 
             // 戻す呼び出しと、やり直す呼び出し: 同じ property.set を、前の値・新しい値で呼ぶ。
             // アクターは guid で指す(名前を変えても、名前が重なっても、Play / Stop で作り直されても、同じものを指す)。
+            const engine::ArchiveValue* componentValue = context.args.Find("component");
             auto makeCall = [&](const engine::ArchiveValue& callValue) {
                 EditorCommandCall call;
                 call.name = "property.set";
-                call.args = engine::ArchiveValue::MakeObject();
-                call.args.Set("actor", engine::ArchiveValue(actor->guid.ToString()));
-                if (componentValue != nullptr)
-                {
-                    call.args.Set("component", *componentValue);
-                }
-                call.args.Set("property", engine::ArchiveValue(propertyName));
-                call.args.Set("value", callValue);
+                call.args = MakeSetItem(actor->guid.ToString(), componentValue != nullptr ? componentValue->AsString() : std::string(),
+                                        propertyName, callValue);
                 return call;
             };
-            result.undo = makeCall(*old);
+            result.undo = makeCall(old);
             result.redo = makeCall(value);
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeSetManyPropertiesCommand()
+    {
+        EditorCommand command;
+        command.name = "property.setMany";
+        command.label = "Set properties";
+        command.description = "Change several properties of one actor (and its components) at once, as one step. "
+                              "If one of them fails, nothing is changed. Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
+        actorArg.choices = ActorChoices;
+        command.args = {
+            actorArg,
+            {"values", EditorArgType::Any,
+             "Array of {\"component\": type name (leave out for the actor), \"property\": path, \"value\": new value}, "
+             "the same as the arguments of property.set", true},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::ArchiveValue& values = *context.args.Find("values");
+            if (values.GetType() != engine::ArchiveValue::Type::Array)
+            {
+                return EditorCommandResult::Failure("\"values\" must be an array");
+            }
+            const std::string who = DescribeActor(*actor);
+            engine::ArchiveValue olds;
+            if (!SetManyProperties(context.app, *actor, values, olds, error))
+            {
+                return EditorCommandResult::Failure("Could not set the values of " + who + ": " + error);
+            }
+            EditorCommandResult result =
+                EditorCommandResult::Success("Set " + std::to_string(values.GetArraySize()) + " value(s) of " + who);
+            result.undo = MakeSetManyCall(*actor, olds);
+            result.redo = MakeSetManyCall(*actor, values);
+            return result;
+        };
+        return command;
+    }
+
+    namespace
+    {
+        // プレハブとの違い1つを、人が読む1行にする("SpriteComponent.color.r = 0.74 (prefab: 1)")。
+        std::string DescribeOverride(const engine::Prefab::Override& item)
+        {
+            std::string value;
+            std::string prefabValue;
+            engine::JsonFormat::Write(item.value, value, false);
+            engine::JsonFormat::Write(item.prefabValue, prefabValue, false);
+            return (item.component.empty() ? std::string() : item.component + ".") + item.path + " = " + value +
+                   " (prefab: " + prefabValue + ")" + (item.perInstance ? " [per instance]" : "");
+        }
+
+        // 引数の actor が指すアクターの、プレハブとの違い(選択肢を作るため。見つからなければ空)。
+        engine::Prefab::OverridesResult OverridesFromArgs(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string ignored;
+            const engine::Actor* actor =
+                actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
+            return actor != nullptr ? engine::Prefab::FindOverrides(*actor) : engine::Prefab::OverridesResult{};
+        }
+
+        // プレハブから置いたアクターだけを選択肢にする。
+        std::vector<EditorArgChoice> PrefabInstanceChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> choices = ActorChoices(app, args);
+            std::vector<EditorArgChoice> instances;
+            for (EditorArgChoice& choice : choices)
+            {
+                core::Guid guid;
+                const engine::Actor* actor =
+                    core::Guid::Parse(choice.value, guid) ? app.GetScene().FindActorByGuid(guid) : nullptr;
+                if (actor != nullptr && !actor->prefab.IsNull())
+                {
+                    instances.push_back(std::move(choice));
+                }
+            }
+            return instances;
+        }
+
+        // 引数の component と property(どちらも省略可)に当てはまる違いを選ぶ。
+        //   property を指したとき: その道筋と、その中(構造体を指せば、中のメンバー全部)。1体ずつ違う値も含む
+        //   property を省いたとき: 全部。ただし、1体ずつ違う値(名前、位置、回転)は飛ばす(Unity の Revert All / Apply All と同じ)
+        std::vector<const engine::Prefab::Override*> SelectOverrides(const engine::Prefab::OverridesResult& found,
+                                                                     const engine::ArchiveValue& args)
+        {
+            const engine::ArchiveValue* componentValue = args.Find("component");
+            const engine::ArchiveValue* propertyValue = args.Find("property");
+            const std::string component = componentValue != nullptr ? componentValue->AsString() : std::string();
+            std::vector<const engine::Prefab::Override*> selected;
+            for (const engine::Prefab::Override& item : found.overrides)
+            {
+                if (propertyValue == nullptr)
+                {
+                    if (!item.perInstance && (componentValue == nullptr || item.component == component))
+                    {
+                        selected.push_back(&item);
+                    }
+                    continue;
+                }
+                const std::string& property = propertyValue->AsString();
+                if (item.component == component &&
+                    (item.path == property || item.path.rfind(property + ".", 0) == 0))
+                {
+                    selected.push_back(&item);
+                }
+            }
+            return selected;
+        }
+
+        // prefab.revert と prefab.apply の引数(actor、component、property)。選択肢は、選んだアクターの違いから作る。
+        std::vector<EditorCommandArg> MakeOverrideArgs()
+        {
+            EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of an actor placed from a prefab", true};
+            actorArg.choices = PrefabInstanceChoices;
+            EditorCommandArg componentArg{"component", EditorArgType::String,
+                                          "Type name of a component (leave out for the actor itself, or for all when property is left out)", false};
+            componentArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
+                std::vector<EditorArgChoice> choices;
+                for (const engine::Prefab::Override& item : OverridesFromArgs(app, args).overrides)
+                {
+                    if (!item.component.empty() &&
+                        std::none_of(choices.begin(), choices.end(),
+                                     [&item](const EditorArgChoice& choice) { return choice.value == item.component; }))
+                    {
+                        choices.push_back({item.component, std::string()});
+                    }
+                }
+                return choices;
+            };
+            EditorCommandArg propertyArg{"property", EditorArgType::String,
+                                         "Path of one overridden value, like \"transform.position.x\" (leave out for all, except name, position and rotation)", false};
+            propertyArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
+                std::vector<EditorArgChoice> choices;
+                const engine::ArchiveValue* componentValue = args.Find("component");
+                const std::string component = componentValue != nullptr ? componentValue->AsString() : std::string();
+                for (const engine::Prefab::Override& item : OverridesFromArgs(app, args).overrides)
+                {
+                    if (item.component == component)
+                    {
+                        choices.push_back({item.path, DescribeOverride(item)});
+                    }
+                }
+                return choices;
+            };
+            return {actorArg, componentArg, propertyArg};
+        }
+    }
+
+    EditorCommand MakeListOverridesCommand()
+    {
+        EditorCommand command;
+        command.name = "prefab.overrides";
+        command.label = "List overrides";
+        command.description = "List the values of an actor that differ from its prefab (the values saved in the scene). "
+                              "Values marked [per instance] (name, position, rotation) are left out of revert/apply all.";
+        command.readsScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of an actor placed from a prefab", true};
+        actorArg.choices = PrefabInstanceChoices;
+        command.args = {actorArg};
+        command.execute = [](EditorCommandContext& context) {
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(DescribeActor(*actor) + ": " + found.error);
+            }
+            const std::string* path = context.app.GetAssetDatabase().FindPath(found.prefab->GetGuid());
+            EditorCommandResult result = EditorCommandResult::Success(
+                std::to_string(found.overrides.size()) + " override(s) on " + DescribeActor(*actor) + " from " +
+                (path != nullptr ? *path : found.prefab->GetGuid().ToString()));
+            result.data = engine::ArchiveValue::MakeArray();
+            for (const engine::Prefab::Override& item : found.overrides)
+            {
+                result.details.push_back(DescribeOverride(item));
+                engine::ArchiveValue& entry = result.data.Append(engine::ArchiveValue::MakeObject());
+                entry.Set("component", engine::ArchiveValue(item.component));
+                entry.Set("property", engine::ArchiveValue(item.path));
+                entry.Set("value", item.value);
+                entry.Set("prefabValue", item.prefabValue);
+                entry.Set("perInstance", engine::ArchiveValue(item.perInstance));
+            }
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeRevertPrefabCommand()
+    {
+        EditorCommand command;
+        command.name = "prefab.revert";
+        command.label = "Revert to prefab";
+        command.description = "Throw away values of an actor that differ from its prefab, so they follow the prefab again. "
+                              "Give a property to revert one value; leave it out to revert all except name, position and "
+                              "rotation. Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        command.args = MakeOverrideArgs();
+        command.execute = [](EditorCommandContext& context) {
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const std::string who = DescribeActor(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const std::vector<const engine::Prefab::Override*> selected = SelectOverrides(found, context.args);
+            const engine::ArchiveValue* propertyValue = context.args.Find("property");
+            if (selected.empty())
+            {
+                if (propertyValue != nullptr)
+                {
+                    return EditorCommandResult::Failure(who + " has no override at '" + propertyValue->AsString() + "'");
+                }
+                return EditorCommandResult::Success("Nothing to revert on " + who); // 戻すものが無い(Undo の履歴にも積まない)
+            }
+
+            // プレハブの値を書く。property.setMany と同じ道具なので、Undo も property.setMany(前の値)になる。
+            engine::ArchiveValue values = engine::ArchiveValue::MakeArray();
+            for (const engine::Prefab::Override* item : selected)
+            {
+                values.Append(MakeSetItem(std::string(), item->component, item->path, item->prefabValue));
+            }
+            engine::ArchiveValue olds;
+            if (!SetManyProperties(context.app, *actor, values, olds, error))
+            {
+                return EditorCommandResult::Failure("Could not revert " + who + ": " + error);
+            }
+            EditorCommandResult result =
+                EditorCommandResult::Success("Reverted " + std::to_string(selected.size()) + " value(s) of " + who);
+            for (const engine::Prefab::Override* item : selected)
+            {
+                result.details.push_back(DescribeOverride(*item));
+            }
+            result.undo = MakeSetManyCall(*actor, olds);
+            result.redo = MakeSetManyCall(*actor, values);
             return result;
         };
         return command;
