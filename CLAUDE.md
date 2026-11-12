@@ -53,9 +53,9 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
 - 世代付きハンドルを最初から用意する。弱参照と破棄済み検出に使う。
 - 生の`new`/`delete`と`malloc`/`free`は禁止。スマートポインタ(`std::make_unique`など)、プール、ハンドルのみを使う。確保の方針とアロケータの使い分けは、設計メモの「メモリの確保の方針」を参照する。
   - 例外: placement new(確保済みのメモリの上でコンストラクタを呼ぶ)と、デストラクタの明示的な呼び出しは、`FreeListAllocator::New` / `FreeListAllocator::Delete`の中だけで使ってよい。アロケータでオブジェクトを作るときは、必ずこの2つを使う。
+  - `Delete`は、オブジェクトのアドレスが`New`で借りたメモリの先頭と一致することを前提にしている。基底クラスのポインタで渡すのは、単一継承の場合だけにする。
   - 例外: `malloc`/`free`は、`core/MemoryTracker.cpp`(汎用のヒープの入口)の中だけで使ってよい。
 - プログラム全体の`operator new`/`delete`は`core/GlobalOperatorNew.cpp`で差し替え、すべて`MemoryTracker`を通して数える(量、件数、最大、確保の回数。毎秒のログに出る)。このファイルは静的ライブラリに入れず、exe(ゲームとテスト)ごとにソースとして入れる(CMakeの`HUSKY_GLOBAL_NEW_SOURCE`)。新しいexeを作るときも入れる。
-  - `Delete`は、オブジェクトのアドレスが`New`で借りたメモリの先頭と一致することを前提にしている。基底クラスのポインタで渡すのは、単一継承の場合だけにする。
 - ゲームオブジェクトのメモリは、`ObjectRegistry`が持つ自作のヒープアロケータ(`FreeListAllocator`、フリーリスト型・ファーストフィット)から借りる。容量を使い切ると`Create`は`nullptr`を返す。
 - 自作アロケータの中の誤用は、そのままではASanから見えない。`FreeListAllocator`は、貸し出し中の中身(頼まれた大きさ)だけを触れるようにし、それ以外に印を付ける(ポイズニング、`core/AddressSanitizer.h`)。アロケータ自身の関数には`HUSKY_NO_SANITIZE_ADDRESS`を、クラスの中の宣言に付ける。返したブロックが貸し直された後の古いポインタは検出できない。
 
