@@ -5,6 +5,7 @@
 #if HUSKY_DEVELOPMENT
 
 #include "engine/Application.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
 #include "tools/Inspector.h"
@@ -147,6 +148,48 @@ TEST_CASE("Inspector: 切り出しの ID は、差し替えた表示(名前の�
     CHECK(sprite->sprite == 1917386538);
 
     CHECK_FALSE(husky::tools::RegisterPropertyDrawer(SpriteComponent::StaticType(), "no_such_property", nullptr));
+}
+
+TEST_CASE("Inspector: アニメーションの ID は、同じアクターのスプライトシートのアニメーションの名前から選ぶ表示で並べる")
+{
+    HeadlessImGui imgui;
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(husky::platform::GetExecutableDirectory() + "assets"));
+    const husky::core::Guid* shapes = app.GetAssetDatabase().FindGuid("sprites/shapes.spritesheet");
+    REQUIRE(shapes != nullptr);
+
+    Actor* actor = app.GetScene().Spawn<Actor>();
+    SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
+    sprite->sheet.guid = *shapes;
+    auto* animator = actor->AddComponent<husky::engine::SpriteAnimatorComponent>();
+    animator->Play(1811624963); // cycle
+
+    // 読む前(ID の数字だけ)と、読んだ後(名前の選択肢)の両方で、ImGui の使い方の誤りが無い。
+    bool changed = true;
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetDatabase());
+        ImGui::End();
+    });
+    CHECK_FALSE(changed);
+
+    app.GetAssetLoader().Resolve(sprite->sheet);
+    app.GetAssetLoader().WaitForAllLoads();
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetDatabase());
+        ImGui::End();
+    });
+    CHECK_FALSE(changed);
+    CHECK(animator->animation == 1811624963);
+
+    // SpriteComponent の無いアクターのアニメーターも、落ちずに表示できる。
+    auto* lonely = app.GetScene().Spawn<Actor>()->AddComponent<husky::engine::SpriteAnimatorComponent>();
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        husky::tools::DrawProperties(lonely->GetType(), lonely, app.GetRegistry(), &app.GetAssetDatabase());
+        ImGui::End();
+    });
 }
 
 #endif

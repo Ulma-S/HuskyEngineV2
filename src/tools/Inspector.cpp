@@ -8,6 +8,7 @@
 #include "engine/AssetLoader.h"
 #include "engine/Component.h"
 #include "engine/RenderReflection.h" // render::Color の型情報(色は色の選び方で編集するため)
+#include "engine/SpriteAnimatorComponent.h" // アニメーションの ID を名前で選ぶ表示
 #include "engine/SpriteComponent.h"   // 切り出しの ID を名前で選ぶ表示
 #include "engine/SpriteSheetAsset.h"
 
@@ -86,6 +87,49 @@ namespace husky::tools
             return changed;
         }
 
+        // SpriteAnimatorComponent::animation(アニメーションの ID)を、アニメーションの名前から選ぶ箱で並べる。
+        // アニメーションは、同じアクターの SpriteComponent が指すスプライトシートから探す。
+        // SpriteComponent が無いか、スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
+        bool DrawSpriteAnimationPicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                                       const engine::AssetDatabase* /*assets*/)
+        {
+            // container はこのプロパティの持ち主(SpriteAnimatorComponent)の先頭。単一継承なので、そのまま型を戻せる。
+            auto* animator = static_cast<engine::SpriteAnimatorComponent*>(container);
+            std::int32_t* id = property.GetValuePtrAt<std::int32_t>(container);
+            engine::Actor* owner = animator->GetOwner();
+            const engine::SpriteComponent* sprite = owner != nullptr ? owner->GetComponent<engine::SpriteComponent>() : nullptr;
+            const engine::SpriteSheetAsset* sheet = sprite != nullptr ? engine::FindLoadedSpriteSheet(*sprite, registry) : nullptr;
+            if (sheet == nullptr)
+            {
+                ImGui::Text("%s: %d (sheet not loaded)", property.GetName(), *id);
+                return false;
+            }
+
+            const engine::SpriteAnimation* current = sheet->FindAnimation(*id);
+            const char* preview = *id == 0 ? "(none)" : (current != nullptr ? current->name.c_str() : "(missing)");
+            bool changed = false;
+            if (ImGui::BeginCombo(property.GetName(), preview))
+            {
+                if (ImGui::Selectable("(none)", *id == 0))
+                {
+                    *id = 0;
+                    changed = true;
+                }
+                for (const engine::SpriteAnimation& clip : sheet->GetAnimations())
+                {
+                    ImGui::PushID(clip.id);
+                    if (ImGui::Selectable(clip.name.c_str(), clip.id == *id) && clip.id != *id)
+                    {
+                        *id = clip.id; // 時間を 0 に戻すのは、アニメーター自身(次の Tick で ID の変化に気づく)
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
         // 最初から入っている差し替えを登録する(1回だけ)。
         void RegisterBuiltInDrawers()
         {
@@ -96,6 +140,7 @@ namespace husky::tools
             }
             registered = true;
             RegisterPropertyDrawer(engine::SpriteComponent::StaticType(), "sprite", DrawSpriteSlicePicker);
+            RegisterPropertyDrawer(engine::SpriteAnimatorComponent::StaticType(), "animation", DrawSpriteAnimationPicker);
         }
 
         PropertyDrawer FindDrawer(const Property& property)

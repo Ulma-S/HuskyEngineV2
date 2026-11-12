@@ -4,6 +4,7 @@
 #include "engine/Actor.h"
 #include "engine/Component.h"
 #include "engine/Scene.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 
 namespace husky::engine
@@ -14,5 +15,6 @@ namespace husky::engine
         types.Register<Actor>();
         types.Register<Component>();
         types.Register<SpriteComponent>();
+        types.Register<SpriteAnimatorComponent>();
     }
 }

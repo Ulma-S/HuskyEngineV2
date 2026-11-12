@@ -8,6 +8,7 @@
 #include "engine/Application.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "engine/SpriteSheetData.h"
 #include "platform/FileSystem.h"
@@ -158,11 +159,14 @@ namespace
 
     // 最初のアクターを置く。一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
     // 跳ね回るアクターはテクスチャを指さない(既定のテクスチャになる)。プレイヤーだけ、スプライトシート(shapes.spritesheet)の
-    // 「diamond」を貼る(4 つの図形を並べた shapes.png から、右下のひし形を切り出したもの)。テクスチャが違うので、描画命令は 2 回になる。
+    // 切り出しを貼る(4 つの図形を並べた shapes.png から切り出したもの)。最初は右下のひし形(diamond)で、
+    // アニメーション「cycle」が 4 つの図形を順に切り替える。テクスチャが違うので、描画命令は 2 回になる。
     void SpawnInitialActors(engine::Scene& scene, const engine::AssetDatabase& assets)
     {
-        // shapes.spritesheet の「diamond」の切り出しの ID(ファイルに書いてある。名前を変えても、この ID は変わらない)。
+        // shapes.spritesheet の「diamond」の切り出しと、「cycle」のアニメーション(4 つの図形を 0.25 秒ずつ順に)の ID
+        // (ファイルに書いてある。名前を変えても、この ID は変わらない)。
         constexpr std::int32_t DiamondSpriteId = 1917386538;
+        constexpr std::int32_t CycleAnimationId = 1811624963;
 
         SpawnBouncers(scene, BouncerCount);
         if (PlayerActor* player = scene.Spawn<PlayerActor>())
@@ -175,8 +179,13 @@ namespace
                 if (const husky::core::Guid* shapes = assets.FindGuid("sprites/shapes.spritesheet"))
                 {
                     sprite->sheet.guid = *shapes;
-                    sprite->sprite = DiamondSpriteId;
+                    sprite->sprite = DiamondSpriteId; // スプライトシートが読めるまでの間に描くコマ(アニメーターが書き換える)
                 }
+            }
+            // 見た目(SpriteComponent)とは別の部品で、切り出しを時間で切り替える(Unity の SpriteRenderer と Animator)。
+            if (engine::SpriteAnimatorComponent* animator = player->AddComponent<engine::SpriteAnimatorComponent>())
+            {
+                animator->Play(CycleAnimationId);
             }
             player->x = (ScreenWidth - PlayerSize) / 2.0f; // 画面の中央
             player->y = (ScreenHeight - PlayerSize) / 2.0f;

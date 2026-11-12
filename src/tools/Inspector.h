@@ -32,7 +32,8 @@ namespace husky::tools
 
     // type の propertyName のプロパティを、標準の部品ではなく drawer で表示するようにする(親の型のプロパティも指定できる)。
     // ふつうはリフレクションから自動で表示すれば足りるが、「整数の ID を、名前の一覧から選ばせる」のように、
-    // 型だけでは分からない見せ方をしたいときに使う。最初から SpriteComponent::sprite(切り出しの ID)が登録されている。
+    // 型だけでは分からない見せ方をしたいときに使う。最初から SpriteComponent::sprite(切り出しの ID)と
+    // SpriteAnimatorComponent::animation(アニメーションの ID)が登録されている。
     // 戻り値: そのプロパティが見つかれば true。同じプロパティにもう一度登録すると置き換える。
     bool RegisterPropertyDrawer(const core::TypeInfo& type, const char* propertyName, PropertyDrawer drawer);
 

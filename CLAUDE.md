@@ -95,6 +95,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。アニメーション(`"animations": [{"id", "name", "frames", "frameSeconds", "loop"}]`。コマは切り出しのID)も同じくIDで指す(`engine/SpriteSheetData.h`)。手で書くときはIDを省き、コマを切り出しの名前で書いてよい。開発ビルドが起動時にIDを振り、名前をIDに直して書き戻す(`NormalizeSpriteSheetsInFolder`。ソースとexeの隣の両方)。製品はIDだけを読む。
   - スプライトシートを読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。スプライトシートの`texture`はプロパティの`AssetRef`なので、スプライトシートが生きている間は画像も回収されない。アセットの種類を足すときは、ローダの読み込み中の記録(`PendingLoad`の子)と`Start〜`/`Finish〜`を足す。
   - `SpriteComponent`は、`sheet`(`AssetRef<SpriteSheetAsset>`)と`sprite`(切り出しのID)で切り出しを指せる。`sheet`を指していれば、`texture`と`region`より優先する。どれを貼るかは`ChooseSpriteTexture`(GPUを使わない。テストできる)が決める。
+  - アニメーションは`SpriteAnimatorComponent`(`animation`(ID)、`playing`、`speed`を保存。経った時間は保存しない)が再生し、同じアクターの`SpriteComponent::sprite`を書き換える(実行順は`PreRender`)。スプライトシートを読み始めるのは描画なので、読めるまでは時間を進めない。スプライト専用で、骨のアニメーションは別の仕組みにする(設計メモ「保留事項と将来拡張」)。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。
   - `.meta`を作る(GUIDを振る)のはエディタの役目なので、開発ビルドだけ(`CreateMissingMetaFiles`。ソースとexeの隣の両方に書く)。すでにある`.meta`は作り直さない。
 - ロードは1か所のローダに集約する。`Load(guid)`は必ずハンドル(読み込み中、完了、失敗)を返す。読み込みは非同期(ジョブ)。

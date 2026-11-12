@@ -223,6 +223,7 @@ add_library(husky_engine STATIC
     src/engine/ObjectSerializer.cpp
     src/engine/Scene.cpp
     src/engine/SceneSerializer.cpp
+    src/engine/SpriteAnimatorComponent.cpp
     src/engine/SpriteComponent.cpp
     src/engine/SpriteSheetData.cpp
 )
@@ -366,6 +367,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/SceneTests.cpp
         tests/engine/ComponentTests.cpp
         tests/engine/SpriteComponentTests.cpp
+        tests/engine/SpriteAnimatorComponentTests.cpp
         tests/engine/ApplicationTests.cpp
         tests/engine/JsonFormatTests.cpp
         tests/engine/ObjectSerializerTests.cpp
