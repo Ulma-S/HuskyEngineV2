@@ -101,8 +101,8 @@ namespace husky::tools
             // JSON では 100 と 100.0 の区別があいまいなので、数を受け取る引数には整数も受け付ける。
             case EditorArgType::Float: matches = type == Type::Float || type == Type::Int; break;
             case EditorArgType::String: matches = type == Type::String; break;
-            // どの種類でもよい(null だけは「無い」と同じなので断る)。中身はコマンドが確かめる。
-            case EditorArgType::Any: matches = type != Type::Null; break;
+            // どの種類でもよい(null も「何も指さない」という値として受け付ける。アセットの参照を外すときなど)。
+            case EditorArgType::Any: matches = true; break;
             }
             if (!matches)
             {
@@ -210,10 +210,13 @@ namespace husky::tools
         // コマンドの中で一覧に登録が足されると、要素の場所が変わり得るので、範囲 for ではなく番号で回し、
         // 実行する前に名前をコピーしておく(コピーは、押されたときだけ)。
         std::size_t executed = 0;
+        const engine::Input& input = app.GetInput();
+        const bool ctrlDown = input.IsDown(engine::Key::LeftCtrl) || input.IsDown(engine::Key::RightCtrl);
         for (std::size_t i = 0; i < m_commands.size(); ++i)
         {
             const engine::Key shortcut = m_commands[i].shortcut;
-            if (shortcut != engine::Key::Unknown && app.GetInput().WasPressed(shortcut))
+            // Ctrl の状態も合っているときだけ(Ctrl+Z のコマンドは Ctrl を押しているとき、ほかは押していないとき)。
+            if (shortcut != engine::Key::Unknown && m_commands[i].shortcutCtrl == ctrlDown && input.WasPressed(shortcut))
             {
                 const std::string name = m_commands[i].name;
                 Execute(name, app);
@@ -306,6 +309,8 @@ namespace husky::tools
         command.description = "Undo the last change made by a command (like property.set).";
         command.group = "history";
         // &commands: 一覧への参照を持たせる(一覧はコマンドより長く生きる)。
+        command.shortcut = engine::Key::Z;
+        command.shortcutCtrl = true; // Ctrl+Z
         command.execute = [&commands](EditorCommandContext& context) { return commands.Undo(context.app); };
         command.whyUnavailable = [&commands](engine::Application& app) { return commands.WhyCannotUndo(app); };
         return command;
@@ -318,6 +323,8 @@ namespace husky::tools
         command.label = "Redo";
         command.description = "Redo the last change that was undone.";
         command.group = "history";
+        command.shortcut = engine::Key::Y;
+        command.shortcutCtrl = true; // Ctrl+Y
         command.execute = [&commands](EditorCommandContext& context) { return commands.Redo(context.app); };
         command.whyUnavailable = [&commands](engine::Application& app) { return commands.WhyCannotRedo(app); };
         return command;
@@ -522,9 +529,10 @@ namespace husky::tools
             case core::PropertyType::Float:
             case core::PropertyType::String:
             case core::PropertyType::Struct: // 構造体は {"x": 1} のような形で、書いた値だけを書き換える
+            case core::PropertyType::AssetRef: // GUID の文字列か、null(何も指さない)
                 return true;
             default:
-                return false; // ハンドル、配列、アセットの参照、guid は、今は書き換えない
+                return false; // ハンドル、配列、guid は、今は書き換えない
             }
         }
 
@@ -795,7 +803,7 @@ namespace husky::tools
             componentArg,
             propertyArg,
             {"value", EditorArgType::Any,
-             "New value (a number, true/false, a string, or {\"name\": value} for a struct), matching the property", true},
+             "New value (a number, true/false, a string, {\"name\": value} for a struct, or a guid string / null for an asset), matching the property", true},
         };
 
         command.execute = [](EditorCommandContext& context) {

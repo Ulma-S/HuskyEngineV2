@@ -118,7 +118,7 @@ int main()
     tools::SceneInspector inspector;
     app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode](engine::Application& application) {
         debugWindow.Draw(application, &commands, &playMode);
-        inspector.Draw(application);
+        inspector.Draw(application, &commands); // 値の書き換えは property.set を通す(Undo できる)
     });
 #endif
 

@@ -80,7 +80,7 @@ namespace husky::tools
         Int,    // 整数
         Float,  // 数(整数で書いてもよい: 100 と 100.0 は同じ)
         String, // 文字列
-        Any,    // どの種類でもよい(property.set の value のように、ほかの引数で種類が決まるもの。中身はコマンドが確かめる)
+        Any,    // どの種類でもよい(null も可。property.set の value のように、ほかの引数で種類が決まるもの。中身はコマンドが確かめる)
     };
 
     // 画面や説明に出す、種類の名前("float" など)。
@@ -120,6 +120,9 @@ namespace husky::tools
         std::string label;       // 人向けの名前(画面に出す。英語。日本語のフォントを入れるまで)
         std::string description; // 何をするか(人へのツールチップ、AI への説明)
         engine::Key shortcut = engine::Key::Unknown; // ショートカットのキー。Unknown なら無し
+        // true なら、ショートカットは Ctrl と一緒に押す(Ctrl+Z など)。false なら、Ctrl を押していないときだけ反応する
+        // (Ctrl+Z を押したときに、Z だけのショートカットまで動かないように)。左右どちらの Ctrl でもよい。
+        bool shortcutCtrl = false;
         // 画面でボタンを並べるときのまとまり。登録の順で前のコマンドと同じ group なら、同じ行に並べる("play" の4つなど)。
         std::string group;
         // 実行する関数。std::function は C# の Func<> にあたる(ラムダ式で、必要なもの(保存先など)を持たせて書ける)。
@@ -231,7 +234,7 @@ namespace husky::tools
     };
 
     // 「元に戻す」コマンド(editor.undo)と「やり直す」コマンド(editor.redo)を作る。commands の履歴を使うので、
-    // commands はコマンドより長く生きていること(ふつうは commands 自身に登録する)。ショートカットは今は無い。
+    // commands はコマンドより長く生きていること(ふつうは commands 自身に登録する)。ショートカットは Ctrl+Z と Ctrl+Y。
     EditorCommand MakeUndoCommand(EditorCommandRegistry& commands);
     EditorCommand MakeRedoCommand(EditorCommandRegistry& commands);
 
@@ -273,7 +276,7 @@ namespace husky::tools
     // component(省略可。コンポーネントの型の名前。書けば、アクターのその型(か子孫)の最初のコンポーネントを書き換える)、
     // property(プロパティの名前。構造体の中は "transform.position.x" のように点でつなぐ)、
     // value(新しい値。種類はプロパティに合わせる。構造体そのものなら {"r": 1, "g": 0} のような形で、書いた値だけが変わる)。
-    // 書き換えられるのは bool / int / float / string と構造体(guid、ハンドル、配列、アセットの参照は、今は変えられない)。
+    // 書き換えられるのは bool / int / float / string、構造体、アセットの参照(GUID の文字列か null。guid、ハンドル、配列は変えられない)。
     // 値の確かめは、シーンの読み込みと同じ道具(ObjectSerializer)で行う。成功すると、前の値に戻す undo を返す(Undo できる)。
     EditorCommand MakeSetPropertyCommand();
 }

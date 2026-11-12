@@ -14,6 +14,7 @@
 #include "core/ObjectRegistry.h"
 #include "core/TypeInfo.h"
 #include "engine/Application.h"
+#include "tools/PropertyEditRecorder.h"
 
 namespace husky::tools
 {
@@ -41,7 +42,9 @@ namespace husky::tools
     {
     public:
         // 「Scene」の窓を作る。上にアクターの一覧、下に選んだアクターのプロパティとコンポーネントを出す。
-        void Draw(engine::Application& app);
+        // commands があれば、値の書き換えは property.set を通す(Undo できる。ドラッグは手を離したときに1件)。
+        // nullptr なら、その場で書き換えるだけ(テストなど)。
+        void Draw(engine::Application& app, EditorCommandRegistry* commands = nullptr);
 
         // 選ぶアクターを決める(テストや、ほかの道具から使う)。どこも指さないハンドルなら、選ばない。
         void Select(core::ObjectHandle actor) { m_selected = actor; }
@@ -50,6 +53,8 @@ namespace husky::tools
     private:
         // 選んでいるアクター。弱い参照(Destroy されたら、引くと nullptr になるので、選んでいないのと同じに扱う)。
         core::ObjectHandle m_selected;
+        // 値の書き換えを、property.set の1件にまとめる記録係(ドラッグ中の前の値を覚えておく)。
+        PropertyEditRecorder m_recorder;
     };
 }
 

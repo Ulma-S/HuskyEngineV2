@@ -242,6 +242,10 @@ namespace husky::tools
             if (command.shortcut != engine::Key::Unknown)
             {
                 m_buttonText += " (";
+                if (command.shortcutCtrl)
+                {
+                    m_buttonText += "Ctrl+";
+                }
                 m_buttonText += GetKeyDisplayName(command.shortcut);
                 m_buttonText += ')';
             }
@@ -396,6 +400,10 @@ namespace husky::tools
         case engine::Key::Enter: return "Enter";
         case engine::Key::Escape: return "Escape";
         case engine::Key::F5: return "F5";
+        case engine::Key::Z: return "Z";
+        case engine::Key::Y: return "Y";
+        case engine::Key::LeftCtrl: return "LeftCtrl";
+        case engine::Key::RightCtrl: return "RightCtrl";
         case engine::Key::Unknown:
         case engine::Key::Count: break;
         }

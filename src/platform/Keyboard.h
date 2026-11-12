@@ -26,6 +26,10 @@ namespace husky::platform
         Enter,
         Escape,
         F5, // 開発ビルドで、シーンを保存する(エディタのコマンド scene.save のショートカット)
+        Z,         // 開発ビルドで、Ctrl+Z は元に戻す(editor.undo)
+        Y,         // 開発ビルドで、Ctrl+Y はやり直す(editor.redo)
+        LeftCtrl,  // 修飾キー。ショートカットの「Ctrl と一緒に押す」に使う
+        RightCtrl,
 
         Count // キーの数。配列の大きさに使う。必ず最後に置く
     };

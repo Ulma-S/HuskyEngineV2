@@ -119,6 +119,31 @@ TEST_CASE("EditorCommands: ショートカットのキーが押されたフレ�
     CHECK(otherCalls == 0);
 }
 
+TEST_CASE("EditorCommands: Ctrl 付きのショートカットは Ctrl を押しているときだけ、Ctrl 無しのものは押していないときだけ動く")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    int undoCalls = 0;
+    int zCalls = 0;
+    EditorCommand undo = MakeCountingCommand("test.ctrl_z", undoCalls, Key::Z);
+    undo.shortcutCtrl = true;
+    REQUIRE(commands.Register(std::move(undo)));
+    REQUIRE(commands.Register(MakeCountingCommand("test.z", zCalls, Key::Z)));
+
+    app.StepFrame(0, {KeyEvent{Key::Z, true}}); // Z だけ
+    CHECK(commands.HandleShortcuts(app) == 1);
+    CHECK(zCalls == 1);
+    CHECK(undoCalls == 0);
+    app.StepFrame(0, {KeyEvent{Key::Z, false}});
+
+    app.StepFrame(0, {KeyEvent{Key::RightCtrl, true}, KeyEvent{Key::Z, true}}); // Ctrl+Z(右の Ctrl でもよい)
+    CHECK(commands.HandleShortcuts(app) == 1);
+    CHECK(undoCalls == 1);
+    CHECK(zCalls == 1);
+    app.StepFrame(0, {}); // 押したまま
+    CHECK(commands.HandleShortcuts(app) == 0);
+}
+
 TEST_CASE("EditorCommands: シーンの保存は、指定したすべてのファイルに書き、書いた場所を細かい内容として返す")
 {
     husky::tests::TestFolder folder("husky_test_command_save");
@@ -535,6 +560,20 @@ TEST_CASE("EditorCommands: property.set はコンポーネントのプロパテ�
                                  Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "color", "value": {"r": 0, "b": "blue"}})"))
                     .succeeded);
     CHECK(sprite->color.r == 1.0f);
+
+    // アセットの参照は GUID の文字列で指し、null で外す(Undo で前の GUID に戻せる)
+    CHECK(commands.Execute("property.set", app,
+                           Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "texture", "value": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a61"})"))
+              .succeeded);
+    CHECK(sprite->texture.guid.ToString() == "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a61");
+    result = commands.Execute("property.set", app,
+                              Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "texture", "value": null})"));
+    CHECK(result.succeeded);
+    CHECK(sprite->texture.IsNull());
+    CHECK(result.undo.args.Find("value")->AsString() == "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a61");
+    CHECK_FALSE(commands.Execute("property.set", app,
+                                 Json(R"({"actor": "Player", "component": "SpriteComponent", "property": "texture", "value": "not a guid"})"))
+                    .succeeded);
 
     // 付いていないコンポーネント、知らない型は、付いているものを見せて断る
     result = commands.Execute("property.set", app,

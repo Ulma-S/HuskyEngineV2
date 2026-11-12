@@ -46,6 +46,9 @@ namespace husky::tools
 
         PropertyDrawer FindDrawer(const Property& property);
 
+        bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
+                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder);
+
         // SpriteComponent::sprite(切り出しの ID)を、スプライトシートの切り出しの名前から選ぶ箱で並べる。
         // スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
         bool DrawSpriteSlicePicker(const Property& property, void* container, core::ObjectRegistry& registry,
@@ -236,7 +239,7 @@ namespace husky::tools
 
         // プロパティ1つを、型に合った部品(チェックボックス、数の入力、文字の入力など)で並べる。
         bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
-                          const engine::AssetDatabase* assets)
+                          const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
         {
             const char* name = property.GetName();
             switch (property.GetType())
@@ -280,7 +283,7 @@ namespace husky::tools
                 bool changed = false;
                 if (ImGui::TreeNode(name))
                 {
-                    changed = DrawProperties(*property.GetStructType(), structAddress, registry, assets);
+                    changed = DrawPropertiesImpl(*property.GetStructType(), structAddress, registry, assets, recorder);
                     ImGui::TreePop();
                 }
                 return changed;
@@ -304,22 +307,42 @@ namespace husky::tools
             }
             return false;
         }
+
+        // recorder: 値の書き換えを property.set の1件にまとめる記録係(nullptr なら記録せず、その場で書き換えるだけ)。
+        bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
+                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
+        {
+            bool changed = false;
+            type.ForEachProperty([&](const Property& property) {
+                // PushID: ImGui は部品を「名前」で見分けるので、同じ名前(x など)が別の場所にあっても混ざらないように、区切りを付ける。
+                ImGui::PushID(property.GetName());
+                // 道筋("transform" → "position" → "x")を積む。構造体の中に入るときも、ここで積まれる。
+                if (recorder != nullptr)
+                {
+                    recorder->PushPath(property);
+                    recorder->BeforeLeaf(property, container); // 値1つの部品なら、今の値を控える
+                }
+                // 差し替えが登録されていれば、そちらで表示する。無ければ、型に合った標準の部品で表示する。
+                const PropertyDrawer drawer = FindDrawer(property);
+                const bool propertyChanged = drawer != nullptr ? drawer(property, container, registry, assets)
+                                                               : DrawProperty(property, container, registry, assets, recorder);
+                if (recorder != nullptr)
+                {
+                    // IsItemActive: 直前の部品が操作中(ドラッグ中、文字の入力中など)か。手を離すと false になる。
+                    recorder->AfterLeaf(property, container, propertyChanged, ImGui::IsItemActive());
+                    recorder->PopPath();
+                }
+                changed |= propertyChanged;
+                ImGui::PopID();
+            });
+            return changed;
+        }
     }
 
     bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
                         const engine::AssetDatabase* assets)
     {
-        bool changed = false;
-        type.ForEachProperty([&](const Property& property) {
-            // PushID: ImGui は部品を「名前」で見分けるので、同じ名前(x など)が別の場所にあっても混ざらないように、区切りを付ける。
-            ImGui::PushID(property.GetName());
-            // 差し替えが登録されていれば、そちらで表示する。無ければ、型に合った標準の部品で表示する。
-            const PropertyDrawer drawer = FindDrawer(property);
-            changed |= drawer != nullptr ? drawer(property, container, registry, assets)
-                                         : DrawProperty(property, container, registry, assets);
-            ImGui::PopID();
-        });
-        return changed;
+        return DrawPropertiesImpl(type, container, registry, assets, nullptr);
     }
 
     bool RegisterPropertyDrawer(const core::TypeInfo& type, const char* propertyName, PropertyDrawer drawer)
@@ -341,10 +364,11 @@ namespace husky::tools
         return true;
     }
 
-    void SceneInspector::Draw(engine::Application& app)
+    void SceneInspector::Draw(engine::Application& app, EditorCommandRegistry* commands)
     {
         engine::Scene& scene = app.GetScene();
         core::ObjectRegistry& registry = app.GetRegistry();
+        m_recorder.BeginFrame(app, commands);
 
         // 最初は画面の右上に出す(左上のデバッグの窓は、コマンドが増えると下へ伸びるので、その下に置くと重なる)。
         const float width = 360.0f;
@@ -389,7 +413,8 @@ namespace husky::tools
             else
             {
                 ImGui::SeparatorText(selected->GetType().GetName());
-                DrawProperties(selected->GetType(), selected, registry, &app.GetAssetDatabase());
+                m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
+                DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder);
                 if (ImGui::Button("Destroy"))
                 {
                     selected->Destroy(); // フレームの終わりに消える(弱い参照なので、選択は自然に外れる)
@@ -406,13 +431,16 @@ namespace husky::tools
                     ImGui::PushID(static_cast<int>(i));
                     if (ImGui::CollapsingHeader(component->GetType().GetName(), ImGuiTreeNodeFlags_DefaultOpen))
                     {
-                        DrawProperties(component->GetType(), component, registry, &app.GetAssetDatabase());
+                        m_recorder.SetOwner(*component);
+                        DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder);
                     }
                     ImGui::PopID();
                 }
             }
         }
         ImGui::End();
+        // 描き終わった: 編集の途中の部品が描かれなくなっていたら(選択を変えたなど)、ここで確定する。
+        m_recorder.EndFrame();
     }
 }
 

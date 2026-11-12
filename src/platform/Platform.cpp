@@ -35,6 +35,10 @@ namespace husky::platform
             case SDL_SCANCODE_RETURN: return Key::Enter;
             case SDL_SCANCODE_ESCAPE: return Key::Escape;
             case SDL_SCANCODE_F5:     return Key::F5;
+            case SDL_SCANCODE_Z:      return Key::Z;
+            case SDL_SCANCODE_Y:      return Key::Y;
+            case SDL_SCANCODE_LCTRL:  return Key::LeftCtrl;
+            case SDL_SCANCODE_RCTRL:  return Key::RightCtrl;
             default:                  return Key::Unknown;
             }
         }
