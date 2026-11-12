@@ -10,8 +10,16 @@
 //   ヘッダには、ブロック全体の大きさと「使用中 / 空き」の目印を書く。
 //   空きブロックでは、中身の先頭に「次の空きブロックの場所」を書いて、空きをリストにつなぐ。
 //
+// ASan のビルドでは、貸し出し中の中身(頼まれた大きさの分)だけを「触ってよい」にし、
+// それ以外(ヘッダ、空きブロック、切り上げで余った部分)はすべて「触ったらエラー」にする(AddressSanitizer.h)。
+// これで、返したメモリへのアクセスや、頼んだ大きさを超えたアクセスを、ASan が止められる。
+// アロケータ自身の関数はヘッダなどを読み書きするので、ASan の確認から外してある。
+// 注意: 返したブロックが別のオブジェクトに貸し直された後の古いポインタは、もう「触ってよい」場所を指すので止められない。
+//
 // 動作スレッド: ゲームスレッドのみ(複数のスレッドから同時に使ってはいけない)。
 #pragma once
+
+#include "core/AddressSanitizer.h" // HUSKY_NO_SANITIZE_ADDRESS
 
 #include <cstddef>
 #include <memory>
@@ -27,7 +35,11 @@ namespace husky::core
         static constexpr std::size_t MaxAlignment = 16;
 
         // capacityBytes: 管理するメモリの塊の大きさ。16 の倍数に切り捨てて使う。
-        explicit FreeListAllocator(std::size_t capacityBytes);
+        // HUSKY_NO_SANITIZE_ADDRESS: アロケータ自身の関数は、印を付けたヘッダなどを読み書きするので、ASan の確認から外す。
+        // (MSVC では、クラスの中の宣言に付ける必要がある)
+        HUSKY_NO_SANITIZE_ADDRESS explicit FreeListAllocator(std::size_t capacityBytes);
+        // メモリの塊を手放す。ASan の印を外してから返す(印が残ったまま標準のメモリへ戻さないため)。
+        ~FreeListAllocator();
 
         FreeListAllocator(const FreeListAllocator&) = delete;
         FreeListAllocator& operator=(const FreeListAllocator&) = delete;
@@ -35,11 +47,11 @@ namespace husky::core
         // size バイトを確保し、その先頭のアドレスを返す。足りなければ nullptr。
         // alignment: 返すアドレスが何の倍数であるべきか。MaxAlignment(16)より大きければ nullptr。
         // size が 0 のときも、1 バイト分として扱って有効なアドレスを返す。
-        void* Allocate(std::size_t size, std::size_t alignment = MaxAlignment);
+        HUSKY_NO_SANITIZE_ADDRESS void* Allocate(std::size_t size, std::size_t alignment = MaxAlignment);
 
         // Allocate で返したアドレスを返却する。
         // 戻り値: 返却できたら true。nullptr、このアロケータのものでないアドレス、二重解放なら false(何もしない)。
-        bool Free(void* pointer);
+        HUSKY_NO_SANITIZE_ADDRESS bool Free(void* pointer);
 
         // T 型のオブジェクトを、このアロケータのメモリの上に作る(確保 + コンストラクタ)。足りなければ nullptr。
         // C# の new T(args) にあたる。args は T のコンストラクタにそのまま渡す。
@@ -89,19 +101,22 @@ namespace husky::core
         std::size_t GetUsedBytes() const { return m_usedBytes; }
 
         // 空きブロックの数。多いほど細切れ(断片化)になっている。
-        std::size_t GetFreeBlockCount() const;
+        HUSKY_NO_SANITIZE_ADDRESS std::size_t GetFreeBlockCount() const;
 
         // 一番大きな空きブロックで、貸し出せる中身の大きさ(バイト)。これより大きい Allocate は失敗する。
-        std::size_t GetLargestFreeSize() const;
+        HUSKY_NO_SANITIZE_ADDRESS std::size_t GetLargestFreeSize() const;
 
     private:
         struct BlockHeader;
 
         // 空きブロックの「次の空きブロック」を読み書きする(中身の先頭に書いてある)。
-        static BlockHeader*& NextFree(BlockHeader* block);
+        HUSKY_NO_SANITIZE_ADDRESS static BlockHeader*& NextFree(BlockHeader* block);
+
+        // ブロックのすぐ後ろ(次のブロックの先頭になる場所)のアドレス。
+        HUSKY_NO_SANITIZE_ADDRESS static std::byte* EndOf(BlockHeader* block);
 
         // pointer が、このアロケータが貸し出したブロックの中身の先頭なら、そのヘッダを返す。違えば nullptr。
-        BlockHeader* FindAllocatedHeader(void* pointer) const;
+        HUSKY_NO_SANITIZE_ADDRESS BlockHeader* FindAllocatedHeader(void* pointer) const;
 
         std::unique_ptr<std::byte[]> m_memory; // メモリの塊。持ち主はこのアロケータ
         std::size_t m_capacity = 0;

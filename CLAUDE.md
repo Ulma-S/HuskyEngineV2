@@ -55,7 +55,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - 例外: placement new(確保済みのメモリの上でコンストラクタを呼ぶ)と、デストラクタの明示的な呼び出しは、`FreeListAllocator::New` / `FreeListAllocator::Delete`の中だけで使ってよい。アロケータでオブジェクトを作るときは、必ずこの2つを使う。
   - `Delete`は、オブジェクトのアドレスが`New`で借りたメモリの先頭と一致することを前提にしている。基底クラスのポインタで渡すのは、単一継承の場合だけにする。
 - ゲームオブジェクトのメモリは、`ObjectRegistry`が持つ自作のヒープアロケータ(`FreeListAllocator`、フリーリスト型・ファーストフィット)から借りる。容量を使い切ると`Create`は`nullptr`を返す。
-- 自作アロケータの中の誤用はASanから見えない。ASanを入れるときに、手動でのポイズニングなど両立の方法を考える。
+- 自作アロケータの中の誤用は、そのままではASanから見えない。`FreeListAllocator`は、貸し出し中の中身(頼まれた大きさ)だけを触れるようにし、それ以外に印を付ける(ポイズニング、`core/AddressSanitizer.h`)。アロケータ自身の関数には`HUSKY_NO_SANITIZE_ADDRESS`を、クラスの中の宣言に付ける。返したブロックが貸し直された後の古いポインタは検出できない。
 
 ## リフレクション
 
@@ -113,7 +113,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
     - ビルド: `cmake --build --preset asan`
     - テスト: `ctest --preset asan`(個別の結果は`build/vs2022-asan/Debug/HuskyTests.exe`)
   - ASanの実行時ライブラリ(DLL)は、ビルドのたびにexeの隣へコピーされる。
-  - 自作アロケータ(`FreeListAllocator`)の中で解放したメモリへのアクセスは、まだASanで検出できない(ポイズニングは未対応)。
+  - 自作アロケータ(`FreeListAllocator`)で返したメモリへのアクセスも、ポイズニングで検出できる(`use-after-poison`と報告される)。ポイズニングのテストはASanのビルドでだけ確認し、それ以外では何もしない。
   - UBSanとTSanは、MSVCでは使えない(UBSanはClang、TSanはWindows以外が必要)。扱いは未決。
 - スマホから依頼されたときは、目視確認を前提にせず、テストと自動検証で完了を判断する。
 

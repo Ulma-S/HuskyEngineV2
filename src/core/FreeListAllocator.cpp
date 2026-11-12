@@ -1,6 +1,8 @@
 // FreeListAllocator.h の実装。
 #include "core/FreeListAllocator.h"
 
+#include "core/AddressSanitizer.h"
+
 #include <cstdint> // std::uintptr_t
 
 namespace husky::core
@@ -35,7 +37,8 @@ namespace husky::core
         constexpr std::size_t MinBlockSize = HeaderSize + 16;
     }
 
-    FreeListAllocator::FreeListAllocator(std::size_t capacityBytes)
+    // HUSKY_NO_SANITIZE_ADDRESS: この関数の中の読み書きは、ASan が確認しない(ヘッダなど、印を付けた場所に触るため)。
+    HUSKY_NO_SANITIZE_ADDRESS FreeListAllocator::FreeListAllocator(std::size_t capacityBytes)
         : m_capacity(capacityBytes & ~(MaxAlignment - 1)) // 16 の倍数に切り捨て
     {
         static_assert(sizeof(BlockHeader) == HeaderSize, "ヘッダは 16 バイトであること");
@@ -56,16 +59,33 @@ namespace husky::core
         whole->magic = FreeMagic;
         NextFree(whole) = nullptr;
         m_freeList = whole;
+
+        // ASan: 最初は何も貸していないので、塊全体を「触ったらエラー」にする。
+        HUSKY_ASAN_POISON(m_memory.get(), m_capacity);
     }
 
-    FreeListAllocator::BlockHeader*& FreeListAllocator::NextFree(BlockHeader* block)
+    FreeListAllocator::~FreeListAllocator()
+    {
+        // ASan: 印を外してから、塊を標準のメモリへ返す(この後 m_memory の unique_ptr が delete[] する)。
+        if (m_memory != nullptr)
+        {
+            HUSKY_ASAN_UNPOISON(m_memory.get(), m_capacity);
+        }
+    }
+
+    HUSKY_NO_SANITIZE_ADDRESS std::byte* FreeListAllocator::EndOf(BlockHeader* block)
+    {
+        return reinterpret_cast<std::byte*>(block) + block->size;
+    }
+
+    HUSKY_NO_SANITIZE_ADDRESS FreeListAllocator::BlockHeader*& FreeListAllocator::NextFree(BlockHeader* block)
     {
         // ヘッダのすぐ後ろ(中身の先頭)を、「BlockHeader* を入れる場所」として扱う。
         // 戻り値が参照(&)なので、NextFree(block) = x; と書けば、その場所に書き込める。
         return *reinterpret_cast<BlockHeader**>(reinterpret_cast<std::byte*>(block) + HeaderSize);
     }
 
-    void* FreeListAllocator::Allocate(std::size_t size, std::size_t alignment)
+    HUSKY_NO_SANITIZE_ADDRESS void* FreeListAllocator::Allocate(std::size_t size, std::size_t alignment)
     {
         if (alignment > MaxAlignment || m_capacity == 0)
         {
@@ -118,13 +138,18 @@ namespace husky::core
 
             block->magic = UsedMagic;
             m_usedBytes += block->size;
-            return reinterpret_cast<std::byte*>(block) + HeaderSize; // 中身の先頭を返す
+            std::byte* payload = reinterpret_cast<std::byte*>(block) + HeaderSize; // 中身の先頭
+
+            // ASan: 頼まれた大きさ(size)だけを「触ってよい」にする。
+            // ヘッダと、16 の倍数への切り上げで余った部分は「触ったらエラー」のまま(頼んだ大きさを超えたアクセスも止まる)。
+            HUSKY_ASAN_UNPOISON(payload, size);
+            return payload;
         }
 
         return nullptr; // 収まる空きが無い
     }
 
-    FreeListAllocator::BlockHeader* FreeListAllocator::FindAllocatedHeader(void* pointer) const
+    HUSKY_NO_SANITIZE_ADDRESS FreeListAllocator::BlockHeader* FreeListAllocator::FindAllocatedHeader(void* pointer) const
     {
         if (pointer == nullptr || m_memory == nullptr)
         {
@@ -143,7 +168,7 @@ namespace husky::core
         return header->magic == UsedMagic ? header : nullptr;
     }
 
-    bool FreeListAllocator::Free(void* pointer)
+    HUSKY_NO_SANITIZE_ADDRESS bool FreeListAllocator::Free(void* pointer)
     {
         BlockHeader* block = FindAllocatedHeader(pointer);
         if (block == nullptr)
@@ -152,6 +177,10 @@ namespace husky::core
         }
         m_usedBytes -= block->size;
         block->magic = FreeMagic;
+
+        // ASan: 返されたブロック全体(ヘッダと中身)を「触ったらエラー」にする。
+        // これで、返した後のオブジェクトへのアクセス(use-after-free)を ASan が止められる。
+        HUSKY_ASAN_POISON(block, block->size);
 
         // 空きリストは「アドレスの小さい順」に並べてある。block を差し込む場所(previous と next の間)を探す。
         BlockHeader* previous = nullptr;
@@ -174,15 +203,16 @@ namespace husky::core
         }
 
         // 後ろとの結合: block のすぐ後ろが next なら、1つにくっつける。
-        auto endOf = [](BlockHeader* b) { return reinterpret_cast<std::byte*>(b) + b->size; };
-        if (next != nullptr && endOf(block) == reinterpret_cast<std::byte*>(next))
+        // (ここはラムダ式にしない。ラムダ式は別の関数になるので、HUSKY_NO_SANITIZE_ADDRESS が効かず、
+        //   印を付けたヘッダを読んだところで ASan に止められてしまう)
+        if (next != nullptr && EndOf(block) == reinterpret_cast<std::byte*>(next))
         {
             block->size += next->size;
             NextFree(block) = NextFree(next);
         }
 
         // 前との結合: previous のすぐ後ろが block なら、1つにくっつける。
-        if (previous != nullptr && endOf(previous) == reinterpret_cast<std::byte*>(block))
+        if (previous != nullptr && EndOf(previous) == reinterpret_cast<std::byte*>(block))
         {
             previous->size += block->size;
             NextFree(previous) = NextFree(block);
@@ -190,7 +220,7 @@ namespace husky::core
         return true;
     }
 
-    std::size_t FreeListAllocator::GetFreeBlockCount() const
+    HUSKY_NO_SANITIZE_ADDRESS std::size_t FreeListAllocator::GetFreeBlockCount() const
     {
         std::size_t count = 0;
         for (BlockHeader* block = m_freeList; block != nullptr; block = NextFree(block))
@@ -200,7 +230,7 @@ namespace husky::core
         return count;
     }
 
-    std::size_t FreeListAllocator::GetLargestFreeSize() const
+    HUSKY_NO_SANITIZE_ADDRESS std::size_t FreeListAllocator::GetLargestFreeSize() const
     {
         std::size_t largest = 0;
         for (BlockHeader* block = m_freeList; block != nullptr; block = NextFree(block))

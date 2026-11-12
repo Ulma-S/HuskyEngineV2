@@ -1,4 +1,5 @@
 // FreeListAllocator(フリーリスト型のヒープアロケータ)のテスト。
+#include "core/AddressSanitizer.h"
 #include "core/FreeListAllocator.h"
 
 #include <doctest/doctest.h>
@@ -264,4 +265,73 @@ TEST_CASE("FreeListAllocator: New は容量が足りなければ nullptr、Delet
     FreeListAllocator allocator(32); // ヘッダ 16 + 中身 16 しか入らない
     CHECK(allocator.New<Derived>(1, std::string("a")) == nullptr); // Derived は 16 バイトより大きい
     CHECK_FALSE(allocator.Delete(static_cast<Derived*>(nullptr)));
+}
+
+// --- ASan のポイズニング ---
+// ASan のビルドでだけ意味がある。それ以外のビルドでは IsPoisonedByAddressSanitizer が常に false なので、確認を飛ばす。
+// 印を確かめるだけで、印の付いた場所には触らないので、テストが ASan に止められることはない。
+
+TEST_CASE("FreeListAllocator(ASan): 貸した中身は頼んだ大きさだけ触れて、ヘッダと余りは触れない")
+{
+    if (!husky::core::IsAddressSanitizerEnabled())
+    {
+        return; // ASan のビルドではない
+    }
+    using husky::core::IsPoisonedByAddressSanitizer;
+
+    FreeListAllocator allocator(Capacity);
+    auto* bytes = static_cast<unsigned char*>(allocator.Allocate(20)); // 20 バイト(ブロックの中身は 32 バイトに切り上がる)
+    REQUIRE(bytes != nullptr);
+
+    CHECK_FALSE(IsPoisonedByAddressSanitizer(bytes));      // 先頭
+    CHECK_FALSE(IsPoisonedByAddressSanitizer(bytes + 19)); // 頼んだ範囲の最後
+    CHECK(IsPoisonedByAddressSanitizer(bytes + 20));       // 頼んだ範囲のすぐ外(切り上げで余った部分)
+    CHECK(IsPoisonedByAddressSanitizer(bytes - 1));        // ヘッダ
+}
+
+TEST_CASE("FreeListAllocator(ASan): 返したブロックと、まだ貸していない空きは触れない")
+{
+    if (!husky::core::IsAddressSanitizerEnabled())
+    {
+        return;
+    }
+    using husky::core::IsPoisonedByAddressSanitizer;
+
+    FreeListAllocator allocator(Capacity);
+    auto* first = static_cast<unsigned char*>(allocator.Allocate(32));
+    auto* second = static_cast<unsigned char*>(allocator.Allocate(32));
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    CHECK(IsPoisonedByAddressSanitizer(second + 64)); // まだ貸していない空き
+
+    CHECK(allocator.Free(first));
+    CHECK(IsPoisonedByAddressSanitizer(first));       // 返した中身
+    CHECK(IsPoisonedByAddressSanitizer(first + 31));
+    CHECK_FALSE(IsPoisonedByAddressSanitizer(second)); // ほかの貸し出し中のものは触れる
+
+    // 返した場所をまた貸すと、触れるようになる(同じ場所が先頭から使われる。ファーストフィット)。
+    auto* again = static_cast<unsigned char*>(allocator.Allocate(32));
+    CHECK(again == first);
+    CHECK_FALSE(IsPoisonedByAddressSanitizer(again));
+}
+
+TEST_CASE("FreeListAllocator(ASan): Delete したオブジェクトのメモリは触れない")
+{
+    if (!husky::core::IsAddressSanitizerEnabled())
+    {
+        return;
+    }
+    struct Point
+    {
+        float x = 1.0f;
+        float y = 2.0f;
+    };
+
+    FreeListAllocator allocator(Capacity);
+    Point* point = allocator.New<Point>();
+    REQUIRE(point != nullptr);
+    CHECK_FALSE(husky::core::IsPoisonedByAddressSanitizer(&point->y));
+
+    allocator.Delete(point);
+    CHECK(husky::core::IsPoisonedByAddressSanitizer(&point->x)); // point はもう使ってはいけない(印を見るだけ)
 }
