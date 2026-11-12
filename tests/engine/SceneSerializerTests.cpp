@@ -75,7 +75,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     prey->x = 5.5f;
     SpriteComponent* preySprite = prey->AddComponent<SpriteComponent>();
     preySprite->width = 16.0f;
-    preySprite->color = {1.0f, 0.5f, 0.25f, 1.0f}; // color は登録していないプロパティなので、保存されない
+    preySprite->color = {1.0f, 0.5f, 0.25f, 0.75f}; // 構造体(render::Color)のプロパティ
     Hunter* hunter = source->Spawn<Hunter>();
     hunter->name = "きつね";
     hunter->level = 7;
@@ -113,6 +113,9 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     SpriteComponent* loadedSprite = loadedPrey->GetComponent<SpriteComponent>();
     REQUIRE(loadedSprite != nullptr);
     CHECK(loadedSprite->width == 16.0f);
+    CHECK(loadedSprite->color.g == 0.5f); // 構造体の中のメンバーも戻る
+    CHECK(loadedSprite->color.b == 0.25f);
+    CHECK(loadedSprite->color.a == 0.75f);
     CHECK(loadedSprite->GetOwner() == loadedPrey);
     CHECK(loadedHunter->GetComponent<SpriteComponent>()->height == 64.0f);
     CHECK(loadedPrey->GetScene() == target);

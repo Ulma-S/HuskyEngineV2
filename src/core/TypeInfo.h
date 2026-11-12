@@ -54,9 +54,10 @@ namespace husky::core
         }
 
         // プロパティを1つ登録する。HUSKY_PROPERTY マクロから呼ばれる。
-        void AddProperty(const char* name, PropertyType type, std::size_t offset)
+        // structType: 構造体のプロパティのときの、その構造体の型情報(それ以外は nullptr)。
+        void AddProperty(const char* name, PropertyType type, std::size_t offset, const TypeInfo* structType = nullptr)
         {
-            m_properties.emplace_back(name, type, offset); // emplace_back: 引数から、その場で要素を作って末尾に足す
+            m_properties.emplace_back(name, type, offset, structType); // emplace_back: 引数から、その場で要素を作って末尾に足す
         }
 
         // この型で登録したプロパティだけを返す(親の型のものは含まない)。
@@ -126,4 +127,27 @@ namespace husky::core
         std::vector<Property> m_properties;
         std::vector<Method> m_methods;
     };
+
+    // Property::ForEachReferenceAt の中身。構造体の中をたどるのに TypeInfo の中身(ForEachProperty)が要るので、ここに書く。
+    // (テンプレートの関数は、使われる場所から中身が見えている必要があるので、.cpp ではなくヘッダに書く)
+    template <typename Function>
+    void Property::ForEachReferenceAt(const void* container, Function&& function) const
+    {
+        if (const ObjectHandle* single = GetValuePtrAt<ObjectHandle>(container))
+        {
+            function(*single);
+        }
+        else if (const std::vector<ObjectHandle>* array = GetValuePtrAt<std::vector<ObjectHandle>>(container))
+        {
+            for (const ObjectHandle handle : *array)
+            {
+                function(handle);
+            }
+        }
+        else if (const void* structAddress = GetStructAddressAt(container))
+        {
+            // 構造体: 中のメンバーを1つずつ、同じようにたどる(構造体の中の構造体も、ここを繰り返して奥までたどる)。
+            m_structType->ForEachProperty([&](const Property& member) { member.ForEachReferenceAt(structAddress, function); });
+        }
+    }
 }

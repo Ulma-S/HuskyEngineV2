@@ -16,6 +16,7 @@
 #pragma once
 
 #include "engine/Scene.h"
+#include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
 #include "render/RenderDevice.h"
 
 namespace husky::engine
@@ -31,10 +32,10 @@ namespace husky::engine
         float height = 32.0f;
         render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
 
-        // color は render の型で、リフレクションの対応型ではないので登録しない。
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
+            HUSKY_PROPERTY(color) // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
         HUSKY_REFLECTION_END()
     };
 

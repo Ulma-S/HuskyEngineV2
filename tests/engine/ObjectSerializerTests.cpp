@@ -2,6 +2,7 @@
 #include "engine/Actor.h"
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
+#include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
 
@@ -148,4 +149,51 @@ TEST_CASE("ObjectSerializer: int32 の範囲を超える整数は読み込まな
     CHECK(enemy->hp == 10);
     REQUIRE(report.warnings.size() == 1);
     CHECK(report.warnings[0].find("int32") != std::string::npos);
+}
+
+TEST_CASE("ObjectSerializer: 構造体のプロパティは入れ子で書かれ、JSON を通しても同じ値に戻る")
+{
+    ObjectRegistry registry;
+    auto* sprite = registry.Create<husky::engine::SpriteComponent>();
+    sprite->color = {0.1f, 0.2f, 0.3f, 0.4f};
+
+    const ArchiveValue saved = ObjectSerializer::Write(*sprite);
+    const ArchiveValue* color = saved.Find("properties")->Find("color");
+    REQUIRE(color != nullptr);
+    CHECK(color->GetType() == ArchiveValue::Type::Object);
+    CHECK(color->GetMemberName(0) == "r");
+
+    std::string text;
+    REQUIRE(JsonFormat::Write(saved, text, false));
+    CHECK(text.find(R"("color":{"r":0.1,"g":0.2,"b":0.3,"a":0.4})") != std::string::npos);
+
+    ArchiveValue loaded;
+    REQUIRE(JsonFormat::Read(text, loaded));
+    auto* copy = registry.Create<husky::engine::SpriteComponent>();
+    const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *copy);
+    CHECK(report.warnings.empty());
+    CHECK(report.readCount == 6); // width, height, color の r, g, b, a
+    CHECK(copy->color.r == 0.1f);
+    CHECK(copy->color.a == 0.4f);
+}
+
+TEST_CASE("ObjectSerializer: 構造体の中の読めない値は、道筋付きの名前で理由を残し、ほかのメンバーは読む")
+{
+    ObjectRegistry registry;
+    auto* sprite = registry.Create<husky::engine::SpriteComponent>();
+
+    ArchiveValue loaded;
+    REQUIRE(JsonFormat::Read(R"({ "properties": {
+        "color": { "r": 0.5, "g": "赤", "q": 1 },
+        "width": { "x": 1 }
+    } })", loaded));
+
+    const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *sprite);
+
+    CHECK(sprite->color.r == 0.5f); // 読めたメンバーは読む
+    CHECK(sprite->color.g == 1.0f); // 読めなかったメンバーは今の値のまま
+    REQUIRE(report.warnings.size() == 3);
+    CHECK(report.warnings[0].rfind("color.g:", 0) == 0); // rfind(..., 0) == 0 は「この文字列で始まる」
+    CHECK(report.warnings[1].rfind("color.q:", 0) == 0);
+    CHECK(report.warnings[2].rfind("width:", 0) == 0);    // float に構造体は入らない
 }

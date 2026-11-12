@@ -46,7 +46,7 @@ namespace husky::engine::ObjectSerializer
     // ReadProperties の結果。
     struct ReadReport
     {
-        std::size_t readCount = 0;         // 読み込めたプロパティの数
+        std::size_t readCount = 0;         // 読み込めた値の数(構造体の中のメンバーは、1つずつ数える)
         std::vector<std::string> warnings; // 読み込めなかったものの理由(知らない名前、型の違い、範囲外など)
     };
 

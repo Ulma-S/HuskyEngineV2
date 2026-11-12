@@ -1,4 +1,6 @@
 // ObjectSerializer.h の実装。
+// 値の読み書きは、必ず Property の GetValuePtrAt / GetStructAddressAt を通す(オフセットを直接触らない)。
+// container は「プロパティの持ち主(オブジェクトか構造体)の先頭のアドレス」。構造体の中に入るときは、構造体のアドレスに替える。
 #include "engine/ObjectSerializer.h"
 
 #include "core/Property.h"
@@ -22,8 +24,11 @@ namespace husky::engine::ObjectSerializer
             return id >= 0 ? ArchiveValue(id) : ArchiveValue();
         }
 
+        // 下で定義する関数を、先に宣言しておく(PropertyToValue と PropertiesToValue は、お互いを呼び合うため)。
+        ArchiveValue PropertiesToValue(const core::TypeInfo& type, const void* container, const HandleToId& toId);
+
         // プロパティ1つの値を ArchiveValue にする。書かないもの(対応表の無いハンドル)なら Null を返し、ok を false にする。
-        ArchiveValue PropertyToValue(const Property& property, const core::Object& object, const HandleToId& toId, bool& ok)
+        ArchiveValue PropertyToValue(const Property& property, const void* container, const HandleToId& toId, bool& ok)
         {
             ok = true;
             // std::function は、中身が入っているかを if で確かめられる。入っていなければハンドルは書かない。
@@ -35,20 +40,20 @@ namespace husky::engine::ObjectSerializer
             switch (property.GetType())
             {
             case PropertyType::Bool:
-                return ArchiveValue(*property.GetValuePtr<bool>(object));
+                return ArchiveValue(*property.GetValuePtrAt<bool>(container));
             case PropertyType::Int32:
-                return ArchiveValue(static_cast<std::int64_t>(*property.GetValuePtr<std::int32_t>(object)));
+                return ArchiveValue(static_cast<std::int64_t>(*property.GetValuePtrAt<std::int32_t>(container)));
             case PropertyType::Float:
-                return ArchiveValue(*property.GetValuePtr<float>(object)); // float の精度の印が付く
+                return ArchiveValue(*property.GetValuePtrAt<float>(container)); // float の精度の印が付く
             case PropertyType::String:
-                return ArchiveValue(*property.GetValuePtr<std::string>(object));
+                return ArchiveValue(*property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
-                return HandleToValue(*property.GetValuePtr<core::ObjectHandle>(object), toId);
+                return HandleToValue(*property.GetValuePtrAt<core::ObjectHandle>(container), toId);
             case PropertyType::ObjectHandleArray:
             {
                 // 番号の配列にする。番号の無い相手(保存しないもの、もう無いもの)は書かない。
                 ArchiveValue array = ArchiveValue::MakeArray();
-                for (const core::ObjectHandle handle : *property.GetValuePtr<std::vector<core::ObjectHandle>>(object))
+                for (const core::ObjectHandle handle : *property.GetValuePtrAt<std::vector<core::ObjectHandle>>(container))
                 {
                     ArchiveValue element = HandleToValue(handle, toId);
                     if (!element.IsNull())
@@ -58,9 +63,27 @@ namespace husky::engine::ObjectSerializer
                 }
                 return array;
             }
+            case PropertyType::Struct:
+                // 構造体: 中のメンバーを、入れ子のオブジェクトとして書く(オブジェクトのプロパティと同じ書き方を繰り返す)。
+                return PropertiesToValue(*property.GetStructType(), property.GetStructAddressAt(container), toId);
             }
             ok = false;
             return ArchiveValue();
+        }
+
+        // 型の全プロパティ(親の型のものから順に)を、「名前 → 値」のオブジェクトにする。
+        ArchiveValue PropertiesToValue(const core::TypeInfo& type, const void* container, const HandleToId& toId)
+        {
+            ArchiveValue properties = ArchiveValue::MakeObject();
+            type.ForEachProperty([&](const Property& property) {
+                bool ok = false;
+                ArchiveValue value = PropertyToValue(property, container, toId, ok);
+                if (ok)
+                {
+                    properties.Set(property.GetName(), std::move(value));
+                }
+            });
+            return properties;
         }
 
         // 番号(Int)か null を、ハンドルにする。読めなければ理由を返す(空なら成功)。
@@ -83,8 +106,8 @@ namespace husky::engine::ObjectSerializer
             return {};
         }
 
-        // ArchiveValue の値を、プロパティに書き込む。型が合わなければ書き込まず、理由を返す(空なら成功)。
-        std::string ValueToProperty(const ArchiveValue& value, const Property& property, core::Object& object,
+        // ArchiveValue の値を、プロパティ(構造体以外)に書き込む。型が合わなければ書き込まず、理由を返す(空なら成功)。
+        std::string ValueToProperty(const ArchiveValue& value, const Property& property, void* container,
                                     const IdToHandle& toHandle)
         {
             if (property.IsReference() && !toHandle)
@@ -98,7 +121,7 @@ namespace husky::engine::ObjectSerializer
                 {
                     return "bool ではありません";
                 }
-                *property.GetValuePtr<bool>(object) = value.AsBool();
+                *property.GetValuePtrAt<bool>(container) = value.AsBool();
                 return {};
             case PropertyType::Int32:
             {
@@ -111,7 +134,7 @@ namespace husky::engine::ObjectSerializer
                 {
                     return "int32 の範囲を超えています";
                 }
-                *property.GetValuePtr<std::int32_t>(object) = static_cast<std::int32_t>(number);
+                *property.GetValuePtrAt<std::int32_t>(container) = static_cast<std::int32_t>(number);
                 return {};
             }
             case PropertyType::Float:
@@ -120,14 +143,14 @@ namespace husky::engine::ObjectSerializer
                 {
                     return "数ではありません";
                 }
-                *property.GetValuePtr<float>(object) = static_cast<float>(value.AsFloat());
+                *property.GetValuePtrAt<float>(container) = static_cast<float>(value.AsFloat());
                 return {};
             case PropertyType::String:
                 if (value.GetType() != ArchiveValue::Type::String)
                 {
                     return "文字列ではありません";
                 }
-                *property.GetValuePtr<std::string>(object) = value.AsString();
+                *property.GetValuePtrAt<std::string>(container) = value.AsString();
                 return {};
             case PropertyType::ObjectHandle:
             {
@@ -135,7 +158,7 @@ namespace husky::engine::ObjectSerializer
                 std::string error = ValueToHandle(value, toHandle, handle);
                 if (error.empty())
                 {
-                    *property.GetValuePtr<core::ObjectHandle>(object) = handle;
+                    *property.GetValuePtrAt<core::ObjectHandle>(container) = handle;
                 }
                 return error;
             }
@@ -161,11 +184,51 @@ namespace husky::engine::ObjectSerializer
                         firstError = std::move(error);
                     }
                 }
-                *property.GetValuePtr<std::vector<core::ObjectHandle>>(object) = std::move(handles);
+                *property.GetValuePtrAt<std::vector<core::ObjectHandle>>(container) = std::move(handles);
                 return firstError;
             }
+            case PropertyType::Struct:
+                break; // 構造体は ReadMembers が中に入って読む
             }
             return "知らない種類のプロパティです";
+        }
+
+        // 「名前 → 値」のオブジェクト(members)を、型 type の持ち主(container)のプロパティに書き込む。
+        // 構造体のプロパティは、中に入って同じことを繰り返す。warnings の名前には「color.r」のように道筋を付ける。
+        void ReadMembers(const ArchiveValue& members, const core::TypeInfo& type, void* container,
+                         const IdToHandle& toHandle, const std::string& prefix, ReadReport& report)
+        {
+            for (std::size_t i = 0; i < members.GetMemberCount(); ++i)
+            {
+                const std::string name = prefix + members.GetMemberName(i);
+                const ArchiveValue& value = members.GetMemberValue(i);
+                const core::Property* property = type.FindProperty(members.GetMemberName(i).c_str());
+                if (property == nullptr)
+                {
+                    report.warnings.push_back(name + ": この型にはありません");
+                    continue;
+                }
+                if (property->GetType() == PropertyType::Struct)
+                {
+                    if (value.GetType() != ArchiveValue::Type::Object)
+                    {
+                        report.warnings.push_back(name + ": 構造体(オブジェクト)ではありません");
+                        continue;
+                    }
+                    ReadMembers(value, *property->GetStructType(), property->GetStructAddressAt(container), toHandle,
+                                name + ".", report);
+                    continue;
+                }
+                const std::string error = ValueToProperty(value, *property, container, toHandle);
+                if (error.empty())
+                {
+                    ++report.readCount;
+                }
+                else
+                {
+                    report.warnings.push_back(name + ": " + error);
+                }
+            }
         }
     }
 
@@ -173,17 +236,8 @@ namespace husky::engine::ObjectSerializer
     {
         ArchiveValue root = ArchiveValue::MakeObject();
         root.Set("type", ArchiveValue(object.GetType().GetName()));
-        ArchiveValue& properties = root.Set("properties", ArchiveValue::MakeObject());
-
         // ForEachProperty は、親クラスのプロパティから順に渡す(Object → Actor → Enemy の順)。
-        object.GetType().ForEachProperty([&](const Property& property) {
-            bool ok = false;
-            ArchiveValue value = PropertyToValue(property, object, toId, ok);
-            if (ok)
-            {
-                properties.Set(property.GetName(), std::move(value));
-            }
-        });
+        root.Set("properties", PropertiesToValue(object.GetType(), &object, toId));
         return root;
     }
 
@@ -205,25 +259,7 @@ namespace husky::engine::ObjectSerializer
             return report;
         }
 
-        for (std::size_t i = 0; i < properties->GetMemberCount(); ++i)
-        {
-            const std::string& name = properties->GetMemberName(i);
-            const core::Property* property = type.FindProperty(name.c_str());
-            if (property == nullptr)
-            {
-                report.warnings.push_back(name + ": この型にはありません");
-                continue;
-            }
-            const std::string error = ValueToProperty(properties->GetMemberValue(i), *property, object, toHandle);
-            if (error.empty())
-            {
-                ++report.readCount;
-            }
-            else
-            {
-                report.warnings.push_back(name + ": " + error);
-            }
-        }
+        ReadMembers(*properties, type, &object, toHandle, "", report);
         return report;
     }
 }

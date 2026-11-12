@@ -304,6 +304,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/SceneSerializerTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/core/TypeRegistryTests.cpp
+        tests/core/StructReflectionTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp
         tests/core/ObjectRegistryTests.cpp
