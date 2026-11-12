@@ -92,7 +92,7 @@ core / engine / platform / tools / game の5つに分け、依存は一方向に
   - `Property::IsReference`はシーンの中のオブジェクトへの参照(保存に番号の対応表が要るもの)だけで、`AssetRef`は含まない。
   - GUIDは、アセットの隣の`.meta`(`enemy.png.meta`、中身は`{"guid": "..."}`)に書く。`.meta`はアセットと一緒にgitで管理し、ファイルを動かすときは一緒に動かす。
   - テクスチャは「画像 + `.meta`」をそのままアセットにする(1枚の画像 = 1つのテクスチャ)。切り出しは、画像をGUIDで指す別のアセット(スプライトシート、`.spritesheet`、JSON。`engine/SpriteSheetAsset.h`)に書く(`"texture": "<GUID>", "sprites": [{"id", "name", "x", "y", "width", "height"}]`)。1枚の画像をテクスチャとして直接使いながら、いくつものスプライトシートからも使える。将来テクスチャも包むアセットにする余地を残す(設計メモ「テクスチャを包むアセットへの移し替え」)。
-  - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。IDの無い切り出し(手で書き足したもの)には、開発ビルドが起動時にIDを振って書き戻す(`AssignMissingSliceIdsInFolder`。ソースとexeの隣の両方)。
+  - 切り出しは「スプライトシートのGUID + 切り出しのID」で指す(Unityのfile IDと同じ考え方)。IDはスプライトシートの中で重ならない0以外のint32で、一度振ったら変えない。名前は表示用。アニメーション(`"animations": [{"id", "name", "frames", "frameSeconds", "loop"}]`。コマは切り出しのID)も同じくIDで指す(`engine/SpriteSheetData.h`)。手で書くときはIDを省き、コマを切り出しの名前で書いてよい。開発ビルドが起動時にIDを振り、名前をIDに直して書き戻す(`NormalizeSpriteSheetsInFolder`。ソースとexeの隣の両方)。製品はIDだけを読む。
   - スプライトシートを読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。スプライトシートの`texture`はプロパティの`AssetRef`なので、スプライトシートが生きている間は画像も回収されない。アセットの種類を足すときは、ローダの読み込み中の記録(`PendingLoad`の子)と`Start〜`/`Finish〜`を足す。
   - `SpriteComponent`は、`sheet`(`AssetRef<SpriteSheetAsset>`)と`sprite`(切り出しのID)で切り出しを指せる。`sheet`を指していれば、`texture`と`region`より優先する。どれを貼るかは`ChooseSpriteTexture`(GPUを使わない。テストできる)が決める。
   - `engine::AssetDatabase::Scan`が`assets`の中の`.meta`を読み、「GUID → パス」の表を作る。GUIDが重なった`.meta`は、どれも表に入れずにエラーとして出す(黙ってどちらかを選ばない)。

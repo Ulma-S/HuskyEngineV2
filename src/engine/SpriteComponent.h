@@ -49,7 +49,7 @@ namespace husky::engine
         // sheet を指していれば、texture と region より優先して、「スプライトシートの画像の、切り出しの範囲」を貼る。
         // sprite が見つからない(0、または消された切り出し)ときは、スプライトシートの画像の全体を貼る。
         core::AssetRef<SpriteSheetAsset> sheet;
-        std::int32_t sprite = 0; // 切り出しの ID(SpriteSlices.h)。インスペクタでは名前で選べる
+        std::int32_t sprite = 0; // 切り出しの ID(SpriteSheetData.h)。インスペクタでは名前で選べる
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)

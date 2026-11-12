@@ -1,9 +1,51 @@
 {
   "texture": "79c3b0af-c595-475c-96a9-6925bdf98dd7",
   "sprites": [
-    { "id": 2029980675, "name": "circle",   "x": 0,  "y": 0,  "width": 32, "height": 32 },
-    { "id": 1007680352, "name": "square",   "x": 32, "y": 0,  "width": 32, "height": 32 },
-    { "id": 616725172,  "name": "triangle", "x": 0,  "y": 32, "width": 32, "height": 32 },
-    { "id": 1917386538, "name": "diamond",  "x": 32, "y": 32, "width": 32, "height": 32 }
+    {
+      "id": 2029980675,
+      "name": "circle",
+      "x": 0,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": 1007680352,
+      "name": "square",
+      "x": 32,
+      "y": 0,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": 616725172,
+      "name": "triangle",
+      "x": 0,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": 1917386538,
+      "name": "diamond",
+      "x": 32,
+      "y": 32,
+      "width": 32,
+      "height": 32
+    }
+  ],
+  "animations": [
+    {
+      "id": 1811624963,
+      "name": "cycle",
+      "frames": [
+        2029980675,
+        1007680352,
+        616725172,
+        1917386538
+      ],
+      "frameSeconds": 0.25,
+      "loop": true
+    }
   ]
 }

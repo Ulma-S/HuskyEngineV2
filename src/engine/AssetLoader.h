@@ -153,6 +153,7 @@ namespace husky::engine
             void Finish(AssetLoader& loader) override { loader.FinishSpriteSheet(*this); }
             core::Guid texture;                // ジョブが書く: 中で指している画像の GUID
             std::vector<SpriteSlice> slices;   // ジョブが書く: 切り出しの一覧
+            std::vector<SpriteAnimation> animations; // ジョブが書く: アニメーションの一覧
             std::vector<std::string> warnings; // ジョブが書く: 読んだときの注意(Finish がログに出す)
             bool succeeded = false;            // ジョブが書く: 読めたか
         };

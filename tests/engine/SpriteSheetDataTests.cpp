@@ -1,5 +1,5 @@
-// SpriteSlices(.meta の切り出し方)のテスト: 読む、ID を振る、テクスチャと一緒に読み込む。
-#include "engine/SpriteSlices.h"
+// SpriteSheetData(スプライトシートの中身: 切り出しとアニメーション)と、スプライトシートのアセットのテスト。
+#include "engine/SpriteSheetData.h"
 
 #include "engine/Application.h"
 #include "engine/JsonFormat.h"
@@ -27,7 +27,7 @@ namespace
     }
 }
 
-TEST_CASE("SpriteSlices: スプライトシートの sprites から、ID、名前、範囲を読む。sprites が無ければ空")
+TEST_CASE("SpriteSheetData: スプライトシートの sprites から、ID、名前、範囲を読む。sprites が無ければ空")
 {
     const ArchiveValue meta = ParseJson(R"({
         "guid": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a43",
@@ -49,7 +49,7 @@ TEST_CASE("SpriteSlices: スプライトシートの sprites から、ID、名�
     CHECK(ReadSpriteSlices(ParseJson(R"({ "guid": "x" })")).empty());
 }
 
-TEST_CASE("SpriteSlices: 形がおかしい切り出しは飛ばし、理由を残す")
+TEST_CASE("SpriteSheetData: 形がおかしい切り出しは飛ばし、理由を残す")
 {
     const ArchiveValue meta = ParseJson(R"({ "sprites": [
         { "id": 1, "name": "ok",        "x": 0, "y": 0, "width": 8, "height": 8 },
@@ -66,9 +66,9 @@ TEST_CASE("SpriteSlices: 形がおかしい切り出しは飛ばし、理由を�
 }
 
 #if HUSKY_DEVELOPMENT
-TEST_CASE("SpriteSlices: 【開発ビルド】ID が無い・0・重なる切り出しにだけ ID を振る。ある ID は変えない")
+TEST_CASE("SpriteSheetData: 【開発ビルド】ID が無い・0・重なる切り出しにだけ ID を振る。ある ID は変えない")
 {
-    using husky::engine::AssignMissingSliceIds;
+    using husky::engine::NormalizeSpriteSheet;
 
     ArchiveValue meta = ParseJson(R"({ "guid": "x", "sprites": [
         { "id": 5, "name": "keep",    "x": 0, "y": 0, "width": 8, "height": 8 },
@@ -76,8 +76,8 @@ TEST_CASE("SpriteSlices: 【開発ビルド】ID が無い・0・重なる切り
         { "id": 0, "name": "zero",    "x": 0, "y": 8, "width": 8, "height": 8 },
         { "id": 5, "name": "same",    "x": 8, "y": 8, "width": 8, "height": 8 }
     ] })");
-    CHECK(AssignMissingSliceIds(meta) == 3);
-    CHECK(AssignMissingSliceIds(meta) == 0); // 2回目は振るものが無い
+    CHECK(NormalizeSpriteSheet(meta) == 3);
+    CHECK(NormalizeSpriteSheet(meta) == 0); // 2回目は振るものが無い
 
     std::vector<std::string> warnings;
     const std::vector<SpriteSlice> slices = ReadSpriteSlices(meta, &warnings);
@@ -95,7 +95,7 @@ TEST_CASE("SpriteSlices: 【開発ビルド】ID が無い・0・重なる切り
     CHECK(meta.Find("sprites")->At(1).GetMemberName(0) == "id");
 }
 
-TEST_CASE("SpriteSlices: 【開発ビルド】フォルダの .spritesheet に ID を振って書き戻し、写し先にも同じものを書く")
+TEST_CASE("SpriteSheetData: 【開発ビルド】フォルダの .spritesheet に ID を振って書き戻し、写し先にも同じものを書く")
 {
     husky::tests::TestFolder source("husky_test_slices_source");
     husky::tests::TestFolder mirror("husky_test_slices_mirror");
@@ -106,8 +106,8 @@ TEST_CASE("SpriteSlices: 【開発ビルド】フォルダの .spritesheet に I
     source.Write("sprites/sheet.spritesheet.meta", R"({ "guid": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a44" })");
     mirror.Write("sprites/sheet.spritesheet", sheetText);
 
-    CHECK(husky::engine::AssignMissingSliceIdsInFolder(source.Root(), mirror.Root()) == 1); // plain と .meta は対象外
-    CHECK(husky::engine::AssignMissingSliceIdsInFolder(source.Root(), mirror.Root()) == 0);
+    CHECK(husky::engine::NormalizeSpriteSheetsInFolder(source.Root(), mirror.Root()) == 1); // plain と .meta は対象外
+    CHECK(husky::engine::NormalizeSpriteSheetsInFolder(source.Root(), mirror.Root()) == 0);
 
     std::string sourceText;
     std::string mirrorText;
@@ -134,7 +134,7 @@ namespace
         folder.Write("sheet.spritesheet", R"({ "texture": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a45", "sprites": [
             { "id": 5, "name": "left",  "x": 0,  "y": 0, "width": 16, "height": 32 },
             { "id": 6, "name": "right", "x": 16, "y": 0, "width": 16, "height": 32 }
-        ] })");
+        ], "animations": [ { "id": 20, "name": "swing", "frames": [5, 6], "frameSeconds": 0.2 } ] })");
         folder.Write("sheet.spritesheet.meta", R"({ "guid": "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a46" })");
     }
 }
@@ -160,6 +160,9 @@ TEST_CASE("SpriteSheet: 読むと切り出しが分かり、中で指してい�
     CHECK(sheet->FindSlice(6)->name == "right");
     CHECK(sheet->FindSlice(6)->rect.x == 16);
     CHECK(sheet->FindSlice(7) == nullptr);
+    REQUIRE(sheet->FindAnimation(20) != nullptr);
+    CHECK(sheet->FindAnimation(20)->name == "swing");
+    CHECK(sheet->FindAnimation(20)->frames.size() == 2);
 
     const husky::engine::TextureAsset* texture = loader.ResolveTexture(sheet->texture.asset);
     REQUIRE(texture != nullptr);
@@ -302,3 +305,83 @@ TEST_CASE("SpriteComponent: スプライトシートを指している間は、�
     CHECK(loader.GetLoadedSpriteSheetCount() == 0);
     CHECK(loader.GetLoadedTextureCount() == 0);
 }
+
+TEST_CASE("SpriteSheetData: アニメーションを読む。コマ、1 コマの時間、繰り返し")
+{
+    const ArchiveValue sheet = ParseJson(R"({ "sprites": [
+            { "id": 1, "name": "a", "x": 0, "y": 0, "width": 8, "height": 8 },
+            { "id": 2, "name": "b", "x": 8, "y": 0, "width": 8, "height": 8 } ],
+        "animations": [
+            { "id": 10, "name": "walk", "frames": [1, 2, 1], "frameSeconds": 0.5, "loop": false },
+            { "id": 11, "name": "idle", "frames": [2] } ] })");
+    std::vector<std::string> warnings;
+    const auto animations = husky::engine::ReadSpriteAnimations(sheet, ReadSpriteSlices(sheet), &warnings);
+    CHECK(warnings.empty());
+    REQUIRE(animations.size() == 2);
+    CHECK(animations[0].name == "walk");
+    CHECK(animations[0].frames == std::vector<std::int32_t>{1, 2, 1});
+    CHECK(animations[0].frameSeconds == 0.5f);
+    CHECK_FALSE(animations[0].loop);
+    CHECK(animations[1].frameSeconds == 0.1f); // 書かなければ既定の 0.1 秒
+    CHECK(animations[1].loop);                 // 書かなければ繰り返す
+}
+
+TEST_CASE("SpriteSheetData: 形がおかしいアニメーションは飛ばす。名前のままのコマは飛ばし、無い切り出しのコマは注意して残す")
+{
+    const ArchiveValue sheet = ParseJson(R"({ "sprites": [ { "id": 1, "name": "a", "x": 0, "y": 0, "width": 8, "height": 8 } ],
+        "animations": [
+            { "id": 10, "name": "ok",       "frames": [1, "a", 99] },
+            {           "name": "no id",    "frames": [1] },
+            { "id": 12, "name": "empty",    "frames": [] },
+            { "id": 13, "name": "zero",     "frames": [1], "frameSeconds": 0 },
+            { "id": 10, "name": "same id",  "frames": [1] } ] })");
+    std::vector<std::string> warnings;
+    const auto animations = husky::engine::ReadSpriteAnimations(sheet, ReadSpriteSlices(sheet), &warnings);
+    REQUIRE(animations.size() == 1);
+    CHECK(animations[0].frames == std::vector<std::int32_t>{1, 99}); // "a" は飛ばし、99(無い切り出し)は残す
+    CHECK(warnings.size() == 6); // "a"、99、no id、empty、zero、same id
+}
+
+TEST_CASE("SpriteSheetData: 時刻からコマを決める。繰り返すなら戻り、繰り返さないなら最後で止まる")
+{
+    husky::engine::SpriteAnimation animation;
+    animation.frames = {7, 8, 9};
+    animation.frameSeconds = 0.25f;
+
+    using husky::engine::SampleAnimationFrame;
+    CHECK(SampleAnimationFrame(animation, 0.0) == 7);
+    CHECK(SampleAnimationFrame(animation, 0.24) == 7);
+    CHECK(SampleAnimationFrame(animation, 0.25) == 8);
+    CHECK(SampleAnimationFrame(animation, 0.6) == 9);
+    CHECK(SampleAnimationFrame(animation, 0.75) == 7);   // 1 周して最初に戻る
+    CHECK(SampleAnimationFrame(animation, 1e9) != 0);    // とても長い時間でも、どれかのコマ
+    CHECK(SampleAnimationFrame(animation, -1.0) == 7);   // 負の時間は最初のコマ
+
+    animation.loop = false;
+    CHECK(SampleAnimationFrame(animation, 0.6) == 9);
+    CHECK(SampleAnimationFrame(animation, 100.0) == 9); // 最後のコマで止まる
+
+    animation.frames.clear();
+    CHECK(SampleAnimationFrame(animation, 0.0) == 0); // コマが無ければ 0
+}
+
+#if HUSKY_DEVELOPMENT
+TEST_CASE("SpriteSheetData: 【開発ビルド】アニメーションにも ID を振り、コマの名前を切り出しの ID に直す")
+{
+    ArchiveValue sheet = ParseJson(R"({ "sprites": [
+            { "name": "a", "x": 0, "y": 0, "width": 8, "height": 8 },
+            { "name": "b", "x": 8, "y": 0, "width": 8, "height": 8 } ],
+        "animations": [ { "name": "walk", "frames": ["a", "b", "nope"] } ] })");
+    CHECK(husky::engine::NormalizeSpriteSheet(sheet) == 2 + 1 + 2); // 切り出しの ID 2、アニメーションの ID 1、コマ 2
+    CHECK(husky::engine::NormalizeSpriteSheet(sheet) == 0);         // 2回目は直すものが無い("nope" は見つからないまま)
+
+    const std::vector<SpriteSlice> slices = ReadSpriteSlices(sheet);
+    REQUIRE(slices.size() == 2);
+    std::vector<std::string> warnings;
+    const auto animations = husky::engine::ReadSpriteAnimations(sheet, slices, &warnings);
+    REQUIRE(animations.size() == 1);
+    CHECK(animations[0].id != 0);
+    CHECK(animations[0].frames == std::vector<std::int32_t>{slices[0].id, slices[1].id}); // "nope" は名前のまま → 飛ばす
+    CHECK(warnings.size() == 1);
+}
+#endif

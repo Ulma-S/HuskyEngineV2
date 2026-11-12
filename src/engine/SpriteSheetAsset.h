@@ -8,7 +8,7 @@
 //       { "id": 1917386538, "name": "diamond", "x": 32, "y": 32, "width": 32, "height": 32 }
 //     ]
 //   }
-// 切り出しの書き方と ID の決まりは SpriteSlices.h を参照。ID の無い切り出しは、開発ビルドが起動時に振る。
+// 切り出しとアニメーションの書き方、ID の決まりは SpriteSheetData.h を参照。ID は開発ビルドが起動時に振る。
 //
 // テクスチャとの関係:
 //   - 画像の .meta は「元の画像をどう取り込むか」(インポートの設定)。ここは「取り込んだ画像を、ゲームでどう使うか」。
@@ -25,7 +25,7 @@
 #include "core/Guid.h"
 #include "core/Object.h"
 #include "engine/AssetState.h"
-#include "engine/SpriteSlices.h"
+#include "engine/SpriteSheetData.h"
 #include "engine/TextureAsset.h"
 
 #include <cstdint>
@@ -48,6 +48,22 @@ namespace husky::engine
 
         // 切り出しの一覧。読み終わる(IsLoaded)までは空。
         const std::vector<SpriteSlice>& GetSlices() const { return m_slices; }
+
+        // アニメーションの一覧。読み終わる(IsLoaded)までは空。
+        const std::vector<SpriteAnimation>& GetAnimations() const { return m_animations; }
+
+        // ID でアニメーションを探す。無ければ nullptr。
+        const SpriteAnimation* FindAnimation(std::int32_t id) const
+        {
+            for (const SpriteAnimation& animation : m_animations)
+            {
+                if (animation.id == id)
+                {
+                    return &animation;
+                }
+            }
+            return nullptr;
+        }
 
         // ID で切り出しを探す。無ければ nullptr(切り出しは多くても数十なので、先頭から順に探す)。
         const SpriteSlice* FindSlice(std::int32_t id) const
@@ -76,6 +92,7 @@ namespace husky::engine
         core::Guid m_guid;
         AssetState m_state = AssetState::Loading;
         std::vector<SpriteSlice> m_slices;
+        std::vector<SpriteAnimation> m_animations;
         AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ)
     };
 }

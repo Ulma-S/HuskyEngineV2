@@ -29,8 +29,9 @@ namespace husky::engine
 
         // ---- スプライトシート(ジョブの中で呼ぶ) ----
 
-        // .spritesheet(JSON)を読み、中の画像の GUID と、切り出しの一覧を取り出す。読めなければ false。
+        // .spritesheet(JSON)を読み、中の画像の GUID と、切り出しとアニメーションの一覧を取り出す。読めなければ false。
         bool ReadSpriteSheet(const std::string& path, core::Guid& outTexture, std::vector<SpriteSlice>& outSlices,
+                             std::vector<SpriteAnimation>& outAnimations,
                              std::vector<std::string>& outWarnings)
         {
             std::string text;
@@ -53,6 +54,7 @@ namespace husky::engine
                 return false;
             }
             outSlices = ReadSpriteSlices(root, &outWarnings);
+            outAnimations = ReadSpriteAnimations(root, outSlices, &outWarnings);
             return true;
         }
 
@@ -387,9 +389,9 @@ namespace husky::engine
         record->asset = asset.GetHandle();
         record->guid = asset.m_guid;
         record->path = std::move(path);
-        // ジョブ(ワーカースレッド): ファイルを読み、記録の texture、slices、warnings、succeeded に書く。
+        // ジョブ(ワーカースレッド): ファイルを読み、記録の texture、slices、animations、warnings、succeeded に書く。
         Schedule(std::move(record), [](PendingSpriteSheetLoad& load) {
-            load.succeeded = ReadSpriteSheet(load.path, load.texture, load.slices, load.warnings);
+            load.succeeded = ReadSpriteSheet(load.path, load.texture, load.slices, load.animations, load.warnings);
         });
     }
 
@@ -410,6 +412,7 @@ namespace husky::engine
             return;
         }
         asset->m_slices = std::move(load.slices);
+        asset->m_animations = std::move(load.animations);
         asset->texture.guid = load.texture;
         asset->texture.asset = {};
         asset->m_state = AssetState::Loaded;
