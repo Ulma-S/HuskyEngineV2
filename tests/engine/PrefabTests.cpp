@@ -533,9 +533,9 @@ TEST_CASE("PF-7b: FindOverrides はコンポーネントを ID で組にし、�
     CHECK(found.overrides[0].path == "height");
     CHECK(found.overrides[0].componentId == SpriteId);
     REQUIRE(found.addedComponents.size() == 1);
-    CHECK(found.addedComponents[0] == "CameraComponent");
+    CHECK(found.addedComponents[0].type == "CameraComponent");
     REQUIRE(found.removedComponents.size() == 1);
-    CHECK(found.removedComponents[0] == "SpriteAnimatorComponent");
+    CHECK(found.removedComponents[0].type == "SpriteAnimatorComponent");
 }
 
 TEST_CASE("PF-7b: WriteChanges と FollowChanges は ID でコンポーネントを指す(同じ型を足したものと取り違えない)")

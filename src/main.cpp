@@ -113,6 +113,10 @@ int main()
     tools::EditorCommand revertPrefab = tools::MakeRevertPrefabCommand();
     revertPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(revertPrefab));
+    // 外したコンポーネントをプレハブの値で戻す(prefab.revertComponent。PF-7d)。編集中だけ。
+    tools::EditorCommand revertComponent = tools::MakeRevertRemovedComponentCommand();
+    revertComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(revertComponent));
     // プレハブに書き戻す(prefab.apply)。ソースの assets のプレハブを書き換える。編集中だけ。
     tools::EditorCommand applyPrefab = tools::MakeApplyPrefabCommand(assetsDirectory);
     applyPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };

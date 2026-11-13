@@ -108,6 +108,7 @@ namespace husky::tools
             commands.Register(MakeSetManyPropertiesCommand());
             commands.Register(MakeListOverridesCommand());
             commands.Register(MakeRevertPrefabCommand());
+            commands.Register(MakeRevertRemovedComponentCommand());
             commands.Register(MakeApplyPrefabCommand(assetsDirectory));
         }
 

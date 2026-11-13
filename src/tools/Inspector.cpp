@@ -497,10 +497,34 @@ namespace husky::tools
                     const std::string* prefabPath = app.GetAssetDatabase().FindPath(selected->prefab.guid);
                     ImGui::Text("Prefab: %s (%zu overrides)", prefabPath != nullptr ? prefabPath->c_str() : "(missing)",
                                 m_overrides.size());
-                    // 足した・外したコンポーネントは、値の違いとは別に数だけ出す(Revert / Apply の対象ではない)
-                    if (m_addedComponentCount > 0 || m_removedComponentCount > 0)
+                    // 足した・外したコンポーネントは、値の違いとは別に数を出す(Revert all / Apply all の対象ではない)。
+                    // 外したものは1つずつ並べ、Revert(prefab.revertComponent)でプレハブの値で戻せる(PF-7d)。
+                    // 足したものの Revert は、そのコンポーネントの Remove component。
+                    if (!m_addedComponentIndexes.empty() || !m_removedComponents.empty())
                     {
-                        ImGui::Text("Components: +%zu added, -%zu removed", m_addedComponentCount, m_removedComponentCount);
+                        ImGui::Text("Components: +%zu added, -%zu removed", m_addedComponentIndexes.size(),
+                                    m_removedComponents.size());
+                    }
+                    const EditorCommand* revertComponent = commands != nullptr ? commands->Find("prefab.revertComponent") : nullptr;
+                    for (std::size_t r = 0; r < m_removedComponents.size(); ++r)
+                    {
+                        ImGui::PushID(static_cast<int>(r));
+                        ImGui::BulletText("removed: %s", m_removedComponents[r].first.c_str());
+                        if (revertComponent != nullptr)
+                        {
+                            ImGui::SameLine();
+                            ImGui::BeginDisabled(commands->GetUnavailableReason(*revertComponent, app) != nullptr);
+                            if (ImGui::SmallButton("Revert"))
+                            {
+                                engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                                args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                                args.Set("componentId", engine::ArchiveValue(m_removedComponents[r].second));
+                                commands->Execute("prefab.revertComponent", app, args);
+                                m_overridesAge = 30; // 次のフレームで一覧を作り直す
+                            }
+                            ImGui::EndDisabled();
+                        }
+                        ImGui::PopID();
                     }
                     // ボタンは名前でコマンドを呼ぶだけ(全部: 名前・位置・回転は除く)。押したら、すぐに印を作り直す。
                     if (commands != nullptr)
@@ -567,6 +591,11 @@ namespace husky::tools
                     ImGui::PushID(static_cast<int>(i));
                     if (ImGui::CollapsingHeader(component->GetType().GetName(), ImGuiTreeNodeFlags_DefaultOpen))
                     {
+                        if (std::find(m_addedComponentIndexes.begin(), m_addedComponentIndexes.end(), i) !=
+                            m_addedComponentIndexes.end())
+                        {
+                            ImGui::TextDisabled("(added: not in the prefab)");
+                        }
                         m_recorder.SetOwner(*component);
                         marks.component = component->GetType().GetName();
                         DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder,
@@ -591,6 +620,7 @@ namespace husky::tools
                         args.Set("component", engine::ArchiveValue(std::string(removing->GetType().GetName())));
                         args.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(removingIndex)));
                         commands->Execute("component.remove", app, args);
+                        m_overridesAge = 30; // 足した・外したものの一覧を、次のフレームで作り直す
                     }
                     else
                     {
@@ -620,6 +650,7 @@ namespace husky::tools
                                 args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
                                 args.Set("type", engine::ArchiveValue(std::string(type->GetName())));
                                 commands->Execute("component.add", app, args);
+                                m_overridesAge = 30;
                             }
                             else if (engine::Component* added =
                                          core::Cast<engine::Component>(types.Create(type->GetName(), registry)))
@@ -645,8 +676,16 @@ namespace husky::tools
         {
             m_overrides.emplace_back(item.component, item.path);
         }
-        m_addedComponentCount = found.addedComponents.size();
-        m_removedComponentCount = found.removedComponents.size();
+        m_addedComponentIndexes.clear();
+        for (const engine::Prefab::ComponentChange& added : found.addedComponents)
+        {
+            m_addedComponentIndexes.push_back(added.index);
+        }
+        m_removedComponents.clear();
+        for (const engine::Prefab::ComponentChange& removed : found.removedComponents)
+        {
+            m_removedComponents.emplace_back(removed.type, removed.componentId.ToString());
+        }
         m_overridesFor = actor.GetHandle();
         m_overridesAge = 0;
     }

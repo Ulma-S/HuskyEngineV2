@@ -1392,6 +1392,46 @@ namespace husky::tools
             return call;
         }
 
+        // component.add の中身(prefab.revertComponent も使う)。typeName の型のコンポーネントを作り、data(SaveComponent の形。
+        // 省略可)の値を書いて、actor の一覧の index 番目に入れる。Undo は入れた位置の component.remove。
+        EditorCommandResult AddComponentToActor(engine::Application& app, engine::Actor& actor, const std::string& typeName,
+                                                std::size_t index, const engine::ArchiveValue* data)
+        {
+            // 型の名前から型を探し、コンポーネントの子孫かを確かめてから作る(actor.spawn の type と同じ流れ)。
+            const core::TypeRegistry& types = app.GetTypeRegistry();
+            const core::TypeInfo* type = types.Find(typeName);
+            if (type == nullptr)
+            {
+                return EditorCommandResult::Failure("Unknown type: " + typeName);
+            }
+            if (!type->IsA(engine::Component::StaticType()))
+            {
+                return EditorCommandResult::Failure(typeName + " is not a component");
+            }
+            engine::Component* component = core::Cast<engine::Component>(types.Create(typeName, app.GetRegistry()));
+            if (component == nullptr)
+            {
+                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+            }
+            std::vector<std::string> warnings;
+            if (data != nullptr)
+            {
+                // 控えから戻す(Undo): 値も prefabComponentId も控えのとおり。プレハブとの組が元どおりになる。
+                LoadComponent(app, *data, *component, warnings);
+            }
+            const std::size_t at = actor.InsertComponent(*component, index);
+
+            EditorCommandResult result = EditorCommandResult::Success("Added " + typeName + " to " + DescribeActor(actor));
+            result.details = std::move(warnings);
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(at)));
+            // Undo は、入れた位置のものを外す。Redo は、足した直後の控えで同じ位置に足し直す(値と ID がそろう)。
+            std::vector<std::string> ignored; // 足した直後の控えの警告は、上の details と同じことしか言わない
+            result.undo = MakeRemoveComponentCall(actor.guid, typeName, at);
+            result.redo = MakeAddComponentCall(actor.guid, typeName, at, SaveComponent(app, *component, ignored));
+            return result;
+        }
+
         // コンポーネントの型(Component の子孫)を選ばせる選択肢。型の登録簿(エンジンの型と、ゲームが登録した型)から作る。
         std::vector<EditorArgChoice> ComponentTypeChoices(engine::Application& app, const engine::ArchiveValue&)
         {
@@ -1456,46 +1496,13 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure(error);
             }
-            // 型の名前から型を探し、コンポーネントの子孫かを確かめてから作る(actor.spawn の type と同じ流れ)。
-            const std::string& typeName = context.args.Find("type")->AsString();
-            const core::TypeRegistry& types = app.GetTypeRegistry();
-            const core::TypeInfo* type = types.Find(typeName);
-            if (type == nullptr)
-            {
-                return EditorCommandResult::Failure("Unknown type: " + typeName);
-            }
-            if (!type->IsA(engine::Component::StaticType()))
-            {
-                return EditorCommandResult::Failure(typeName + " is not a component");
-            }
             const engine::ArchiveValue* indexValue = context.args.Find("index");
             if (indexValue != nullptr && indexValue->AsInt(-1) < 0)
             {
                 return EditorCommandResult::Failure("\"index\" must be 0 or more");
             }
-            engine::Component* component = core::Cast<engine::Component>(types.Create(typeName, app.GetRegistry()));
-            if (component == nullptr)
-            {
-                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
-            }
-            std::vector<std::string> warnings;
-            if (const engine::ArchiveValue* data = context.args.Find("data"))
-            {
-                // 控えから戻す(Undo): 値も prefabComponentId も控えのとおり。プレハブとの組が元どおりになる。
-                LoadComponent(app, *data, *component, warnings);
-            }
-            const std::size_t wanted = indexValue != nullptr ? static_cast<std::size_t>(indexValue->AsInt()) : actor->components.size();
-            const std::size_t index = actor->InsertComponent(*component, wanted);
-
-            EditorCommandResult result = EditorCommandResult::Success("Added " + typeName + " to " + DescribeActor(*actor));
-            result.details = std::move(warnings);
-            result.data = engine::ArchiveValue::MakeObject();
-            result.data.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(index)));
-            // Undo は、入れた位置のものを外す。Redo は、足した直後の控えで同じ位置に足し直す(値と ID がそろう)。
-            std::vector<std::string> ignored; // 足した直後の控えの警告は、上の details と同じことしか言わない
-            result.undo = MakeRemoveComponentCall(actor->guid, typeName, index);
-            result.redo = MakeAddComponentCall(actor->guid, typeName, index, SaveComponent(app, *component, ignored));
-            return result;
+            const std::size_t index = indexValue != nullptr ? static_cast<std::size_t>(indexValue->AsInt()) : actor->components.size();
+            return AddComponentToActor(app, *actor, context.args.Find("type")->AsString(), index, context.args.Find("data"));
         };
         return command;
     }
@@ -1718,15 +1725,110 @@ namespace husky::tools
                 entry.Set("perInstance", engine::ArchiveValue(item.perInstance));
             }
             // 足した・外したコンポーネントは、人向けの行にだけ出す(data は値の違いの配列のまま)
-            for (const std::string& type : found.addedComponents)
+            for (const engine::Prefab::ComponentChange& added : found.addedComponents)
             {
-                result.details.push_back("+ " + type + " (added, not in the prefab)");
+                result.details.push_back("+ " + added.type + " (added, not in the prefab)");
             }
-            for (const std::string& type : found.removedComponents)
+            for (const engine::Prefab::ComponentChange& removed : found.removedComponents)
             {
-                result.details.push_back("- " + type + " (removed, still in the prefab)");
+                result.details.push_back("- " + removed.type + " (removed, still in the prefab)");
             }
             return result;
+        };
+        return command;
+    }
+
+    namespace
+    {
+        // プレハブの中のコンポーネントの記録を、component.add の data(SaveComponent の形)にする。
+        // プレハブの中のハンドルは「プレハブのファイルの中の番号」なので、references をその番号で引ける表にする:
+        // プレハブのアクターの番号には、置いたアクターの guid を入れる(自分のアクターを指すハンドルはつながる)。
+        // ほかの番号は null(戻すとハンドルは null)。
+        engine::ArchiveValue MakeDataFromPrefabEntry(const engine::ArchiveValue& prefabData, const engine::ArchiveValue& entry,
+                                                     const engine::Actor& actor)
+        {
+            engine::ArchiveValue references = engine::ArchiveValue::MakeArray();
+            const engine::ArchiveValue* actors = prefabData.Find("actors");
+            const std::int64_t actorId = actors != nullptr && actors->GetArraySize() == 1 ? actors->At(0).AsInt(-1) : -1;
+            for (std::int64_t id = 0; id <= actorId; ++id)
+            {
+                references.Append(id == actorId ? engine::ArchiveValue(actor.guid.ToString()) : engine::ArchiveValue());
+            }
+            engine::ArchiveValue data = engine::ArchiveValue::MakeObject();
+            data.Set("value", entry);
+            data.Set("references", std::move(references));
+            return data;
+        }
+
+        // 選んだアクターの、置いた後に外したコンポーネントを選ばせる選択肢(値は ID、表示は型の名前)。
+        std::vector<EditorArgChoice> RemovedComponentChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> choices;
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string error;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actor == nullptr)
+            {
+                return choices;
+            }
+            for (const engine::Prefab::ComponentChange& removed : engine::Prefab::FindOverrides(*actor).removedComponents)
+            {
+                choices.push_back({removed.componentId.ToString(), removed.type});
+            }
+            return choices;
+        }
+    }
+
+    EditorCommand MakeRevertRemovedComponentCommand()
+    {
+        EditorCommand command;
+        command.name = "prefab.revertComponent";
+        command.label = "Revert removed component";
+        command.description = "Put back a component that was removed from an actor placed from a prefab, with the prefab's "
+                              "values and id, so it follows the prefab again. (To revert an added component, use "
+                              "component.remove.) Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of an actor placed from a prefab", true};
+        actorArg.choices = PrefabInstanceChoices;
+        EditorCommandArg idArg{"componentId", EditorArgType::String, "Id (in the prefab) of the removed component", true};
+        idArg.choices = RemovedComponentChoices;
+        command.args = {actorArg, idArg};
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const std::string who = DescribeActor(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const std::string& idText = context.args.Find("componentId")->AsString();
+            core::Guid id;
+            if (!core::Guid::Parse(idText, id))
+            {
+                return EditorCommandResult::Failure("\"componentId\" is not a guid: " + idText);
+            }
+            for (const engine::Prefab::ComponentChange& removed : found.removedComponents)
+            {
+                if (removed.componentId != id)
+                {
+                    continue;
+                }
+                // 外したものを、プレハブの値と ID で作り直す。中身は component.add と同じ(Undo は component.remove)。
+                const engine::ArchiveValue data = MakeDataFromPrefabEntry(found.prefab->GetData(), removed.prefabEntry, *actor);
+                EditorCommandResult result = AddComponentToActor(app, *actor, removed.type, removed.index, &data);
+                if (result.succeeded)
+                {
+                    result.message = "Reverted removed " + removed.type + " on " + who;
+                }
+                return result;
+            }
+            return EditorCommandResult::Failure(who + " has no removed component with id " + idText);
         };
         return command;
     }

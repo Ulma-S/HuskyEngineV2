@@ -7,6 +7,7 @@
 #include "engine/Actor.h"
 #include "engine/CameraComponent.h"
 #include "engine/JsonFormat.h"
+#include "engine/Prefab.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
@@ -1245,5 +1246,84 @@ TEST_CASE("PF-7c: 外したコンポーネントのアクターへの参照は g
     husky::engine::Actor* restoredPlayer = app.GetScene().FindActorByGuid(playerGuid);
     REQUIRE(restoredPlayer != nullptr);
     CHECK(follow->target == restoredPlayer->GetHandle());
+}
+
+TEST_CASE("PF-7d: prefab.revertComponent は外したコンポーネントをプレハブの値と ID で、プレハブと同じ並びの位置に戻す")
+{
+    husky::tests::TestFolder folder("husky_test_revert_component");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRevertRemovedComponentCommand()));
+    RegisterComponentCommands(commands);
+
+    // プレハブ: スプライト(幅 24)、アニメーター、カメラ(zoom 2)の順
+    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    original->name = "Coin";
+    original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    original->AddComponent<husky::engine::SpriteAnimatorComponent>();
+    original->AddComponent<husky::engine::CameraComponent>()->zoom = 2.0f;
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+    original->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+    const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
+    REQUIRE(spawned.succeeded);
+    const std::string guidText = spawned.data.Find("guid")->AsString();
+    husky::core::Guid guid;
+    REQUIRE(husky::core::Guid::Parse(guidText, guid));
+    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(placed != nullptr);
+    REQUIRE(placed->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+    const husky::core::Guid animatorId = placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->prefabComponentId;
+
+    // 真ん中(アニメーター)を外し、カメラを1つ足す。違いの一覧: 外したものは戻す位置 1(スプライトの後ろ)、足したものは位置 2
+    const std::string removeArgs = "{\"actor\": \"" + guidText + "\", \"component\": \"SpriteAnimatorComponent\"}";
+    REQUIRE(commands.Execute("component.remove", app, Json(removeArgs.c_str())).succeeded);
+    const std::string addArgs = "{\"actor\": \"" + guidText + "\", \"type\": \"CameraComponent\"}";
+    REQUIRE(commands.Execute("component.add", app, Json(addArgs.c_str())).succeeded);
+    {
+        const husky::engine::Prefab::OverridesResult found = husky::engine::Prefab::FindOverrides(*placed);
+        REQUIRE(found.removedComponents.size() == 1);
+        CHECK(found.removedComponents[0].type == "SpriteAnimatorComponent");
+        CHECK(found.removedComponents[0].componentId == animatorId);
+        CHECK(found.removedComponents[0].index == 1);
+        REQUIRE(found.addedComponents.size() == 1);
+        CHECK(found.addedComponents[0].index == 2);
+    }
+
+    // 戻す: 位置 1 に、同じ ID で。もう外したものは無い(足したものは残る)
+    const std::string revertArgs = "{\"actor\": \"" + guidText + "\", \"componentId\": \"" + animatorId.ToString() + "\"}";
+    const EditorCommandResult reverted = commands.Execute("prefab.revertComponent", app, Json(revertArgs.c_str()));
+    REQUIRE(reverted.succeeded);
+    CHECK(ComponentTypeAt(app, *placed, 1) == "SpriteAnimatorComponent");
+    CHECK(placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->prefabComponentId == animatorId);
+    CHECK(placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->GetOwner() == placed);
+    CHECK(husky::engine::Prefab::FindOverrides(*placed).removedComponents.empty());
+    CHECK(husky::engine::Prefab::FindOverrides(*placed).addedComponents.size() == 1);
+    // 2回目は、もう外したものではないので断る。ID でないもの、知らない ID も断る
+    CHECK_FALSE(commands.Execute("prefab.revertComponent", app, Json(revertArgs.c_str())).succeeded);
+    const std::string badArgs = "{\"actor\": \"" + guidText + "\", \"componentId\": \"nope\"}";
+    CHECK_FALSE(commands.Execute("prefab.revertComponent", app, Json(badArgs.c_str())).succeeded);
+
+    // Undo: また外れる。Redo: また戻る
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(placed->GetComponent<husky::engine::SpriteAnimatorComponent>() == nullptr);
+    CHECK(husky::engine::Prefab::FindOverrides(*placed).removedComponents.size() == 1);
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(ComponentTypeAt(app, *placed, 1) == "SpriteAnimatorComponent");
+
+    // 先頭(スプライト)を外して戻すと、位置 0 に、プレハブの値(幅 24)で戻る(外す前に変えた値は戻らない)
+    const std::string spriteSet = "{\"actor\": \"" + guidText + "\", \"component\": \"SpriteComponent\"}";
+    placed->GetComponent<husky::engine::SpriteComponent>()->width = 99.0f;
+    const husky::core::Guid spriteId = placed->GetComponent<husky::engine::SpriteComponent>()->prefabComponentId;
+    REQUIRE(commands.Execute("component.remove", app, Json(spriteSet.c_str())).succeeded);
+    const std::string revertSprite = "{\"actor\": \"" + guidText + "\", \"componentId\": \"" + spriteId.ToString() + "\"}";
+    REQUIRE(commands.Execute("prefab.revertComponent", app, Json(revertSprite.c_str())).succeeded);
+    CHECK(ComponentTypeAt(app, *placed, 0) == "SpriteComponent");
+    CHECK(placed->GetComponent<husky::engine::SpriteComponent>()->width == 24.0f);
+    CHECK(husky::engine::Prefab::FindOverrides(*placed).overrides.empty());
 }
 #endif

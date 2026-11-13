@@ -72,12 +72,23 @@ namespace husky::engine::Prefab
         bool perInstance = false;
     };
 
+    // 置いた後に足した・外したコンポーネント1つ(PF-7d)。
+    struct ComponentChange
+    {
+        std::string type;       // コンポーネントの型の名前
+        core::Guid componentId; // 外したもの: プレハブの中の ID。足したもの: 空(プレハブに組が無いので)
+        // 足したもの: 置いたものの components の中の位置(component.remove で外せば Revert になる)。
+        // 外したもの: Revert で戻すときに入れる位置(プレハブで1つ前にある、組になったコンポーネントのすぐ後ろ。無ければ 0)。
+        std::size_t index = 0;
+        ArchiveValue prefabEntry; // 外したもの: プレハブの中の記録({"type", "properties"})。足したものは null
+    };
+
     struct OverridesResult
     {
         const PrefabAsset* prefab = nullptr; // 比べたプレハブ。比べられなければ nullptr(理由は error)
         std::vector<Override> overrides;     // アクター、コンポーネント(並んだ順)の順。それぞれの中はプロパティの順
-        std::vector<std::string> addedComponents;   // 置いた後に足したコンポーネント(プレハブに組が無い)の型の名前
-        std::vector<std::string> removedComponents; // 置いた後に外したコンポーネント(プレハブにあって組が無い)の型の名前
+        std::vector<ComponentChange> addedComponents;   // 置いた後に足したコンポーネント(プレハブに組が無い)
+        std::vector<ComponentChange> removedComponents; // 置いた後に外したコンポーネント(プレハブにあって組が無い)。プレハブの順
         std::string error;
     };
 

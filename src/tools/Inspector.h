@@ -69,8 +69,10 @@ namespace husky::tools
         std::vector<std::pair<std::string, std::string>> m_overrides;
         core::ObjectHandle m_overridesFor; // m_overrides を作ったアクター
         int m_overridesAge = 0;            // 作ってから経ったフレームの数(30 で作り直す)
-        std::size_t m_addedComponentCount = 0;   // 置いた後に足したコンポーネントの数(PF-7b)
-        std::size_t m_removedComponentCount = 0; // 置いた後に外したコンポーネントの数
+        // 置いた後に足したコンポーネントの、アクターの components の中の位置(PF-7b、7d。見出しの下に "(added)" と出す)
+        std::vector<std::size_t> m_addedComponentIndexes;
+        // 置いた後に外したコンポーネントの(型の名前、プレハブの中の ID の文字列)。1つずつ Revert ボタンを付ける(PF-7d)
+        std::vector<std::pair<std::string, std::string>> m_removedComponents;
     };
 }
 

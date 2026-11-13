@@ -316,6 +316,12 @@ namespace husky::tools
     // 戻すとつながり直る(相手が生きていれば)。アクター以外を指すハンドルは戻すと null(警告を出す)。
     EditorCommand MakeRemoveComponentCommand();
 
+    // 「外したコンポーネントをプレハブに戻す」コマンド(prefab.revertComponent)を作る(PF-7d)。引数: actor、componentId
+    // (プレハブの中の ID。Prefab::FindOverrides の removedComponents)。プレハブの値と ID で作り直し、プレハブで1つ前にある
+    // コンポーネントのすぐ後ろに入れる(中身は component.add と同じ)。Undo は component.remove。
+    // 足したコンポーネントの Revert は、component.remove でそのまま外せばよい。
+    EditorCommand MakeRevertRemovedComponentCommand();
+
     // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
     // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
     EditorCommand MakeListOverridesCommand();

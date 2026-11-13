@@ -171,12 +171,14 @@ namespace husky::engine::Prefab
 
         // 置いたものの、生きているコンポーネント
         std::vector<const Component*> components;
-        for (const core::ObjectHandle handle : actor.components)
+        std::vector<std::size_t> rawIndexOf; // components[c] が actor.components の何番目か(コマンドが位置で指すため)
+        for (std::size_t k = 0; k < actor.components.size(); ++k)
         {
-            const Component* component = registry->Resolve<Component>(handle);
+            const Component* component = registry->Resolve<Component>(actor.components[k]);
             if (component != nullptr && !component->IsPendingDestroy())
             {
                 components.push_back(component);
+                rawIndexOf.push_back(k);
             }
         }
 
@@ -239,7 +241,11 @@ namespace husky::engine::Prefab
         {
             if (pairOf[c] == none)
             {
-                result.addedComponents.push_back(components[c]->GetType().GetName()); // 置いた後に足したもの
+                // 置いた後に足したもの
+                ComponentChange added;
+                added.type = components[c]->GetType().GetName();
+                added.index = rawIndexOf[c];
+                result.addedComponents.push_back(std::move(added));
                 continue;
             }
             const std::size_t first = result.overrides.size();
@@ -253,10 +259,28 @@ namespace husky::engine::Prefab
         }
         for (std::size_t i = 0; i < prefabComponents.size(); ++i)
         {
-            if (!used[i])
+            if (used[i])
             {
-                result.removedComponents.push_back(typeOf(i)); // 置いた後に外したもの
+                continue;
             }
+            // 置いた後に外したもの。戻す位置は、プレハブで前にあるもののうち、いちばん近い「組になったもの」のすぐ後ろ。
+            // そうすると、プレハブの並び(=更新の順番)に近い形で戻る。前に組になったものが無ければ先頭。
+            ComponentChange removed;
+            removed.type = typeOf(i);
+            removed.componentId = prefabIdOf(i);
+            removed.prefabEntry = *prefabComponents[i];
+            for (std::size_t j = i; j > 0 && removed.index == 0; --j)
+            {
+                for (std::size_t c = 0; c < components.size(); ++c)
+                {
+                    if (pairOf[c] == j - 1)
+                    {
+                        removed.index = rawIndexOf[c] + 1;
+                        break;
+                    }
+                }
+            }
+            result.removedComponents.push_back(std::move(removed));
         }
         return result;
     }
