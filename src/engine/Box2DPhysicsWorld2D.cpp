@@ -63,6 +63,10 @@ namespace husky::engine
             return result;
         }
 
+        // 形の大きさの下限(ワールドの単位)。拡大縮小 0 や大きさ 0 でも、面積 0 の形を作らない(面積 0 の形は、物理を足したときに
+        // 重さの計算で 0 で割ることになり、おかしな値になる)。とても小さいので、ふつうは当たらない。
+        constexpr float MinHalfExtent = 0.01f;
+
         // 円の拡大: 縦横で違うときは、大きいほうに合わせる(円のまま。Unity と同じ)。
         float CircleScale(const core::Vector2& scale)
         {
@@ -72,8 +76,9 @@ namespace husky::engine
         // 拡大した四角(体のローカルの座標。offset も拡大する)。
         b2Polygon MakeScaledBox(const ShapeDesc2D& desc, const core::Vector2& scale)
         {
-            const float halfWidth = desc.width * std::fabs(scale.x) * 0.5f;
-            const float halfHeight = desc.height * std::fabs(scale.y) * 0.5f;
+            // 大きさは絶対値(マイナスの大きさ・拡大でも、角の並びが逆にならないように)。下限より小さくしない
+            const float halfWidth = std::max(std::fabs(desc.width * scale.x) * 0.5f, MinHalfExtent);
+            const float halfHeight = std::max(std::fabs(desc.height * scale.y) * 0.5f, MinHalfExtent);
             const b2Vec2 center{desc.offset.x * scale.x, desc.offset.y * scale.y};
             return b2MakeOffsetBox(halfWidth, halfHeight, center, b2Rot_identity);
         }
@@ -83,7 +88,7 @@ namespace husky::engine
         {
             b2Circle circle;
             circle.center = b2Vec2{desc.offset.x * scale.x, desc.offset.y * scale.y};
-            circle.radius = desc.radius * CircleScale(scale);
+            circle.radius = std::max(std::fabs(desc.radius) * CircleScale(scale), MinHalfExtent);
             return circle;
         }
 

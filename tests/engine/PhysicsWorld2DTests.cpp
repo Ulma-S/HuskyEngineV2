@@ -161,3 +161,43 @@ TEST_CASE("COL-2: 世界を消すと、中身の確保は全部返る")
     } // ここで world が消える(unique_ptr)
     CHECK(husky::engine::GetPhysicsAllocatedBytes() == 0);
 }
+
+TEST_CASE("宿題: 拡大縮小 0 や大きさ 0 の形でも止まらず、どの点にも当たらない(大きさ 0 の形は、とても小さな形として扱う)")
+{
+    auto world = CreatePhysicsWorld2D();
+    // 拡大 0 の四角と円、大きさ 0 の四角、半径 0 の円
+    const PhysicsShapeHandle2D zeroScaleBox = world->AddShape(Box(40.0f, 20.0f), PoseAt(0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    world->AddShape(Circle(10.0f), PoseAt(100.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    world->AddShape(Box(0.0f, 0.0f), PoseAt(200.0f, 0.0f));
+    world->AddShape(Circle(0.0f), PoseAt(300.0f, 0.0f));
+    world->Step(1.0f / 60.0f);
+    CHECK(world->GetShapeCount() == 4);
+    CHECK(CountAt(*world, 5.0f, 0.0f) == 0);
+    CHECK(CountAt(*world, 105.0f, 0.0f) == 0);
+    CHECK(CountAt(*world, 205.0f, 0.0f) == 0);
+    CHECK(CountAt(*world, 305.0f, 0.0f) == 0);
+    // 拡大 0 から元に戻すと、ふつうに当たる(作り直しても壊れない)
+    world->SetPose(zeroScaleBox, PoseAt(0.0f, 0.0f));
+    CHECK(CountAt(*world, 15.0f, 5.0f) == 1);
+    // 大きさがマイナスでも、絶対値の大きさとして扱う
+    world->AddShape(Box(-40.0f, -20.0f), PoseAt(400.0f, 0.0f));
+    CHECK(CountAt(*world, 415.0f, 5.0f) == 1);
+}
+
+TEST_CASE("宿題: マイナスの拡大(反転)では、大きさは絶対値、ずらし(offset)は向きごと反転する")
+{
+    auto world = CreatePhysicsWorld2D();
+    // 四角(幅 20)を、持ち主から右へ 30 ずらす。x を -1 倍(左右反転)すると、左へ 30 の所に来る
+    ShapeDesc2D box = Box(20.0f, 20.0f);
+    box.offset = {30.0f, 0.0f};
+    world->AddShape(box, PoseAt(0.0f, 0.0f, 0.0f, -1.0f, 1.0f));
+    CHECK(CountAt(*world, -30.0f, 0.0f) == 1);
+    CHECK(CountAt(*world, 30.0f, 0.0f) == 0);
+    // 円(半径 10)を上へ 20 ずらし、(1, -2) 倍: 半径は 20(大きいほうの絶対値)、真ん中は下へ 40
+    ShapeDesc2D circle = Circle(10.0f);
+    circle.offset = {0.0f, 20.0f};
+    world->AddShape(circle, PoseAt(100.0f, 0.0f, 0.0f, 1.0f, -2.0f));
+    CHECK(CountAt(*world, 100.0f, -40.0f) == 1);
+    CHECK(CountAt(*world, 100.0f, -58.0f) == 1); // 真ん中から 18(半径 20 の内側)
+    CHECK(CountAt(*world, 100.0f, 40.0f) == 0);
+}

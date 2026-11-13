@@ -216,3 +216,24 @@ TEST_CASE("COL-3: エディタの枠の形(ComputeBoxColliderCorners / ComputeCi
     CHECK(x == doctest::Approx(100.0f + 20.0f * 0.8660254f));
     CHECK(y == doctest::Approx(50.0f + 20.0f * 0.5f));
 }
+
+TEST_CASE("宿題: 左右反転(拡大 x がマイナス)でも、エディタの枠と当たり判定の形が一致する")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    OverlapRecorder* actor = app.GetScene().Spawn<OverlapRecorder>();
+    actor->transform.position = {100.0f, 0.0f, 0.0f};
+    actor->transform.scale = {-1.0f, 1.0f, 1.0f};
+    BoxCollider2D* box = actor->AddComponent<BoxCollider2D>();
+    box->size = {20.0f, 20.0f};
+    box->offset = {30.0f, 0.0f}; // 反転すると、持ち主の左 30 の所
+    Step(app);
+    const husky::render::SpriteCorners corners = husky::engine::ComputeBoxColliderCorners(actor->transform, *box);
+    const float centerX = (corners.x[0] + corners.x[2]) * 0.5f;
+    CHECK(centerX == doctest::Approx(70.0f));
+    std::vector<husky::engine::QueryHit2D> hits;
+    app.GetPhysics2D().GetWorld().OverlapPoint(70.0f, 0.0f, husky::engine::AllCollisionLayers, hits);
+    CHECK(hits.size() == 1);
+    app.GetPhysics2D().GetWorld().OverlapPoint(130.0f, 0.0f, husky::engine::AllCollisionLayers, hits);
+    CHECK(hits.empty());
+}
