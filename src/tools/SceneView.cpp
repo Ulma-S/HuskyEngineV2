@@ -117,10 +117,10 @@ namespace husky::tools
                 return GizmoHandle::None;
             }
             const core::Vector3 origin = GizmoOriginOnScreen(*selected);
-            return PickGizmoHandle(m_tool, origin.x, origin.y, io.MousePos.x, io.MousePos.y, selected->transform.rotation);
+            return PickGizmoHandle(m_tool, origin.x, origin.y, io.MousePos.x, io.MousePos.y, selected->transform.rotation, m_space);
         };
 
-        // 道具の切り替え: W(移動)、E(回転)、R(拡大縮小)。Unity と同じキー。
+        // 道具の切り替え: W(移動)、E(回転)、R(拡大縮小)、X(ギズモの向き Global / Local)。Unity と同じキー。
         // 文字を打っている間(ImGui の入力欄)、Ctrl を押している間、ドラッグ中は切り替えない
         if (!io.WantCaptureKeyboard && !io.KeyCtrl && m_dragging.IsNull())
         {
@@ -131,6 +131,11 @@ namespace husky::tools
             else if (ImGui::IsKeyPressed(ImGuiKey_E, false))
             {
                 m_tool = GizmoTool::Rotate;
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+            {
+                // ギズモの向き(Global / Local)を切り替える。Unity と同じキー
+                m_space = m_space == GizmoSpace::World ? GizmoSpace::Local : GizmoSpace::World;
             }
             else if (ImGui::IsKeyPressed(ImGuiKey_R, false))
             {
@@ -224,7 +229,7 @@ namespace husky::tools
                     const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
                     const float snap = io.KeyCtrl ? ChooseGridSpacing(m_view.zoom) : 0.0f;
                     actor->transform.position = ApplyGizmoDrag(m_dragHandle, m_dragFrom.position, world.x - m_dragStartX,
-                                                               world.y - m_dragStartY, snap);
+                                                               world.y - m_dragStartY, snap, m_dragFrom.rotation, m_space);
                 }
                 m_hovered = m_dragHandle; // つかんでいる部品は光らせたまま
             }
@@ -249,11 +254,13 @@ namespace husky::tools
         if (selected != nullptr)
         {
             BuildGizmoSprites(m_tool, m_view, selected->transform.position, selected->transform.rotation, m_hovered,
-                              m_gizmoSprites);
+                              m_gizmoSprites, m_space);
         }
         // 今の道具の名前を、画面の上の真ん中に出す(ImGui の窓より奥。文字は定数なので、毎フレームの確保は無い)
         ImGui::GetBackgroundDrawList()->AddText(ImVec2(screenWidth * 0.5f - 30.0f, 8.0f), IM_COL32(255, 255, 255, 200),
                                                 GetGizmoToolName(m_tool));
+        ImGui::GetBackgroundDrawList()->AddText(ImVec2(screenWidth * 0.5f + 60.0f, 8.0f), IM_COL32(255, 255, 255, 200),
+                                                GetGizmoSpaceName(m_space));
     }
 
     void SceneView::DrawGrid(render::RenderDevice& renderDevice) const

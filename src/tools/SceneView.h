@@ -2,7 +2,8 @@
 //   - 右ドラッグか中ドラッグ: 画面を動かす(パン)
 //   - ホイール: マウスの下の点を中心に、寄る・引く(ズーム)
 //   - 左クリック: マウスの下のアクター(いちばん手前のスプライト)を選ぶ。何も無い所なら選択を外す
-//   - ギズモ(RS-4、RS-5。tools/TransformGizmo.h): W で移動、E で回転、R で拡大縮小に切り替える(今の道具は画面の上に出る)。
+//   - ギズモ(RS-4、RS-5。tools/TransformGizmo.h): W で移動、E で回転、R で拡大縮小、X で向き(Global / Local)を切り替える
+//     (今の道具と向きは画面の上に出る)。
 //     移動: 選んだアクターに出る矢印をドラッグすると、その軸だけ動く。真ん中の四角は x と y を
 //     一気に動かす。離したときに property.set を1回だけ通すので、Ctrl+Z 1回で元の位置へ戻る(RS-3)。
 //     Unity と同じく、アクターの本体をドラッグしても動かさない(左クリックは選ぶだけ。ユーザーが決定)
@@ -69,6 +70,7 @@ namespace husky::tools
         core::ObjectHandle m_dragging;   // ギズモで動かしているアクター(弱い参照。動かしていなければ null)
         engine::Transform m_dragFrom;    // つかむ前の位置・回転・拡大縮小(離したときに Undo のための「前の値」にする)
         GizmoTool m_tool = GizmoTool::Move; // 今の道具(W / E / R で切り替える)
+        GizmoSpace m_space = GizmoSpace::World; // ギズモの向き(X で Global / Local を切り替える。効くのは移動の矢印)
         float m_dragStartScreenX = 0.0f; // つかんだときのマウスの画面の位置(拡大縮小で使う)
         float m_dragStartScreenY = 0.0f;
         float m_dragPrevScreenX = 0.0f;  // 前のフレームのマウスの画面の位置(回転で、フレームごとの角度を足すため)

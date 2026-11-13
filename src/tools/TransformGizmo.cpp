@@ -75,7 +75,7 @@ namespace husky::tools
     }
 
     GizmoHandle PickGizmoHandle(GizmoTool tool, float originX, float originY, float mouseX, float mouseY,
-                                float rotationDegrees)
+                                float rotationDegrees, GizmoSpace space)
     {
         // ギズモの真ん中から見たマウスの位置(画面のピクセル)。画面の y は下が + なので、上向きを + に直す
         const float dx = mouseX - originX;
@@ -97,13 +97,41 @@ namespace husky::tools
         }
         case GizmoTool::Move:
         default:
-            return PickAxes(dx, up); // 移動の矢印はワールドの向き
+        {
+            // 移動の矢印: World ならワールドの向きのまま比べる。Local ならアクターと一緒に回っているので、拡大縮小と同じく点を逆に回す
+            if (space == GizmoSpace::World)
+            {
+                return PickAxes(dx, up);
+            }
+            float localX = 0.0f;
+            float localUp = 0.0f;
+            Rotate2D(dx, up, -rotationDegrees, localX, localUp);
+            return PickAxes(localX, localUp);
+        }
         }
     }
 
-    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap)
+    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap,
+                                 float rotationDegrees, GizmoSpace space)
     {
         core::Vector3 to = from;
+        if (space == GizmoSpace::Local)
+        {
+            // 動いた量をアクターの向きの軸に分ける(点を逆に回す)。つかんだ軸の分だけを残し、スナップは進んだ距離で丸める
+            float alongX = 0.0f;
+            float alongY = 0.0f;
+            Rotate2D(deltaX, deltaY, -rotationDegrees, alongX, alongY);
+            alongX = (handle == GizmoHandle::X || handle == GizmoHandle::Center) ? SnapTo(alongX, snap) : 0.0f;
+            alongY = (handle == GizmoHandle::Y || handle == GizmoHandle::Center) ? SnapTo(alongY, snap) : 0.0f;
+            // ワールドの向きへ戻して足す
+            float worldX = 0.0f;
+            float worldY = 0.0f;
+            Rotate2D(alongX, alongY, rotationDegrees, worldX, worldY);
+            to.x += worldX;
+            to.y += worldY;
+            return to;
+        }
+        // World: ワールドの x・y にそのまま足す。スナップはグリッドの線の上(位置そのものを丸める)
         if (handle == GizmoHandle::X || handle == GizmoHandle::Center)
         {
             to.x = SnapTo(to.x + deltaX, snap);
@@ -167,7 +195,7 @@ namespace husky::tools
     }
 
     void BuildGizmoSprites(GizmoTool tool, const engine::CameraView& view, const core::Vector3& origin, float rotationDegrees,
-                           GizmoHandle highlighted, std::vector<render::Sprite>& out)
+                           GizmoHandle highlighted, std::vector<render::Sprite>& out, GizmoSpace space)
     {
         out.clear();
         // 画面のピクセル → ワールドの単位(1 ピクセル = 1 / zoom 単位)。これで、ズームしても画面での大きさが変わらない
@@ -197,8 +225,8 @@ namespace husky::tools
             return;
         }
 
-        // 移動と拡大縮小: 真ん中の四角と、x・y の軸。移動はワールドの向き、拡大縮小はアクターと一緒に回す
-        const float axisRotation = tool == GizmoTool::Scale ? rotationDegrees : 0.0f;
+        // 移動と拡大縮小: 真ん中の四角と、x・y の軸。拡大縮小はいつもアクターと一緒に回し、移動は Local のときだけ回す
+        const float axisRotation = (tool == GizmoTool::Scale || space == GizmoSpace::Local) ? rotationDegrees : 0.0f;
         const float length = GizmoSize::ArrowLength * pixel;
         const float head = GizmoSize::HeadSize * pixel;
         const float center = GizmoSize::CenterSize * pixel;
@@ -229,6 +257,11 @@ namespace husky::tools
         case GizmoTool::Scale: return "Scale (R)";
         }
         return "?";
+    }
+
+    const char* GetGizmoSpaceName(GizmoSpace space)
+    {
+        return space == GizmoSpace::Local ? "Local (X)" : "Global (X)";
     }
 }
 

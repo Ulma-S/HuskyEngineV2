@@ -29,6 +29,16 @@ namespace husky::tools
         Scale,  // 拡大縮小(R)
     };
 
+    // ギズモの向き(Unity の Global / Local。X キーで切り替える)。効くのは移動の矢印だけ:
+    //   - World: 矢印はワールドの向き(右と上)。動かすと、ワールドの x・y が変わる
+    //   - Local: 矢印はアクターと一緒に回る。動かすと、アクターの向きに沿って進む
+    // 拡大縮小の軸は、拡大縮小がアクター自身の向きにかかるので、いつもローカル(Unity と同じ)。回転(z 軸まわり)はどちらでも同じ。
+    enum class GizmoSpace
+    {
+        World,
+        Local,
+    };
+
     // ギズモの部品
     enum class GizmoHandle
     {
@@ -59,15 +69,18 @@ namespace husky::tools
     }
 
     // 画面の点 (mouseX, mouseY) が、画面の (originX, originY) にある道具 tool のギズモのどの部品の上か。
-    // rotationDegrees はアクターの回転(拡大縮小の軸を回して調べるため。ほかの道具では使わない)。
+    // rotationDegrees はアクターの回転(拡大縮小の軸と、Local のときの移動の矢印を回して調べる)。
     // 移動と拡大縮小は、真ん中の四角を先に調べる(軸の付け根と重なるため)。
     GizmoHandle PickGizmoHandle(GizmoTool tool, float originX, float originY, float mouseX, float mouseY,
-                                float rotationDegrees = 0.0f);
+                                float rotationDegrees = 0.0f, GizmoSpace space = GizmoSpace::World);
 
     // 移動: つかんだ部品に合わせて、動いた先の位置を返す。from はつかむ前の位置、(deltaX, deltaY) はつかんでからマウスが
     // 動いた量(ワールドの単位)。X なら x だけ、Y なら y だけ、Center なら両方に足す。z はそのまま。
     // snap が 0 より大きければ、動かした軸の値を snap の倍数(グリッドの線の上)に丸める(スナップ。動かしていない軸はそのまま)。
-    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap = 0.0f);
+    // Local のときは、動いた量をアクターの向き(rotationDegrees)の軸に分け、つかんだ軸の分だけを使う。スナップは、その軸に沿って
+    // 進んだ距離を snap の倍数に丸める(斜めの軸ではワールドのグリッドの線に乗らないので、進んだ距離で丸める)。
+    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap = 0.0f,
+                                 float rotationDegrees = 0.0f, GizmoSpace space = GizmoSpace::World);
 
     // 回転: ギズモの真ん中(画面の origin)から見たマウスの向きが、from の点から to の点へ動く間に何度回ったか(-180〜+180)。
     // 画面の y は下が + なので、反時計回りが + になるように裏返して計算する。
@@ -84,12 +97,16 @@ namespace husky::tools
                                  float startY, float mouseX, float mouseY, float snap = 0.0f);
 
     // ワールドの origin にある道具 tool のギズモの線を、out に作り直す(入れ物は使い回す)。大きさはカメラの zoom から、
-    // 画面で一定にする。rotationDegrees はアクターの回転(拡大縮小の軸を回す)。highlighted の部品は明るい黄色にする。
+    // 画面で一定にする。rotationDegrees はアクターの回転(拡大縮小の軸と、Local のときの移動の矢印を回す)。
+    // highlighted の部品は明るい黄色にする。
     void BuildGizmoSprites(GizmoTool tool, const engine::CameraView& view, const core::Vector3& origin, float rotationDegrees,
-                           GizmoHandle highlighted, std::vector<render::Sprite>& out);
+                           GizmoHandle highlighted, std::vector<render::Sprite>& out, GizmoSpace space = GizmoSpace::World);
 
     // 道具の名前("Move (W)" など。画面の隅に出す)。
     const char* GetGizmoToolName(GizmoTool tool);
+
+    // ギズモの向きの名前("Global (X)" など。Unity の表示に合わせる)。
+    const char* GetGizmoSpaceName(GizmoSpace space);
 }
 
 #endif

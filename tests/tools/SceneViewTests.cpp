@@ -279,4 +279,51 @@ TEST_CASE("RS-5: CommitActorTransform は位置・回転・拡大縮小をまと
     CHECK(actor->transform.scale.x == 1.0f);
     CHECK(actor->transform.scale.y == 1.0f);
 }
+
+TEST_CASE("Global / Local: Local の移動の矢印はアクターと一緒に回り、動きはアクターの向きの軸に沿う")
+{
+    using husky::tools::ApplyGizmoDrag;
+    using husky::tools::GizmoHandle;
+    using husky::tools::GizmoSpace;
+    using husky::tools::GizmoTool;
+    using husky::tools::PickGizmoHandle;
+    // 90 度回ったアクター: Local の x の矢印は上を向く。Global なら右のまま
+    CHECK(PickGizmoHandle(GizmoTool::Move, 500.0f, 300.0f, 500.0f, 240.0f, 90.0f, GizmoSpace::Local) == GizmoHandle::X);
+    CHECK(PickGizmoHandle(GizmoTool::Move, 500.0f, 300.0f, 500.0f, 240.0f, 90.0f, GizmoSpace::World) == GizmoHandle::Y);
+    CHECK(PickGizmoHandle(GizmoTool::Move, 500.0f, 300.0f, 560.0f, 300.0f, 90.0f, GizmoSpace::World) == GizmoHandle::X);
+
+    // Local の x の矢印をつかんで、右へ 30・上へ 50 動かす: アクターの x の向き(ワールドの上)の分だけ進む = y が +50
+    const husky::core::Vector3 from{10.0f, 20.0f, 0.0f};
+    const husky::core::Vector3 local = ApplyGizmoDrag(GizmoHandle::X, from, 30.0f, 50.0f, 0.0f, 90.0f, GizmoSpace::Local);
+    CHECK(local.x == doctest::Approx(10.0f).epsilon(0.001));
+    CHECK(local.y == doctest::Approx(70.0f));
+    // 同じ動きを Global の x で: x が +30
+    const husky::core::Vector3 global = ApplyGizmoDrag(GizmoHandle::X, from, 30.0f, 50.0f, 0.0f, 90.0f, GizmoSpace::World);
+    CHECK(global.x == doctest::Approx(40.0f));
+    CHECK(global.y == doctest::Approx(20.0f));
+    // Local のスナップは、軸に沿って進んだ距離を丸める(54 → 50。位置そのものではない)
+    const husky::core::Vector3 snapped = ApplyGizmoDrag(GizmoHandle::X, from, 0.0f, 54.0f, 10.0f, 90.0f, GizmoSpace::Local);
+    CHECK(snapped.y == doctest::Approx(70.0f));
+    // 45 度回ったアクター: Local の x の矢印に沿って √2 * 10 だけ動かすと、x・y が 10 ずつ進む
+    const husky::core::Vector3 diagonal = ApplyGizmoDrag(GizmoHandle::X, from, 10.0f, 10.0f, 0.0f, 45.0f, GizmoSpace::Local);
+    CHECK(diagonal.x == doctest::Approx(20.0f));
+    CHECK(diagonal.y == doctest::Approx(30.0f));
+}
+
+TEST_CASE("Global / Local: Local のときだけ移動の矢印を回して描く。名前は Unity と同じ")
+{
+    using husky::tools::GizmoHandle;
+    using husky::tools::GizmoSpace;
+    using husky::tools::GizmoTool;
+    std::vector<husky::render::Sprite> quads;
+    husky::tools::BuildGizmoSprites(GizmoTool::Move, CameraView{0.0f, 0.0f, 1.0f}, husky::core::Vector3{0.0f, 0.0f, 0.0f},
+                                    90.0f, GizmoHandle::None, quads, GizmoSpace::Local);
+    REQUIRE(quads.size() == 5);
+    CHECK(quads[1].model.m[13] == doctest::Approx(40.0f)); // x の矢印の線は上
+    husky::tools::BuildGizmoSprites(GizmoTool::Move, CameraView{0.0f, 0.0f, 1.0f}, husky::core::Vector3{0.0f, 0.0f, 0.0f},
+                                    90.0f, GizmoHandle::None, quads, GizmoSpace::World);
+    CHECK(quads[1].model.m[12] == doctest::Approx(40.0f)); // Global では右のまま
+    CHECK(std::string(husky::tools::GetGizmoSpaceName(GizmoSpace::Local)) == "Local (X)");
+    CHECK(std::string(husky::tools::GetGizmoSpaceName(GizmoSpace::World)) == "Global (X)");
+}
 #endif
