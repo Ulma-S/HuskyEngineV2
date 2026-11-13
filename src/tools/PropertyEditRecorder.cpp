@@ -28,6 +28,11 @@ namespace husky::tools
 
     bool PropertyEditRecorder::PushPath(const core::Property& property)
     {
+        if (m_inArray > 0)
+        {
+            ++m_suppressed; // 配列の中: 道筋は配列のプロパティで止める(数だけ数えて、PopPath と合わせる)
+            return true;
+        }
         if (m_overflow > 0 || m_depth >= MaxPathDepth)
         {
             ++m_overflow; // 深すぎる。この下は記録しない(Pop の数を合わせるために数だけ数える)
@@ -39,7 +44,11 @@ namespace husky::tools
 
     void PropertyEditRecorder::PopPath()
     {
-        if (m_overflow > 0)
+        if (m_suppressed > 0)
+        {
+            --m_suppressed;
+        }
+        else if (m_overflow > 0)
         {
             --m_overflow;
         }
@@ -158,6 +167,36 @@ namespace husky::tools
             {
                 Commit(); // 手を離した(チェックボックスなら、変わったそのフレーム)
             }
+        }
+    }
+
+    void PropertyEditRecorder::BeginWholeChange()
+    {
+        if (m_editing)
+        {
+            Commit(); // 途中の編集があれば、先に確定する
+        }
+        const core::Object* owner = m_app != nullptr ? m_app->GetRegistry().Resolve(m_owner) : nullptr;
+        if (owner == nullptr || m_overflow > 0 || m_depth == 0)
+        {
+            return;
+        }
+        // 変える前の値(今の道筋 = 配列のプロパティまで)を控える。押したときだけなので、確保してよい。
+        m_before = ReadValueAtPath(*owner, m_path, m_depth);
+        m_editing = true;
+        m_editOwner = m_owner;
+        m_editDepth = m_depth;
+        for (std::size_t i = 0; i < m_depth; ++i)
+        {
+            m_editPath[i] = m_path[i];
+        }
+    }
+
+    void PropertyEditRecorder::CommitWholeChange()
+    {
+        if (m_editing && IsEditingCurrentPath())
+        {
+            Commit(); // 前の値に戻してから property.set(Undo で戻せる)
         }
     }
 

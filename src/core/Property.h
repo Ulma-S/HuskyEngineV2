@@ -330,7 +330,8 @@ namespace husky::core
     //  関数のポインタとして値で持つ。スクリプトの配列も、同じ関数を用意すれば同じ形で扱える)
     struct ArrayInfo
     {
-        // 要素1つのプロパティ。要素の先頭のアドレスを持ち主として使う(オフセットは 0)。
+        // 要素1つのプロパティ。要素の先頭のアドレスを持ち主として使う(オフセットは 0)。名前は "##element"
+        // (ImGui では "##" から後ろは表示されないので、インスペクタで要素の部品にラベルが出ない。番号を前に出す)。
         // 値の読み書き・構造体の中・参照のたどり方は、ふつうのプロパティと同じ道具がそのまま使える。
         Property element;
         std::size_t (*size)(const void* array);                 // 要素の数
@@ -371,7 +372,7 @@ namespace husky::core
             {
                 // std::vector<bool>: 場所の代わりに、写す(load)・戻す(store)を用意する
                 static const ArrayInfo info{
-                    Property("element", PropertyType::Bool, 0),
+                    Property("##element", PropertyType::Bool, 0),
                     size,
                     resize,
                     nullptr,
@@ -389,7 +390,7 @@ namespace husky::core
             else
             {
                 static const ArrayInfo info{
-                    Property("element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
+                    Property("##element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
                     size,
                     resize,
                     [](void* array, std::size_t index) -> void* { return &(*static_cast<T*>(array))[index]; },

@@ -296,6 +296,10 @@ namespace husky::tools
         }
 
         // プロパティ1つを、型に合った部品(チェックボックス、数の入力、文字の入力など)で並べる。
+        // 配列(SF-2b)を、折りたためる見出しの中に要素ごとに描く。DrawProperty の中で使うので、先に宣言だけする。
+        bool DrawArray(const Property& property, void* container, core::ObjectRegistry& registry,
+                       const engine::AssetDatabase* assets, PropertyEditRecorder* recorder);
+
         bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
                           const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
                                 OverrideMarks* marks)
@@ -322,9 +326,7 @@ namespace husky::tools
                             property.GetObjectRefType() != nullptr ? property.GetObjectRefType()->GetName() : "Object");
                 return false;
             case PropertyType::Array:
-                // 配列(SF-2a): 今は要素の数だけを表示する(要素を見る・足す・消す画面は SF-2b で作る)
-                ImGui::Text("%s: %zu items", name, property.GetArrayInfo()->size(property.GetArrayAddressAt(container)));
-                return false;
+                return DrawArray(property, container, registry, assets, recorder);
             case PropertyType::ObjectHandleArray:
             {
                 const auto& handles = *property.GetValuePtrAt<std::vector<core::ObjectHandle>>(container);
@@ -375,6 +377,101 @@ namespace husky::tools
             }
             }
             return false;
+        }
+
+        bool DrawArray(const Property& property, void* container, core::ObjectRegistry& registry,
+                       const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
+        {
+            const core::ArrayInfo& array = *property.GetArrayInfo();
+            void* address = property.GetArrayAddressAt(container);
+            const std::size_t count = array.size(address);
+            // 見出し: 名前と要素の数。開いているときだけ中を描く(閉じていれば、要素の部品は作らない)。
+            if (!ImGui::TreeNode(property.GetName(), "%s (%zu)", property.GetName(), count))
+            {
+                return false;
+            }
+            if (recorder != nullptr)
+            {
+                recorder->EnterArray(); // ここから中は、道筋を配列のプロパティで止める(配列まるごとを property.set する)
+            }
+            bool changed = false;
+            std::size_t removeAt = count; // 「-」を押した要素(count なら無し)
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                if (ImGui::SmallButton("-"))
+                {
+                    removeAt = i;
+                }
+                ImGui::SameLine();
+                ImGui::Text("%zu", i);
+                ImGui::SameLine();
+                bool elementChanged = false;
+                if (array.IsProxy())
+                {
+                    // 要素の場所が取れない配列(std::vector<bool>): 手元の変数に写して描き、変わったら書き戻す
+                    bool temporary = false;
+                    array.load(address, i, &temporary);
+                    if (recorder != nullptr)
+                    {
+                        recorder->BeforeLeaf(array.element, &temporary);
+                    }
+                    elementChanged = ImGui::Checkbox(array.element.GetName(), &temporary);
+                    if (recorder != nullptr)
+                    {
+                        // 記録係は、変わったときに配列まるごとを前の値として読む(まだ書き戻していないので、配列は前の値のまま)
+                        recorder->AfterLeaf(array.element, &temporary, elementChanged, ImGui::IsItemActive());
+                    }
+                    if (elementChanged)
+                    {
+                        array.store(address, i, &temporary);
+                    }
+                }
+                else
+                {
+                    // 要素1つを、ふつうのプロパティと同じ部品で描く(要素のプロパティの名前は "##element" なので、ラベルは出ない)
+                    void* element = array.at(address, i);
+                    if (recorder != nullptr)
+                    {
+                        recorder->BeforeLeaf(array.element, element);
+                    }
+                    elementChanged = DrawProperty(array.element, element, registry, assets, recorder, nullptr);
+                    if (recorder != nullptr)
+                    {
+                        recorder->AfterLeaf(array.element, element, elementChanged, ImGui::IsItemActive());
+                    }
+                }
+                changed |= elementChanged;
+                ImGui::PopID();
+            }
+            const bool add = ImGui::SmallButton("+");
+            if (add || removeAt < count)
+            {
+                // 足す・消すは、部品を通さない変更: 前の値を控えてから変え、すぐに確定する(Undo できる)
+                if (recorder != nullptr)
+                {
+                    recorder->BeginWholeChange();
+                }
+                if (add)
+                {
+                    array.resize(address, count + 1); // 増えた要素は既定の値
+                }
+                else
+                {
+                    array.erase(address, removeAt);
+                }
+                if (recorder != nullptr)
+                {
+                    recorder->CommitWholeChange();
+                }
+                changed = true;
+            }
+            if (recorder != nullptr)
+            {
+                recorder->LeaveArray();
+            }
+            ImGui::TreePop();
+            return changed;
         }
 
         // recorder: 値の書き換えを property.set の1件にまとめる記録係(nullptr なら記録せず、その場で書き換えるだけ)。

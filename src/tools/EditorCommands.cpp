@@ -650,6 +650,9 @@ namespace husky::tools
             case core::PropertyType::Struct: // 構造体は {"x": 1} のような形で、書いた値だけを書き換える
             case core::PropertyType::AssetRef: // GUID の文字列か、null(何も指さない)
                 return true;
+            case core::PropertyType::Array:
+                // 配列(SF-2b): JSON の配列で、まるごと入れ替える。参照の配列は番号が要るので、まだ書き換えない(REF-1)。
+                return !property.IsReference();
             default:
                 return false; // ハンドル、配列、guid は、今は書き換えない
             }

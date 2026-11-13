@@ -68,6 +68,17 @@ namespace husky::tools
         // 見出しを閉じたなど)、そこで確定する。
         void EndFrame();
 
+        // 配列(SF-2b)の要素を描く間だけ囲む。配列のプロパティまでを道筋にし、中(要素の構造体のメンバーなど)では
+        // 道筋を積まない(要素の番号は道筋にしない)。中の値1つが変わると、配列まるごとを前の値として控え、
+        // 確定するときは配列まるごとを property.set する(ドラッグ全体が1件の Undo)。
+        void EnterArray() { ++m_inArray; }
+        void LeaveArray() { --m_inArray; }
+
+        // 配列の要素を足す・消すなど、部品を通さない変更の前後に呼ぶ(EnterArray の中で)。
+        // 前で今の値(配列まるごと)を控え、後ですぐに確定する(property.set を1回)。
+        void BeginWholeChange();
+        void CommitWholeChange();
+
         // 編集の途中か(ドラッグ中など)。
         bool IsEditing() const { return m_editing; }
 
@@ -119,6 +130,8 @@ namespace husky::tools
         const core::Property* m_path[MaxPathDepth] = {};
         std::size_t m_depth = 0;
         std::size_t m_overflow = 0; // 上限を超えて積めなかった段の数
+        std::size_t m_inArray = 0;    // EnterArray の深さ(0 でなければ、PushPath は道筋を積まない)
+        std::size_t m_suppressed = 0; // 配列の中で、積まずに数えただけの段の数(PopPath と数を合わせる)
         Snapshot m_snapshot;        // BeforeLeaf で控えた値
         Snapshot m_after;           // 編集の始まりに、変わった後の値を一時的に控える
 

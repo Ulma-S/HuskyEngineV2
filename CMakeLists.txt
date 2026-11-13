@@ -485,6 +485,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/EditorCommandsTests.cpp
         tests/tools/DataCommandsTests.cpp
         tests/tools/AssetBrowserTests.cpp
+        tests/tools/ArrayEditTests.cpp
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
