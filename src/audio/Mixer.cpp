@@ -135,6 +135,10 @@ namespace husky::audio
         }
         const int sampleCount = frameCount * OutputChannels;
         std::fill(out, out + sampleCount, 0.0f);
+        if (m_paused)
+        {
+            return; // 一時停止中: 無音を書くだけで、位置は進めない
+        }
 
         for (Voice& voice : m_voices)
         {

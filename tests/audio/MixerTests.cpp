@@ -164,3 +164,22 @@ TEST_CASE("Mixer: すべて BGM で埋まっていれば、新しい音は鳴ら
     }
     CHECK_FALSE(mixer.Play(PlaybackId{100}, MakeSound(sound), PlayParams{}));
 }
+
+TEST_CASE("Mixer: 一時停止の間は 0 を書き、位置を進めない。解くと続きから")
+{
+    Mixer mixer;
+    const std::vector<float> ramp = MakeRamp(3);
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(ramp), PlayParams{}));
+    std::vector<float> out(OutputChannels);
+    mixer.Mix(out.data(), 1);
+    CHECK(out[0] == doctest::Approx(0.1f));
+
+    mixer.SetPaused(true);
+    mixer.Mix(out.data(), 1);
+    CHECK(out[0] == 0.0f);
+    CHECK(mixer.IsPlaying(PlaybackId{1}));
+
+    mixer.SetPaused(false);
+    mixer.Mix(out.data(), 1);
+    CHECK(out[0] == doctest::Approx(0.2f)); // 止めた所の続き
+}

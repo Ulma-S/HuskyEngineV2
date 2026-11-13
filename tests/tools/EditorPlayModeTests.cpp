@@ -190,3 +190,40 @@ TEST_CASE("EditorPlayMode: 今の状態で使えない操作は、理由つき�
 }
 
 #endif
+
+#if HUSKY_DEVELOPMENT // editor のコマンドは開発ビルドだけ
+#include "ManualAudioOutput.h"
+
+#include <memory>
+
+TEST_CASE("EditorPlayMode: 一時停止すると音も止まり、Play で続きから鳴る。Stop ですべて止まる")
+{
+    Application app;
+    husky::tests::ManualOutputState state;
+    REQUIRE(app.GetAudio().StartOutput(std::make_unique<husky::tests::ManualOutput>(state, true)));
+    EditorPlayMode mode;
+    EditorCommandRegistry commands;
+    mode.RegisterCommands(commands);
+    mode.EnterEditMode(app);
+    REQUIRE(commands.Execute("editor.play", app).succeeded);
+
+    const std::vector<float> samples(100 * husky::audio::OutputChannels, 0.5f);
+    const husky::audio::PlaybackId id =
+        app.GetAudio().Play(husky::audio::SoundData{samples.data(), 100}, husky::audio::PlayParams{});
+    CHECK(state.Render(1)[0] == doctest::Approx(0.5f));
+
+    REQUIRE(commands.Execute("editor.pause", app).succeeded);
+    CHECK(state.Render(1)[0] == 0.0f);
+    CHECK(app.GetAudio().IsPlaying(id));
+
+    REQUIRE(commands.Execute("editor.play", app).succeeded); // 続きから
+    CHECK(state.Render(1)[0] == doctest::Approx(0.5f));
+
+    REQUIRE(commands.Execute("editor.pause", app).succeeded);
+    REQUIRE(commands.Execute("editor.stop", app).succeeded); // 一時停止したまま止めても、次は鳴らせる
+    CHECK_FALSE(app.GetAudio().IsPlaying(id));
+    app.GetAudio().Play(husky::audio::SoundData{samples.data(), 100}, husky::audio::PlayParams{});
+    CHECK(state.Render(1)[0] == doctest::Approx(0.5f));
+    app.GetAudio().StopOutput();
+}
+#endif

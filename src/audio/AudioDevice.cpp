@@ -134,6 +134,19 @@ namespace husky::audio
         Push(command);
     }
 
+    void AudioDevice::SetPaused(bool paused)
+    {
+        if (m_output == nullptr)
+        {
+            m_mixer.SetPaused(paused); // 音のスレッドが無いので直接でよい
+            return;
+        }
+        Command command;
+        command.kind = Command::Kind::SetPaused;
+        command.paused = paused;
+        Push(command);
+    }
+
     bool AudioDevice::IsPlaying(PlaybackId id) const
     {
         if (id.IsNull())
@@ -246,6 +259,9 @@ namespace husky::audio
             break;
         case Command::Kind::SetMasterVolume:
             m_mixer.SetMasterVolume(command.volume);
+            break;
+        case Command::Kind::SetPaused:
+            m_mixer.SetPaused(command.paused);
             break;
         case Command::Kind::StopSound:
             m_mixer.StopUsing(command.sound.samples);

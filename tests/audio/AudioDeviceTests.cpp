@@ -192,3 +192,17 @@ TEST_CASE("AudioDevice: 手放し待ちのデータは、出す先を閉じた�
     audio.StopOutput();
     CHECK(audio.GetSoundCount() == 0);
 }
+
+TEST_CASE("AudioDevice: 一時停止は命令として積まれ、次に混ぜるときから効く")
+{
+    AudioDevice audio;
+    ManualOutputState state;
+    REQUIRE(audio.StartOutput(std::make_unique<ManualOutput>(state, true)));
+    const std::vector<float> sound = MakeConstant(10, 0.5f);
+    const PlaybackId id = audio.Play(MakeSound(sound), PlayParams{});
+    audio.SetPaused(true);
+    CHECK(state.Render(1)[0] == 0.0f);
+    CHECK(audio.IsPlaying(id));
+    audio.SetPaused(false);
+    CHECK(state.Render(1)[0] == doctest::Approx(0.5f));
+}

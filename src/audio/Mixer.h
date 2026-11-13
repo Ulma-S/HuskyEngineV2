@@ -82,6 +82,9 @@ namespace husky::audio
         void SetPlaybackVolume(PlaybackId id, float volume);
         void SetBusVolume(Bus bus, float volume);
         void SetMasterVolume(float volume);
+        // 一時停止(エディタの一時停止など)。止めている間は 0 を書き、どの音も先へ進めない。解くと続きから鳴る。
+        void SetPaused(bool paused) { m_paused = paused; }
+        bool IsPaused() const { return m_paused; }
 
         // 次の frameCount フレームを out に書く(足すのではなく上書き。鳴っていなければ 0)。
         // out は frameCount * OutputChannels 個の float。
@@ -106,6 +109,7 @@ namespace husky::audio
         Voice m_voices[MaxVoices];
         float m_busVolumes[static_cast<int>(Bus::Count)] = {1.0f, 1.0f};
         float m_masterVolume = 1.0f;
+        bool m_paused = false;
         std::uint64_t m_nextOrder = 1;
     };
 }

@@ -83,6 +83,8 @@ namespace husky::audio
         void SetPlaybackVolume(PlaybackId id, float volume);
         void SetBusVolume(Bus bus, float volume);
         void SetMasterVolume(float volume);
+        // 一時停止する・解く。止めている間も命令(鳴らす・止める)は受け付け、解いたときに続きから鳴る。
+        void SetPaused(bool paused);
 
         // 鳴っているか。まだ積んだだけ(音のスレッドが受け取る前)の Play も「鳴っている」に数える。
         // 最後まで鳴って止まったことが分かるのは、次に混ぜた後(数ミリ秒〜十数ミリ秒の遅れがある)。
@@ -103,6 +105,7 @@ namespace husky::audio
                 SetBusVolume,
                 SetMasterVolume,
                 StopSound, // sound のデータを使っている音を止める(手放す前)
+                SetPaused,
             };
             Kind kind = Kind::Stop;
             PlaybackId id;
@@ -110,6 +113,7 @@ namespace husky::audio
             PlayParams params;
             Bus bus = Bus::Effect;
             float volume = 1.0f;
+            bool paused = false;
         };
 
         // 命令を積む。いっぱいなら捨てて false(警告は1回だけ)。出す先が無ければ積まずに false。

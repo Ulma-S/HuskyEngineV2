@@ -66,6 +66,7 @@ namespace husky::tools
         {
             m_state = State::Playing;
             app.SetSceneTickEnabled(true);
+            app.GetAudio().SetPaused(false); // 一時停止から戻る: 音も続きから
             return EditorCommandResult::Success("Resumed");
         }
 
@@ -88,6 +89,7 @@ namespace husky::tools
         }
         m_state = State::Paused;
         app.SetSceneTickEnabled(false);
+        app.GetAudio().SetPaused(true); // 音も一時停止する(コマ送りの間も止めたまま)
         return EditorCommandResult::Success("Paused");
     }
 
@@ -111,6 +113,7 @@ namespace husky::tools
         // 0. 鳴っている音をすべて止める(再生中に鳴らした効果音や BGM。コンポーネントは壊れるときにも止めるが、
         //    1 回だけ鳴らした効果音は持ち主がいないので、ここでまとめて止める)。
         app.GetAudio().StopAll();
+        app.GetAudio().SetPaused(false); // 一時停止したまま止めたときも、次に鳴らせるように解く
 
         // 1. 今いるアクターをすべて Destroy する(消えるのはフレームの終わり。それまでは Tick も描画もされない)。
         engine::Scene& scene = app.GetScene();
