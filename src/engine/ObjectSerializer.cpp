@@ -46,6 +46,10 @@ namespace husky::engine::ObjectSerializer
                 return ArchiveValue(static_cast<std::int64_t>(*property.GetValuePtrAt<std::int32_t>(container)));
             case PropertyType::Float:
                 return ArchiveValue(*property.GetValuePtrAt<float>(container)); // float の精度の印が付く
+            case PropertyType::Int64:
+                return ArchiveValue(*property.GetValuePtrAt<std::int64_t>(container));
+            case PropertyType::Double:
+                return ArchiveValue(*property.GetValuePtrAt<double>(container)); // double はそのまま(精度の印は付かない)
             case PropertyType::String:
                 return ArchiveValue(*property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
@@ -188,6 +192,21 @@ namespace husky::engine::ObjectSerializer
                     return "数ではありません";
                 }
                 *property.GetValuePtrAt<float>(container) = static_cast<float>(value.AsFloat());
+                return {};
+            case PropertyType::Int64:
+                if (value.GetType() != ArchiveValue::Type::Int)
+                {
+                    return "整数ではありません";
+                }
+                *property.GetValuePtrAt<std::int64_t>(container) = value.AsInt();
+                return {};
+            case PropertyType::Double:
+                // float と同じく、整数で書かれていても読める。
+                if (value.GetType() != ArchiveValue::Type::Float && value.GetType() != ArchiveValue::Type::Int)
+                {
+                    return "数ではありません";
+                }
+                *property.GetValuePtrAt<double>(container) = value.AsFloat();
                 return {};
             case PropertyType::String:
                 if (value.GetType() != ArchiveValue::Type::String)

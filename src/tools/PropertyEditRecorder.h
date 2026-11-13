@@ -93,6 +93,8 @@ namespace husky::tools
             Bool,
             Int32,
             Float,
+            Int64,
+            Double,
             String,
             Color,    // render::Color(色の部品で、4つの値を一度に変える)
             AssetRef, // アセットの参照
@@ -105,6 +107,8 @@ namespace husky::tools
             bool boolValue = false;
             std::int32_t intValue = 0;
             float floatValue = 0.0f;
+            std::int64_t int64Value = 0;
+            double doubleValue = 0.0;
             render::Color color;
             core::AssetReference assetRef;
             std::string text;

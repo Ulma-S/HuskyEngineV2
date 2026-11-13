@@ -32,6 +32,8 @@ namespace husky::core
         Guid,              // core::Guid(変わらない ID。保存すると GUID の文字列になる。アクターの ID など)
         ObjectRef,         // ObjectRef<T>(型の付いた、ほかのオブジェクトへの参照。ObjectRef.h。保存は ObjectHandle と同じく番号)
         Array,             // std::vector<E>(E は配列以外のプロパティにできる型。中身は ArrayInfo。SF-2)
+        Int64,             // std::int64_t(SF-3a。JSON の整数はもともと 64 ビットで保存できる)
+        Double,            // double(SF-3a。float より細かい小数)
     };
 
     class Property;
@@ -119,6 +121,14 @@ namespace husky::core
         else if constexpr (std::is_same_v<T, std::int32_t>)
         {
             return PropertyType::Int32;
+        }
+        else if constexpr (std::is_same_v<T, std::int64_t>)
+        {
+            return PropertyType::Int64;
+        }
+        else if constexpr (std::is_same_v<T, double>)
+        {
+            return PropertyType::Double;
         }
         else if constexpr (std::is_same_v<T, float>)
         {

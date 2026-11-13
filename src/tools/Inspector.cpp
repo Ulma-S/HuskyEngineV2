@@ -314,6 +314,11 @@ namespace husky::tools
                 return ImGui::DragInt(name, property.GetValuePtrAt<std::int32_t>(container));
             case PropertyType::Float:
                 return ImGui::DragFloat(name, property.GetValuePtrAt<float>(container), 0.5f);
+            case PropertyType::Int64:
+                // DragScalar: 型を指定してドラッグする部品(DragInt / DragFloat は int と float 専用のため)
+                return ImGui::DragScalar(name, ImGuiDataType_S64, property.GetValuePtrAt<std::int64_t>(container));
+            case PropertyType::Double:
+                return ImGui::DragScalar(name, ImGuiDataType_Double, property.GetValuePtrAt<double>(container), 0.5f);
             case PropertyType::String:
                 return ImGui::InputText(name, property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
