@@ -155,6 +155,13 @@ namespace husky::core
         // Destroy が呼ばれ、破棄を待っているなら true。
         bool IsPendingDestroy() const { return m_pendingDestroy; }
 
+        // 「読むだけ」の印(SD-2)。読み込んだアセット(ScriptableData の中身など)に、ローダが読み終えたときに付ける。
+        // プロパティの書く入口(ObjectSerializer::ReadProperties。エディタの property.set もここを通る。将来のスクリプトも)が
+        // この印を見て、書き込みを断ってエラーにする。一度付けたら外さない(読み込んだアセットは変わらないデータのため)。
+        // C++ のコードからの直接の書き込みは止められない(const のポインタで渡すのと、開発ビルドの控えとの比べで見つける)。
+        void MarkReadOnly() { m_readOnly = true; }
+        bool IsReadOnly() const { return m_readOnly; }
+
     protected:
         // このオブジェクトを作ったレジストリ。レジストリで作っていなければ nullptr。
         // 子クラス(Scene など)が、ほかのオブジェクトを作ったり引いたりするのに使う。
@@ -166,7 +173,8 @@ namespace husky::core
         ObjectHandle m_handle;         // 作ったレジストリが設定する
         ObjectRegistry* m_registry = nullptr;  // 作ったレジストリ(持ち主)。借りているだけで、所有はしていない
         bool m_pendingDestroy = false;
-        bool m_gcMarked = false;               // GC のマークの印。CollectGarbage の中だけで使う
+        bool m_readOnly = false;               // 読むだけの印(MarkReadOnly)
+        bool m_gcMarked = false;              // GC のマークの印。CollectGarbage の中だけで使う
     };
 
     // object が T 型(か T の子孫)なら T* として返し、違えば nullptr を返す(C# の「object as T」)。

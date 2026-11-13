@@ -283,6 +283,14 @@ namespace husky::engine::ObjectSerializer
         ReadReport report;
         const core::TypeInfo& type = object.GetType();
 
+        // 読むだけの印(読み込んだアセット)が付いたものには、1つも書かない(SD-2)。
+        // エディタの property.set もここを通るので、印を見る場所はここ1か所でよい。
+        if (object.IsReadOnly())
+        {
+            report.warnings.push_back(std::string("読むだけのオブジェクト(読み込んだアセット)には書けません: ") + type.GetName());
+            return report;
+        }
+
         const ArchiveValue* typeName = value.Find("type");
         if (typeName != nullptr && typeName->AsString() != type.GetName())
         {

@@ -141,6 +141,13 @@ namespace husky::engine
         // 型が違うときは、箱ごとに1回だけ警告を出す。テンプレートを使わない入口(スクリプトからも同じ形で呼べる)。
         const ScriptableData* ResolveScriptableData(core::AssetReference& reference, const core::TypeInfo& expected);
 
+        // 読み込んだ中身が、読み込んだときの値から変わっていないかを確かめる(SD-2。開発ビルドだけ。製品では何もせず 0)。
+        // 中身には読むだけの印が付き、書く入口は断るが、C++ の生のポインタ(const_cast など)からの書き込みは止められない。
+        // そこで読み込んだときの値を控えておき、ここで比べる。変わっていたら、ファイル・型・プロパティの名前つきでエラーを出し、
+        // 変わったプロパティの数を返す(同じ書き換えを2回出さないように、控えは今の値にする)。
+        // Application がフレームの終わりに1秒に1回、エディタが Stop のときに呼ぶ。
+        std::size_t CheckScriptableDataUnchanged();
+
         // AssetRef<T>(T は ScriptableData の子)の入口。中身は ResolveScriptableData。
         // enable_if: T が ScriptableData の子のときだけ、この関数があることにする(テクスチャなどの Resolve と混ざらない)。
         template <typename T, std::enable_if_t<std::is_base_of_v<ScriptableData, T>, int> = 0>

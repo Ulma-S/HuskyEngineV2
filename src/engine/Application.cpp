@@ -82,6 +82,8 @@ namespace husky::engine
         {
             m_collectedLastGc = m_registry.CollectGarbage();
             m_secondsSinceGc = 0.0;
+            // 読むだけの ScriptableData が書き換えられていないか(開発ビルドだけ。製品では何もしない)。GC と同じ 1 秒に 1 回。
+            m_loader.CheckScriptableDataUnchanged();
         }
         return dt;
     }

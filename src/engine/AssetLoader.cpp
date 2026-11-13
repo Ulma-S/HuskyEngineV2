@@ -740,8 +740,54 @@ namespace husky::engine
             std::printf("アセット: ScriptableData の注意(%s): %s\n", load.path.c_str(), warning.c_str());
         }
         data->m_assetGuid = asset->m_guid;
+        data->MarkReadOnly(); // ここから先は読むだけ(書く入口が断る。SD-2)
+#if HUSKY_DEVELOPMENT
+        // 生のポインタでの書き込みは印では止められないので、読み込んだときの値を控え、後で比べる(CheckScriptableDataUnchanged)。
+        asset->m_snapshot = ObjectSerializer::Write(*data);
+#endif
         asset->m_data = data->GetHandle(); // 箱のプロパティ(強い参照)で持つので、箱が生きている間は回収されない
         asset->m_state = AssetState::Loaded;
+    }
+
+    std::size_t AssetLoader::CheckScriptableDataUnchanged()
+    {
+        std::size_t changedCount = 0;
+#if HUSKY_DEVELOPMENT
+        for (const auto& [guid, handle] : m_scriptableData)
+        {
+            ScriptableDataAsset* asset = ResolveScriptableDataAsset(handle);
+            const ScriptableData* data = asset != nullptr ? GetScriptableData(*asset) : nullptr;
+            if (data == nullptr)
+            {
+                continue;
+            }
+            const ArchiveValue current = ObjectSerializer::Write(*data);
+            if (current.Equals(asset->m_snapshot))
+            {
+                continue;
+            }
+            // どのプロパティが変わったかを、名前で出す(構造体は、中のどこが変わったかまでは見ない)。
+            const ArchiveValue* now = current.Find("properties");
+            const ArchiveValue* before = asset->m_snapshot.Find("properties");
+            if (now != nullptr && before != nullptr)
+            {
+                for (std::size_t i = 0; i < now->GetMemberCount(); ++i)
+                {
+                    const ArchiveValue* old = before->Find(now->GetMemberName(i));
+                    if (old == nullptr || !old->Equals(now->GetMemberValue(i)))
+                    {
+                        std::printf("エラー: 読むだけの ScriptableData が書き換えられています: %s(型 %s、GUID %s)のプロパティ %s\n",
+                                    m_database.GetFullPath(guid).c_str(), data->GetType().GetName(),
+                                    guid.ToString().c_str(), now->GetMemberName(i).c_str());
+                        ++changedCount;
+                    }
+                }
+            }
+            // 同じ書き換えを毎回出さないように、控えを今の値にする(次からは、新しい書き換えだけを出す)。
+            asset->m_snapshot = current;
+        }
+#endif
+        return changedCount;
     }
 
     void AssetLoader::OnScriptableDataDestroyed(ScriptableDataAsset& asset)

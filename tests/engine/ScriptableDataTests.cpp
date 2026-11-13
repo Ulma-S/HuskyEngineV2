@@ -3,6 +3,7 @@
 #include "engine/Application.h"
 #include "engine/AssetLoader.h"
 #include "engine/JsonFormat.h"
+#include "engine/ObjectSerializer.h"
 #include "engine/ScriptableData.h"
 
 #include "TestFolder.h"
@@ -244,4 +245,71 @@ TEST_CASE("ScriptableData: WriteScriptableData で書いたものを .sdata に�
     CHECK(loaded->label == "Short sword");
     CHECK(loaded->length == 40);
     CHECK(loaded->owner.IsNull());
+}
+
+TEST_CASE("SD-2: 読み込んだ中身には読むだけの印が付き、書く入口(ObjectSerializer::ReadProperties)は断る")
+{
+    husky::tests::TestFolder folder("husky_test_sdata_readonly");
+    WriteData(folder, "data/sword.sdata", R"({ "type": "SwordData", "properties": { "damage": 7 } })", SwordGuid);
+
+    Application app;
+    RegisterTestTypes(app);
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    AssetLoader& loader = app.GetAssetLoader();
+    husky::core::AssetRef<SwordData> sword;
+    sword.guid = SwordGuid;
+    loader.Resolve(sword);
+    loader.WaitForAllLoads();
+    const SwordData* data = loader.Resolve(sword);
+    REQUIRE(data != nullptr);
+    CHECK(data->IsReadOnly());
+
+    // エディタの property.set も、この入口を通る。const を外して渡しても、印で断る。
+    husky::engine::ArchiveValue change;
+    REQUIRE(husky::engine::JsonFormat::Read(R"({ "properties": { "damage": 99 } })", change));
+    const husky::engine::ObjectSerializer::ReadReport report =
+        husky::engine::ObjectSerializer::ReadProperties(change, const_cast<SwordData&>(*data));
+    CHECK(report.readCount == 0);
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].find("SwordData") != std::string::npos);
+    CHECK(data->damage == 7.0f);
+
+    // 印の無いオブジェクト(コードで作ったもの)には、今までどおり書ける。
+    SwordData* fresh = app.GetRegistry().Create<SwordData>();
+    REQUIRE(fresh != nullptr);
+    CHECK_FALSE(fresh->IsReadOnly());
+    CHECK(husky::engine::ObjectSerializer::ReadProperties(change, *fresh).warnings.empty());
+    CHECK(fresh->damage == 99.0f);
+}
+
+TEST_CASE("SD-2: 開発ビルドでは、生のポインタで書き換えた読むだけの中身を、読み込んだときの控えと比べて見つける")
+{
+    husky::tests::TestFolder folder("husky_test_sdata_snapshot");
+    WriteData(folder, "data/sword.sdata", R"({ "type": "SwordData", "properties": { "damage": 7, "length": 3 } })",
+              SwordGuid);
+
+    Application app;
+    RegisterTestTypes(app);
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    AssetLoader& loader = app.GetAssetLoader();
+    husky::core::AssetRef<SwordData> sword;
+    sword.guid = SwordGuid;
+    loader.Resolve(sword);
+    loader.WaitForAllLoads();
+    const SwordData* data = loader.Resolve(sword);
+    REQUIRE(data != nullptr);
+    CHECK(loader.CheckScriptableDataUnchanged() == 0); // まだ誰も書いていない
+
+    // const_cast で const を外して直接書く(やってはいけない書き方。印では止められない)。
+    SwordData& writable = const_cast<SwordData&>(*data);
+    writable.damage = 50.0f;
+    writable.length = 4;
+#if HUSKY_DEVELOPMENT
+    CHECK(loader.CheckScriptableDataUnchanged() == 2); // damage と length の2つ(名前つきのエラーがログに出る)
+    CHECK(loader.CheckScriptableDataUnchanged() == 0); // 同じ書き換えは2回出さない
+    writable.damage = 51.0f;
+    CHECK(loader.CheckScriptableDataUnchanged() == 1); // 新しい書き換えは、また見つける
+#else
+    CHECK(loader.CheckScriptableDataUnchanged() == 0); // 製品では比べない(控えも持たない)
+#endif
 }
