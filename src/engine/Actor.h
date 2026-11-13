@@ -37,6 +37,9 @@ namespace husky::engine
         // このアクターのコライダーが、ほかのアクターのコライダーと重なり始めた・離れたときに呼ばれる(COL-3)。
         // 同じイベントは、このアクターの全コンポーネントの Component::OnOverlap にも届く。シーンを更新している間だけ。
         virtual void OnOverlap(const OverlapEvent& event) { (void)event; }
+        // このアクターのコライダーが、物理でほかのコライダーとぶつかり始めた・離れたときに呼ばれる(PHY-3)。
+        // 同じイベントは、このアクターの全コンポーネントの Component::OnCollision にも届く。
+        virtual void OnCollision(const CollisionEvent& event) { (void)event; }
 
         // T 型のコンポーネントを作り、このアクターに取り付ける。メモリが足りなければ nullptr。
         // アクターをレジストリで作っていない場合も nullptr。

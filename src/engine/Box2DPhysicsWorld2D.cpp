@@ -414,6 +414,43 @@ namespace husky::engine
             if (dt > 0.0f)
             {
                 b2World_Step(m_world, dt, 4); // 4: 1 歩の中を細かく分ける回数(Box2D の推奨値)
+                CollectContactEvents();
+            }
+        }
+
+        void TakeContactEvents(std::vector<ContactEvent2D>& out) override
+        {
+            out.clear();
+            out.swap(m_contactEvents); // swap: 中身を入れ替える(コピーしない。空になった out の入れ物は世界が使い回す)
+        }
+
+        // Box2D の接触のイベントは、次の Step で消える。1 歩ごとに自前の形に写して貯める。
+        void CollectContactEvents()
+        {
+            const b2ContactEvents events = b2World_GetContactEvents(m_world);
+            for (int i = 0; i < events.beginCount; ++i)
+            {
+                const b2ContactBeginTouchEvent& begin = events.beginEvents[i];
+                ContactEvent2D event;
+                event.begin = true;
+                event.ownerA = OwnerOf(b2StoreShapeId(begin.shapeIdA));
+                event.ownerB = OwnerOf(b2StoreShapeId(begin.shapeIdB));
+                event.normal = {begin.manifold.normal.x, begin.manifold.normal.y}; // Box2D の向きも A → B
+                if (begin.manifold.pointCount > 0)
+                {
+                    event.point = {begin.manifold.points[0].point.x, begin.manifold.points[0].point.y};
+                }
+                m_contactEvents.push_back(event);
+            }
+            for (int i = 0; i < events.endCount; ++i)
+            {
+                const b2ContactEndTouchEvent& end = events.endEvents[i];
+                ContactEvent2D event;
+                event.begin = false;
+                // 形がもう消えていることがある(そのときは控えにも無いので、持ち主は null になる)
+                event.ownerA = OwnerOf(b2StoreShapeId(end.shapeIdA));
+                event.ownerB = OwnerOf(b2StoreShapeId(end.shapeIdB));
+                m_contactEvents.push_back(event);
             }
         }
 
@@ -493,6 +530,8 @@ namespace husky::engine
             shapeDef.density = desc.density;
             shapeDef.material.friction = desc.friction;
             shapeDef.material.restitution = desc.restitution;
+            shapeDef.isSensor = desc.isTrigger;    // トリガーはセンサー(押し合わない。重なりは自前の問い合わせで調べる)
+            shapeDef.enableContactEvents = true;   // 触れ始めた・離れたイベントを出す(PHY-3)
             if (desc.type == ShapeType2D::Circle)
             {
                 const b2Circle circle = MakeScaledCircle(desc, scale);
@@ -541,6 +580,8 @@ namespace husky::engine
         std::unordered_map<std::uint64_t, BodyEntry> m_bodies;   // 体のハンドル(id)→ 控え(AddBody で置いたものだけ)
         // 問い合わせの途中で使う入れ物(使い回して、毎回の確保を避ける)。問い合わせは const だが、中身を書き換えるので mutable
         mutable std::vector<b2ShapeId> m_found;
+        // 進めている間に貯まった接触のイベント(TakeContactEvents で外へ渡す)
+        std::vector<ContactEvent2D> m_contactEvents;
     };
 
     std::unique_ptr<PhysicsWorld2D> CreatePhysicsWorld2D()

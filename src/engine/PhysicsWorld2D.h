@@ -58,7 +58,7 @@ namespace husky::engine
         float radius = 16.0f;  // 円の半径(Circle のとき)
         core::Vector2 offset;  // 持ち主の位置からのずらし(持ち主と一緒に回り、拡大される)
         CollisionFilter filter;
-        bool isTrigger = false;   // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。PHY-3 で効かせる)
+        bool isTrigger = false;   // 重なりを知らせるだけで、物理では押し合わない(Box2D のセンサー。PHY-3)
         // 材質(物理で押し合うときに使う。Box2D の既定と同じ値)
         float density = 1.0f;     // 密度(重さ = 面積 × 密度。面積はワールドの単位で測る: 32 × 32 の四角なら 1024)
         float friction = 0.6f;    // 摩擦(0 でつるつる、1 くらいでざらざら)
@@ -122,6 +122,17 @@ namespace husky::engine
         bool fixedRotation = false;  // true なら回らない(ぶつかっても傾かない)
     };
 
+    // 物理で押し合う 2 つの形が触れ始めた・離れたこと(PHY-3)。トリガー(isTrigger)の形と、
+    // Dynamic を含まない組(kinematic どうし、static と kinematic)では起きない。
+    struct ContactEvent2D
+    {
+        bool begin = true;
+        core::ObjectHandle ownerA; // 形 A の持ち主(ShapeDesc2D::owner)。離れたとき、形がもう消えていれば null
+        core::ObjectHandle ownerB;
+        core::Vector2 normal;      // A から B へ向かう向き(長さ 1)。離れたときは 0
+        core::Vector2 point;       // 触れた点。離れたときは 0
+    };
+
     class PhysicsWorld2D
     {
     public:
@@ -174,7 +185,10 @@ namespace husky::engine
         virtual core::Vector2 GetGravity() const = 0;
 
         // 時間を dt 秒進める(Dynamic の体が動く)。決まった刻み(FixedStepper)で呼ぶ。
+        // 進めている間に形どうしが触れ始めた・離れたことは、世界の中に貯まる(TakeContactEvents で受け取る)。
         virtual void Step(float dt) = 0;
+        // 前に受け取ってから貯まった接触のイベントを out に移す(前の中身は消す。世界の中は空になる)(PHY-3)。
+        virtual void TakeContactEvents(std::vector<ContactEvent2D>& out) = 0;
 
         // 点 (x, y) に重なる形を out に入れる(前の中身は消す)。mask に当てはまるレイヤーの形だけ。
         virtual void OverlapPoint(float x, float y, std::uint32_t mask, std::vector<QueryHit2D>& out) const = 0;

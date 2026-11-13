@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/Object.h" // core::ObjectHandle
+#include "core/Vector2.h"
 
 #include <cstdint>
 
@@ -25,12 +26,27 @@ namespace husky::engine
     // 重なりの始まり・終わりのイベント(COL-3。2D と 3D で同じ形にする)。
     // 重なった2つのアクターの両方に、それぞれ自分の側から見た形で届く(Actor::OnOverlap と、そのアクターの全コンポーネントの
     // Component::OnOverlap)。相手はハンドルで渡す(生ポインタを外に出さない。CLAUDE.md「リフレクション」)。
-    // トリガーかどうかに関係なく届く(今は当たり判定だけなので、どれも「重なり」。物理を足したら、押し合うものの接触も別に知らせる)。
+    // 届くのは「どちらかがトリガー(isTrigger)」か「どちらも物理で動く体(Dynamic)ではない」組だけ(PHY-3)。
+    // 物理で押し合う組(どちらかが Dynamic で、どちらもトリガーでない)は、重なりではなく CollisionEvent で知らせる。
     struct OverlapEvent
     {
         bool begin = true;                // true: 重なり始めた、false: 離れた
         core::ObjectHandle selfCollider;  // 自分の側のコライダー(コンポーネント)
         core::ObjectHandle otherCollider; // 相手のコライダー
         core::ObjectHandle otherActor;    // 相手のアクター(相手が消えた後の「離れた」では、もう無いことがある)
+    };
+
+    // ぶつかり始めた・離れたイベント(PHY-3。Unity の OnCollisionEnter2D / Exit2D にあたる)。
+    // 物理で押し合う 2 つの形(どちらかが Dynamic の体で、どちらもトリガーでない)が触れ始めた・離れたときに、
+    // 両方のアクターに、それぞれ自分の側から見た形で届く(Actor::OnCollision と、全コンポーネントの Component::OnCollision)。
+    // 形を置き直したとき(大きさ・体の種類を変えた)は、いったん離れて、次の歩でまたぶつかる。
+    struct CollisionEvent
+    {
+        bool begin = true;                // true: ぶつかり始めた、false: 離れた
+        core::ObjectHandle selfCollider;  // 自分の側のコライダー
+        core::ObjectHandle otherCollider; // 相手のコライダー
+        core::ObjectHandle otherActor;    // 相手のアクター
+        core::Vector2 normal;             // 自分から相手へ向かう向き(長さ 1)。離れたときは 0
+        core::Vector2 point;              // 触れた点(ワールドの位置)。離れたときは 0
     };
 }

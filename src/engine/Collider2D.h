@@ -32,7 +32,7 @@ namespace husky::engine
         HUSKY_OBJECT(Collider2D, Component)
     public:
         core::Vector2 offset;              // アクターの位置からのずらし(アクターと一緒に回り、拡大される)
-        bool isTrigger = false;            // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。物理を足すときに効く)
+        bool isTrigger = false;            // 重なりを知らせるだけで、物理では押し合わない(PHY-3。物理で押し合う相手とも OnOverlap になる)
         std::int32_t layer = 0;            // 属するグループの番号(0〜31)
         std::int32_t collisionMask = -1;   // 当たる相手のグループの印(ビット。-1 = すべてのビットが 1 = すべてと当たる)
         // 材質(PHY-2b。Rigidbody2D の体に付いて物理で押し合うときに使う。後で材質のアセットにする余地を残す)

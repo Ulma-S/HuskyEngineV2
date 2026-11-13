@@ -6,8 +6,9 @@
 //      体の場所は、アクターが前に伝えた(書き戻した)場所から動いていたときだけ、瞬間移動として伝える。
 //   2. 世界を決まった刻み(1/60 秒)で、貯まった分だけ進める(PHY-1。Dynamic の体が動く)。
 //      進めたら、Dynamic の体の場所と回転をアクターの transform に書き戻す(Box2D → アクター。PHY-2)
-//   3. 重なりを調べ、前のフレームと比べて、重なり始めた・離れたイベントを作る
-//   4. イベントを届ける(Actor::OnOverlap と、そのアクターの全コンポーネントの Component::OnOverlap)
+//   3. 重なりを調べ、前のフレームと比べて、重なり始めた・離れたイベントを作る(物理で押し合う組は除く)。
+//      ぶつかり始めた・離れたイベント(PHY-3)は、進めたときの Box2D の接触のイベントから作る
+//   4. イベントを届ける(Actor::OnOverlap / OnCollision と、そのアクターの全コンポーネントの Component::OnOverlap / OnCollision)
 // 調べ終わってからまとめて届けるので、受け取った側が何かを消したり動かしたりしても、調べている途中の一覧は崩れない。
 // 順番はシーンの一覧の順(毎回同じ結果になる)。
 //
@@ -86,11 +87,15 @@ namespace husky::engine
             Pose2D pose;
             std::vector<Contact> contacts; // 前のフレームで重なっていた相手
             bool seen = false;             // このフレームの同期で、シーンの中に見つかったか
+            bool dynamic = false;          // Dynamic の体に付いているか(物理で押し合うか。重なりとぶつかりの分け方に使う)
         };
+
+        struct CollisionPair; // 下で定義する
 
         void Sync(Scene& scene);
         // アクターの Rigidbody2D に合わせて体を置く・置き直す・伝える。体が無ければ null を返す。
-        PhysicsBodyHandle2D SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose);
+        // dynamic には、体が Dynamic かを入れる(体が無ければ false)。
+        PhysicsBodyHandle2D SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose, bool& dynamic);
         // 体を世界から外す。付いていたコライダーの控えの形も「置いていない」にする(体と一緒に消えるため)。
         void RemoveBody(BodyEntry& entry);
         // Dynamic の体の場所と回転を、アクターの transform に書き戻す。
@@ -98,6 +103,11 @@ namespace husky::engine
         // コライダーのハンドルの控えを探す。無ければ(置いていない、同じ場所の別の代)nullptr。
         Entry* FindEntry(core::ObjectHandle collider);
         void DetectOverlaps();
+        // 世界の接触のイベントを、ぶつかっている組とイベントにする(PHY-3)。
+        void ProcessContactEvents();
+        // collider を含む組を外し、両方に「離れた」を積む(コライダーが消えた・置き直したとき)。
+        void DropCollisionPairs(core::ObjectHandle collider);
+        void PushCollision(bool begin, const CollisionPair& pair, const core::Vector2& normal, const core::Vector2& point);
         void Deliver(Scene& scene);
 
         std::unique_ptr<PhysicsWorld2D> m_world;
@@ -118,5 +128,22 @@ namespace husky::engine
         std::vector<QueryHit2D> m_hits;
         std::vector<Contact> m_current;
         std::vector<OverlapEvent> m_events;
+        // ぶつかっている組(PHY-3。Box2D の「離れた」は、形が消えた後だと持ち主が分からないので、組は自分で覚えて片付ける)
+        struct CollisionPair
+        {
+            core::ObjectHandle colliderA;
+            core::ObjectHandle colliderB;
+            core::ObjectHandle actorA;
+            core::ObjectHandle actorB;
+        };
+        // 届けるぶつかりのイベント 1 つ(届け先のアクターも覚える)
+        struct PendingCollision
+        {
+            core::ObjectHandle selfActor;
+            CollisionEvent event;
+        };
+        std::vector<CollisionPair> m_collisionPairs;
+        std::vector<ContactEvent2D> m_contactEvents;
+        std::vector<PendingCollision> m_collisionEvents;
     };
 }

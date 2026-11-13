@@ -267,3 +267,109 @@ TEST_CASE("PHY-2b: 跳ね返り(restitution)が 1 なら、床で同じくらい
     Steps(app, 30);
     CHECK(body->GetLinearVelocity().y > 250.0f); // 上向きに跳ね返った
 }
+
+namespace
+{
+    // 届いたぶつかり・重なりのイベントを覚えるアクター(PHY-3)。
+    class ContactRecorder : public Actor
+    {
+        HUSKY_OBJECT(ContactRecorder, Actor)
+    public:
+        void OnCollision(const husky::engine::CollisionEvent& event) override { collisions.push_back(event); }
+        void OnOverlap(const husky::engine::OverlapEvent& event) override { overlaps.push_back(event); }
+        std::vector<husky::engine::CollisionEvent> collisions;
+        std::vector<husky::engine::OverlapEvent> overlaps;
+    };
+
+    // ぶつかりのイベントの数を数えるコンポーネント(コンポーネントにも届くことを確かめる)。
+    class CollisionCounter : public husky::engine::Component
+    {
+        HUSKY_OBJECT(CollisionCounter, husky::engine::Component)
+    public:
+        void OnCollision(const husky::engine::CollisionEvent& event) override { event.begin ? ++begins : ++ends; }
+        int begins = 0;
+        int ends = 0;
+    };
+
+    ContactRecorder* SpawnRecorder(Application& app, float x, float y, BodyType2D type)
+    {
+        ContactRecorder* actor = app.GetScene().Spawn<ContactRecorder>();
+        actor->transform.position = {x, y, 0.0f};
+        actor->AddComponent<Rigidbody2D>()->bodyType = type;
+        actor->AddComponent<BoxCollider2D>();
+        return actor;
+    }
+}
+
+TEST_CASE("PHY-3: Dynamic が床に落ちると、両方に begin(向きは自分から相手へ)。重なりのイベントは届かない。離すと end")
+{
+    Application app;
+    SetupApp(app, -1000.0f);
+    ContactRecorder* floor = SpawnRecorder(app, 0.0f, -100.0f, BodyType2D::Static);
+    floor->GetComponent<BoxCollider2D>()->size = {400.0f, 32.0f};
+    ContactRecorder* box = SpawnRecorder(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    CollisionCounter* counter = box->AddComponent<CollisionCounter>();
+    Steps(app, 60);
+    REQUIRE(box->collisions.size() == 1);
+    CHECK(box->collisions[0].begin);
+    CHECK(box->collisions[0].otherActor == floor->GetHandle());
+    CHECK(box->collisions[0].selfCollider == box->GetComponent<BoxCollider2D>()->GetHandle());
+    CHECK(box->collisions[0].normal.y == doctest::Approx(-1.0f)); // 箱から床へ = 下向き
+    REQUIRE(floor->collisions.size() == 1);
+    CHECK(floor->collisions[0].otherActor == box->GetHandle());
+    CHECK(floor->collisions[0].normal.y == doctest::Approx(1.0f)); // 床から箱へ = 上向き
+    CHECK(counter->begins == 1);
+    CHECK(box->overlaps.empty()); // 押し合う組は、重なりでは知らせない
+    CHECK(floor->overlaps.empty());
+
+    // 上へ瞬間移動させると離れる
+    box->transform.position.y = 300.0f;
+    Steps(app, 2);
+    REQUIRE(box->collisions.size() == 2);
+    CHECK_FALSE(box->collisions[1].begin);
+    REQUIRE(floor->collisions.size() == 2);
+    CHECK_FALSE(floor->collisions[1].begin);
+    CHECK(counter->ends == 1);
+}
+
+TEST_CASE("PHY-3: トリガー(isTrigger)は押し合わず、すり抜けて重なりのイベントだけが届く")
+{
+    Application app;
+    SetupApp(app, -1000.0f);
+    ContactRecorder* floor = SpawnRecorder(app, 0.0f, -100.0f, BodyType2D::Static);
+    floor->GetComponent<BoxCollider2D>()->size = {400.0f, 32.0f};
+    floor->GetComponent<BoxCollider2D>()->isTrigger = true;
+    ContactRecorder* box = SpawnRecorder(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    Steps(app, 60);
+    CHECK(box->transform.position.y < -200.0f); // 床で止まらずに落ちた
+    CHECK(box->collisions.empty());
+    CHECK(floor->collisions.empty());
+    // 通り過ぎる間に、重なり始めて離れた
+    REQUIRE(box->overlaps.size() == 2);
+    CHECK(box->overlaps[0].begin);
+    CHECK_FALSE(box->overlaps[1].begin);
+}
+
+TEST_CASE("PHY-3: ぶつかっている相手が消えると end が届く。体の種類を変えると、いったん離れてまたぶつかる")
+{
+    Application app;
+    SetupApp(app, -1000.0f);
+    ContactRecorder* floor = SpawnRecorder(app, 0.0f, -100.0f, BodyType2D::Static);
+    floor->GetComponent<BoxCollider2D>()->size = {400.0f, 32.0f};
+    ContactRecorder* box = SpawnRecorder(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    Steps(app, 60);
+    REQUIRE(box->collisions.size() == 1);
+
+    floor->GetComponent<Rigidbody2D>()->bodyType = BodyType2D::Kinematic; // 床の体を置き直す
+    Steps(app, 2);
+    REQUIRE(box->collisions.size() == 3);
+    CHECK_FALSE(box->collisions[1].begin);
+    CHECK(box->collisions[2].begin);
+
+    const husky::core::ObjectHandle floorHandle = floor->GetHandle(); // 消えた後はポインタを触れないので、先に控える
+    floor->Destroy();
+    Steps(app, 2); // 1 フレーム目の終わりに消え、2 フレーム目の同期で世界から外れて end
+    REQUIRE(box->collisions.size() == 4);
+    CHECK_FALSE(box->collisions[3].begin);
+    CHECK(box->collisions[3].otherActor == floorHandle);
+}

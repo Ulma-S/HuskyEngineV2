@@ -47,6 +47,7 @@ namespace husky::engine
         HUSKY_PROFILE_SCOPE("Physics2D"); // 全体(下の区間を含む)
         // このフレームに進める歩数を先に決める(Kinematic を動かす速さに使う)
         m_pendingSteps = m_stepper.Advance(dt);
+        m_collisionEvents.clear(); // 同期(コライダーが消えた・置き直した)と進めたときに積む
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Sync");
             Sync(scene);
@@ -62,6 +63,7 @@ namespace husky::engine
             if (m_lastStepCount > 0)
             {
                 WriteBackBodies(scene); // 物理が動かした分を、アクターへ戻す
+                ProcessContactEvents(); // ぶつかり始めた・離れた
             }
         }
         {
@@ -98,7 +100,8 @@ namespace husky::engine
         scene.ForEachActor([&](Actor& actor) {
             const Pose2D pose = MakePose2D(actor.transform);
             // Rigidbody2D があれば先に体を置く。コライダーはその体に付ける(無ければ null で、形だけの体に置く)
-            const PhysicsBodyHandle2D body = SyncBody(actor, *registry, pose);
+            bool dynamic = false;
+            const PhysicsBodyHandle2D body = SyncBody(actor, *registry, pose, dynamic);
             for (const core::ObjectHandle handle : actor.components)
             {
                 const Collider2D* collider = registry->Resolve<Collider2D>(handle);
@@ -125,6 +128,10 @@ namespace husky::engine
                     {
                         m_world->RemoveShape(entry.shape);
                     }
+                    if (!entry.collider.IsNull())
+                    {
+                        DropCollisionPairs(entry.collider); // 前の代がぶつかっていた相手に「離れた」
+                    }
                     entry.collider = handle;
                     entry.contacts.clear();
                     place(); // 新しいコライダー: 置く
@@ -132,11 +139,13 @@ namespace husky::engine
                 else if (entry.body != body || !SameShape(entry.desc, desc))
                 {
                     // 付ける体が変わった(Rigidbody2D を足した・外した・体を置き直した)か、大きさなどが変わった: 置き直す。
-                    // 重なっている相手(contacts)は残すので、置き直しただけで「離れた・重なった」は届かない
+                    // 重なっている相手(contacts)は残すので、置き直しただけで「離れた・重なった」は届かない。
+                    // ぶつかりは Box2D が新しい形で調べ直すので、いったん「離れた」を届ける(次の歩でまたぶつかる)
                     if (!entry.shape.IsNull())
                     {
                         m_world->RemoveShape(entry.shape);
                     }
+                    DropCollisionPairs(handle);
                     place();
                 }
                 else if (body.IsNull() && !SamePose(entry.pose, pose))
@@ -147,6 +156,7 @@ namespace husky::engine
                 entry.desc = desc;
                 entry.pose = pose;
                 entry.seen = true;
+                entry.dynamic = dynamic;
                 m_order.push_back(handle.index);
             }
         });
@@ -161,6 +171,7 @@ namespace husky::engine
                 {
                     m_world->RemoveShape(entry.shape);
                 }
+                DropCollisionPairs(entry.collider); // ぶつかっていた相手に「離れた」(Box2D の「離れた」では持ち主が分からない)
                 entry.collider = core::ObjectHandle{};
                 entry.actor = core::ObjectHandle{};
                 entry.shape = PhysicsShapeHandle2D{};
@@ -181,7 +192,8 @@ namespace husky::engine
         }
     }
 
-    PhysicsBodyHandle2D PhysicsScene2D::SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose)
+    PhysicsBodyHandle2D PhysicsScene2D::SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose,
+                                                 bool& dynamic)
     {
         // 最初の Rigidbody2D を探す(2 つ目からは使わない)
         Rigidbody2D* rigidbody = nullptr;
@@ -261,6 +273,7 @@ namespace husky::engine
         entry.actor = actor.GetHandle();
         entry.desc = desc;
         entry.seen = true;
+        dynamic = desc.type == BodyType2D::Dynamic;
         m_bodyOrder.push_back(handle.index);
         return entry.body;
     }
@@ -372,6 +385,10 @@ namespace husky::engine
                 {
                     continue; // 相手は自分のグループと当たらない(お互いに選んでいるときだけ当たる)
                 }
+                if (!entry.desc.isTrigger && !other->desc.isTrigger && (entry.dynamic || other->dynamic))
+                {
+                    continue; // 物理で押し合う組: 重なりではなく、ぶつかり(OnCollision)で知らせる
+                }
                 m_current.push_back(Contact{hit.owner, other->actor});
             }
 
@@ -404,6 +421,78 @@ namespace husky::engine
         }
     }
 
+    void PhysicsScene2D::ProcessContactEvents()
+    {
+        m_world->TakeContactEvents(m_contactEvents);
+        for (const ContactEvent2D& contact : m_contactEvents)
+        {
+            // 「離れた」で持ち主が分からないもの(形が消えた後)は、同期の DropCollisionPairs ですでに届けている
+            const Entry* a = FindEntry(contact.ownerA);
+            const Entry* b = FindEntry(contact.ownerB);
+            if (a == nullptr || b == nullptr || a->actor == b->actor)
+            {
+                continue; // 知らない形、同じアクターの形どうし(同じ体に付いた形はぶつからないが、念のため)
+            }
+            // 組を探す(向きは問わない)
+            std::size_t found = m_collisionPairs.size();
+            for (std::size_t i = 0; i < m_collisionPairs.size(); ++i)
+            {
+                const CollisionPair& pair = m_collisionPairs[i];
+                if ((pair.colliderA == a->collider && pair.colliderB == b->collider) ||
+                    (pair.colliderA == b->collider && pair.colliderB == a->collider))
+                {
+                    found = i;
+                    break;
+                }
+            }
+            if (contact.begin)
+            {
+                if (found == m_collisionPairs.size())
+                {
+                    m_collisionPairs.push_back(CollisionPair{a->collider, b->collider, a->actor, b->actor});
+                    PushCollision(true, m_collisionPairs.back(), contact.normal, contact.point);
+                }
+            }
+            else if (found != m_collisionPairs.size())
+            {
+                const CollisionPair pair = m_collisionPairs[found];
+                m_collisionPairs.erase(m_collisionPairs.begin() + static_cast<std::ptrdiff_t>(found));
+                PushCollision(false, pair, core::Vector2{}, core::Vector2{});
+            }
+        }
+    }
+
+    void PhysicsScene2D::DropCollisionPairs(core::ObjectHandle collider)
+    {
+        for (std::size_t i = 0; i < m_collisionPairs.size();)
+        {
+            const CollisionPair pair = m_collisionPairs[i];
+            if (pair.colliderA == collider || pair.colliderB == collider)
+            {
+                m_collisionPairs.erase(m_collisionPairs.begin() + static_cast<std::ptrdiff_t>(i));
+                PushCollision(false, pair, core::Vector2{}, core::Vector2{});
+            }
+            else
+            {
+                ++i;
+            }
+        }
+    }
+
+    void PhysicsScene2D::PushCollision(bool begin, const CollisionPair& pair, const core::Vector2& normal,
+                                       const core::Vector2& point)
+    {
+        // 両方に、自分の側から見た形で積む(B から見た向きは逆)
+        PendingCollision forA;
+        forA.selfActor = pair.actorA;
+        forA.event = CollisionEvent{begin, pair.colliderA, pair.colliderB, pair.actorB, normal, point};
+        PendingCollision forB;
+        forB.selfActor = pair.actorB;
+        forB.event = CollisionEvent{begin, pair.colliderB, pair.colliderA, pair.actorA, {-normal.x, -normal.y}, point};
+        m_collisionEvents.push_back(forA);
+        m_collisionEvents.push_back(forB);
+    }
+
     void PhysicsScene2D::Deliver(Scene& scene)
     {
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
@@ -427,6 +516,24 @@ namespace husky::engine
                 if (component != nullptr && !component->IsPendingDestroy())
                 {
                     component->OnOverlap(event);
+                }
+            }
+        }
+        // ぶつかりのイベント(PHY-3)。届け先のアクターは、積んだときに覚えたもの(コライダーが消えた後の「離れた」でも届く)
+        for (const PendingCollision& pending : m_collisionEvents)
+        {
+            Actor* actor = registry->Resolve<Actor>(pending.selfActor);
+            if (actor == nullptr || actor->IsPendingDestroy())
+            {
+                continue;
+            }
+            actor->OnCollision(pending.event);
+            for (std::size_t i = 0; i < actor->components.size(); ++i)
+            {
+                Component* component = registry->Resolve<Component>(actor->components[i]);
+                if (component != nullptr && !component->IsPendingDestroy())
+                {
+                    component->OnCollision(pending.event);
                 }
             }
         }
