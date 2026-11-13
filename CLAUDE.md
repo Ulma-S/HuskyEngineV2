@@ -38,7 +38,8 @@
   - インスペクタ(`tools/Inspector`)は、リフレクション(`TypeInfo`と`Property`)から自動で画面を作る。新しい型やプロパティを足しても、画面のコードは要らない。
     - 型だけでは分からない見せ方(整数のIDを名前の一覧から選ばせるなど)が要るプロパティは、`tools::RegisterPropertyDrawer`で表示を差し替える(例: `SpriteComponent::sprite`は、スプライトシートの切り出しの名前から選ぶ)。
     - プレハブから置いたアクターは、上に「Prefab: パス (N overrides)」と Revert all / Apply all のボタン(`prefab.revert` / `prefab.apply`を名前で呼ぶ)を出し、プレハブと違う値(か、中に違いのある構造体)の左に青い線を引く(PF-5c)。違いの一覧(`Prefab::FindOverrides`)は、選び直したときと30フレームごとにだけ作り直す。道筋は決まった大きさの文字の並びに積む(毎フレームの確保を避ける)。
-- 当たり判定と物理: Box2D(v3、FetchContent。2026-11-13にユーザーが了承)。切り離せる形にする: Box2D の型と関数は中身の .cpp の中だけ(PRIVATE でリンク)、エンジンとゲームは自前の型とインターフェース(`PhysicsWorld2D`)だけを使う。確保は`MemoryTracker`に通す。2D と 3D は無理に合わせず、レイヤー・結果・イベントの形だけを共有する。最初の形は四角と円。詳しくは設計メモ「当たり判定と物理」。
+- 当たり判定と物理: Box2D(v3、FetchContent。2026-11-13にユーザーが了承)。切り離せる形にする: Box2D の型と関数は中身の .cpp の中だけ(PRIVATE でリンク)、エンジンとゲームは自前の型とインターフェース(`PhysicsWorld2D`)だけを使う。確保は`MemoryTracker`に通す。2D と 3D は無理に合わせず、レイヤー・結果・イベントの形だけを共有する(`engine/PhysicsTypes.h`の`CollisionFilter`)。最初の形は四角と円。詳しくは設計メモ「当たり判定と物理」。
+  - `engine::PhysicsWorld2D`(COL-2。`engine/PhysicsWorld2D.h`、自前の型だけ): `CreatePhysicsWorld2D()`が中身(`engine/Box2DPhysicsWorld2D.cpp`)を作る。`AddShape`(`ShapeDesc2D`: Box か Circle、幅・高さ・半径・offset・filter・isTrigger・owner)/ `SetPose`(`Pose2D`、`MakePose2D(transform)`)/ `RemoveShape`、`Step`、問い合わせ`OverlapPoint` / `OverlapShape` / `Raycast`(結果は形のハンドルと持ち主の`ObjectHandle`)。今は当たり判定だけ: どの形も kinematic の体に1つずつ、isTrigger は覚えるだけ。Box2D は 1 メートル = 100 単位(`b2SetLengthUnitsPerMeter`)。拡大縮小が変わったら形を作り直す。
 - 依存ライブラリを追加するときは、先にユーザーへ相談する。
 
 ## モジュール構成と依存方向
