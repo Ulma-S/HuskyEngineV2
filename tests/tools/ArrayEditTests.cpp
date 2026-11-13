@@ -4,6 +4,7 @@
 #include "tools/Inspector.h"
 #include "tools/PropertyEditRecorder.h"
 
+#include "core/EnumReflection.h"
 #include "core/ObjectRef.h"
 #include "engine/Actor.h"
 #include "engine/JsonFormat.h"
@@ -166,5 +167,55 @@ TEST_CASE("SF-2b: インスペクタは配列を開いて要素を並べても�
     CHECK_FALSE(changed);
     CHECK(patrol->speeds == std::vector<float>{1.0f, 2.0f});
     CHECK(patrol->flags == std::vector<bool>{true, false});
+}
+namespace
+{
+    enum class Mood
+    {
+        Calm,
+        Angry,
+    };
+    HUSKY_ENUM_BEGIN(Mood)
+        HUSKY_ENUM_VALUE(Calm)
+        HUSKY_ENUM_VALUE(Angry)
+    HUSKY_ENUM_END()
+
+    class Guard : public Actor
+    {
+        HUSKY_OBJECT(Guard, Actor)
+    public:
+        Mood mood = Mood::Calm;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(mood)
+        HUSKY_REFLECTION_END()
+    };
+}
+
+TEST_CASE("SF-3b: property.set は enum を値の名前で書き換え、Undo で戻る。インスペクタは選択肢で描く")
+{
+    Application app;
+    Guard* guard = app.GetScene().Spawn<Guard>();
+    guard->name = "Guard";
+    EditorCommandRegistry commands;
+    RegisterCommands(commands);
+
+    ArchiveValue args;
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Guard", "property": "mood", "value": "Angry"})", args));
+    REQUIRE(commands.Execute("property.set", app, args).succeeded);
+    CHECK(guard->mood == Mood::Angry);
+    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Guard", "property": "mood", "value": "Sleepy"})", args));
+    CHECK_FALSE(commands.Execute("property.set", app, args).succeeded); // 知らない名前
+    REQUIRE(commands.Execute("editor.undo", app, ArchiveValue()).succeeded);
+    CHECK(guard->mood == Mood::Calm);
+
+    husky::tests::HeadlessImGui imgui;
+    bool changed = true;
+    imgui.Frame([&] {
+        ImGui::Begin("Test");
+        changed = husky::tools::DrawProperties(guard->GetType(), guard, app.GetRegistry());
+        ImGui::End();
+    });
+    CHECK_FALSE(changed);
 }
 #endif

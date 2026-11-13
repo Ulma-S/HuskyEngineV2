@@ -50,6 +50,14 @@ namespace husky::engine::ObjectSerializer
                 return ArchiveValue(*property.GetValuePtrAt<std::int64_t>(container));
             case PropertyType::Double:
                 return ArchiveValue(*property.GetValuePtrAt<double>(container)); // double はそのまま(精度の印は付かない)
+            case PropertyType::Enum:
+            {
+                // enum(SF-3b): 値の名前で書く。登録していない値なら、数で書く(失わないように)。
+                const core::EnumInfo& info = *property.GetEnumInfo();
+                const std::int64_t number = info.get(property.GetEnumAddressAt(container));
+                const char* name = info.FindName(number);
+                return name != nullptr ? ArchiveValue(name) : ArchiveValue(number);
+            }
             case PropertyType::String:
                 return ArchiveValue(*property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
@@ -208,6 +216,28 @@ namespace husky::engine::ObjectSerializer
                 }
                 *property.GetValuePtrAt<double>(container) = value.AsFloat();
                 return {};
+            case PropertyType::Enum:
+            {
+                // enum(SF-3b): 値の名前を読む。数で書かれていても、登録した値なら読む。それ以外は書き込まずに理由を返す。
+                const core::EnumInfo& info = *property.GetEnumInfo();
+                void* address = property.GetEnumAddressAt(container);
+                if (value.GetType() == ArchiveValue::Type::String)
+                {
+                    const core::EnumInfo::Entry* entry = info.FindByName(value.AsString());
+                    if (entry == nullptr)
+                    {
+                        return std::string(info.name) + " に " + value.AsString() + " という値がありません";
+                    }
+                    info.set(address, entry->value);
+                    return {};
+                }
+                if (value.GetType() == ArchiveValue::Type::Int && info.FindName(value.AsInt()) != nullptr)
+                {
+                    info.set(address, value.AsInt());
+                    return {};
+                }
+                return std::string(info.name) + " の値の名前ではありません";
+            }
             case PropertyType::String:
                 if (value.GetType() != ArchiveValue::Type::String)
                 {

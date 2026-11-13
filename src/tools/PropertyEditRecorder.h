@@ -95,6 +95,7 @@ namespace husky::tools
             Float,
             Int64,
             Double,
+            Enum, // enum(数として控える。int64Value を使う)
             String,
             Color,    // render::Color(色の部品で、4つの値を一度に変える)
             AssetRef, // アセットの参照

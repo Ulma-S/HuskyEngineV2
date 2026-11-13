@@ -319,6 +319,34 @@ namespace husky::tools
                 return ImGui::DragScalar(name, ImGuiDataType_S64, property.GetValuePtrAt<std::int64_t>(container));
             case PropertyType::Double:
                 return ImGui::DragScalar(name, ImGuiDataType_Double, property.GetValuePtrAt<double>(container), 0.5f);
+            case PropertyType::Enum:
+            {
+                // enum(SF-3b): 値の名前の選択肢から選ぶ(登録していない値なら、数を見出しに出す)
+                const core::EnumInfo& info = *property.GetEnumInfo();
+                void* address = property.GetEnumAddressAt(container);
+                const std::int64_t current = info.get(address);
+                const char* currentName = info.FindName(current);
+                char numberText[24]; // 決まった大きさの文字の並び(毎フレームの確保を避ける)
+                if (currentName == nullptr)
+                {
+                    std::snprintf(numberText, sizeof(numberText), "%lld", static_cast<long long>(current));
+                    currentName = numberText;
+                }
+                bool changed = false;
+                if (ImGui::BeginCombo(name, currentName))
+                {
+                    for (const core::EnumInfo::Entry& entry : info.entries)
+                    {
+                        if (ImGui::Selectable(entry.name, entry.value == current) && entry.value != current)
+                        {
+                            info.set(address, entry.value);
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                return changed;
+            }
             case PropertyType::String:
                 return ImGui::InputText(name, property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "core/AssetRef.h"
+#include "core/EnumReflection.h"
 #include "core/ObjectRef.h"
 #include "core/Guid.h"
 #include "core/Handle.h"
@@ -34,6 +35,7 @@ namespace husky::core
         Array,             // std::vector<E>(E は配列以外のプロパティにできる型。中身は ArrayInfo。SF-2)
         Int64,             // std::int64_t(SF-3a。JSON の整数はもともと 64 ビットで保存できる)
         Double,            // double(SF-3a。float より細かい小数)
+        Enum,              // HUSKY_ENUM_BEGIN で登録した enum(SF-3b。保存は値の名前。中身は EnumInfo。EnumReflection.h)
     };
 
     class Property;
@@ -155,6 +157,10 @@ namespace husky::core
             // ほかの型の配列(SF-2)。要素の型が使えるかは、ArrayInfoOf の中で確かめる。
             return PropertyType::Array;
         }
+        else if constexpr (IsReflectedEnum<T>::value)
+        {
+            return PropertyType::Enum;
+        }
         else if constexpr (IsReflectedStruct<T>::value)
         {
             return PropertyType::Struct;
@@ -189,17 +195,21 @@ namespace husky::core
         // detailType: type が Struct ならその構造体の型情報、AssetRef ならアセットの型の型情報(それ以外は nullptr)。
         // arrayInfo: type が Array のとき、配列の中身の扱い方(ArrayInfoOf)。それ以外は nullptr。
         Property(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr,
-                 const ArrayInfo* arrayInfo = nullptr)
+                 const ArrayInfo* arrayInfo = nullptr, const EnumInfo* enumInfo = nullptr)
             : m_name(name)
             , m_type(type)
             , m_offset(offset)
             , m_detailType(detailType)
             , m_arrayInfo(arrayInfo)
+            , m_enumInfo(enumInfo)
         {
         }
 
         // type が Array のとき、配列の中身の扱い方(要素の型と、大きさ・要素の場所を扱う関数)。それ以外は nullptr。
         const ArrayInfo* GetArrayInfo() const { return m_arrayInfo; }
+
+        // type が Enum のとき、値と名前の表(EnumInfo)。それ以外は nullptr。
+        const EnumInfo* GetEnumInfo() const { return m_enumInfo; }
 
         const char* GetName() const { return m_name; }
         PropertyType GetType() const { return m_type; }
@@ -293,6 +303,18 @@ namespace husky::core
             return m_type == PropertyType::Struct ? static_cast<const unsigned char*>(container) + m_offset : nullptr;
         }
 
+        // enum のプロパティのとき、その enum のアドレスを返す。値は GetEnumInfo の get / set で数として読み書きする
+        // (enum の大きさは型ごとに違うので、型を知らない側は直接触らない)。enum でなければ nullptr。
+        void* GetEnumAddressAt(void* container) const
+        {
+            return m_type == PropertyType::Enum ? static_cast<unsigned char*>(container) + m_offset : nullptr;
+        }
+
+        const void* GetEnumAddressAt(const void* container) const
+        {
+            return m_type == PropertyType::Enum ? static_cast<const unsigned char*>(container) + m_offset : nullptr;
+        }
+
         // 配列のプロパティのとき、その配列(std::vector)のアドレスを返す。中身は GetArrayInfo の関数で扱う。
         // 配列でなければ nullptr。
         void* GetArrayAddressAt(void* container) const
@@ -323,7 +345,7 @@ namespace husky::core
             {
                 // AssetRef<TextureAsset> を AssetRef<SoundAsset> として読むような取り違えを防ぐ。
                 // 配列なら、同じ要素の型の配列か(ArrayInfoOf は要素の型ごとに1つなので、ポインタで比べられる)。
-                return DetailTypeOf<T>() == m_detailType && ArrayInfoOf<T>() == m_arrayInfo;
+                return DetailTypeOf<T>() == m_detailType && ArrayInfoOf<T>() == m_arrayInfo && EnumInfoOf<T>() == m_enumInfo;
             }
         }
 
@@ -332,6 +354,7 @@ namespace husky::core
         std::size_t m_offset;
         const TypeInfo* m_detailType; // 構造体の型か、アセットの型(GetStructType / GetAssetType)
         const ArrayInfo* m_arrayInfo; // 配列の中身の扱い方(GetArrayInfo。配列でなければ nullptr)
+        const EnumInfo* m_enumInfo;   // enum の値と名前の表(GetEnumInfo。enum でなければ nullptr)
     };
 
     // 配列のプロパティ(std::vector<E>)の中身の扱い方(SF-2)。要素の型ごとに1つだけ作られる(ArrayInfoOf)。
@@ -400,7 +423,7 @@ namespace husky::core
             else
             {
                 static const ArrayInfo info{
-                    Property("##element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
+                    Property("##element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>(), EnumInfoOf<E>()),
                     size,
                     resize,
                     [](void* array, std::size_t index) -> void* { return &(*static_cast<T*>(array))[index]; },

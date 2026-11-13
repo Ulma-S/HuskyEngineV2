@@ -460,6 +460,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
         tests/engine/ArrayPropertyTests.cpp
+        tests/engine/EnumPropertyTests.cpp
         tests/engine/NumberPropertyTests.cpp
         tests/engine/ObjectRefTests.cpp
         tests/engine/PrefabTests.cpp

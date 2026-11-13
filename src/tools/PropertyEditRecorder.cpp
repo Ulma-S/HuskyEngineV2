@@ -67,6 +67,7 @@ namespace husky::tools
         case core::PropertyType::Float: return Kind::Float;
         case core::PropertyType::Int64: return Kind::Int64;
         case core::PropertyType::Double: return Kind::Double;
+        case core::PropertyType::Enum: return Kind::Enum;
         case core::PropertyType::String: return Kind::String;
         case core::PropertyType::AssetRef: return Kind::AssetRef;
         case core::PropertyType::Struct:
@@ -87,6 +88,7 @@ namespace husky::tools
         case Kind::Float: out.floatValue = *property.GetValuePtrAt<float>(container); break;
         case Kind::Int64: out.int64Value = *property.GetValuePtrAt<std::int64_t>(container); break;
         case Kind::Double: out.doubleValue = *property.GetValuePtrAt<double>(container); break;
+        case Kind::Enum: out.int64Value = property.GetEnumInfo()->get(property.GetEnumAddressAt(container)); break;
         // assign: 入れ物の容量を残したまま中身を入れ替える(短くなっても縮まないので、温まった後は確保しない)。
         case Kind::String: out.text.assign(*property.GetValuePtrAt<std::string>(container)); break;
         case Kind::Color: out.color = *static_cast<render::Color*>(property.GetStructAddressAt(container)); break;
@@ -104,6 +106,7 @@ namespace husky::tools
         case Kind::Float: *property.GetValuePtrAt<float>(container) = snapshot.floatValue; break;
         case Kind::Int64: *property.GetValuePtrAt<std::int64_t>(container) = snapshot.int64Value; break;
         case Kind::Double: *property.GetValuePtrAt<double>(container) = snapshot.doubleValue; break;
+        case Kind::Enum: property.GetEnumInfo()->set(property.GetEnumAddressAt(container), snapshot.int64Value); break;
         case Kind::String: property.GetValuePtrAt<std::string>(container)->assign(snapshot.text); break;
         case Kind::Color: *static_cast<render::Color*>(property.GetStructAddressAt(container)) = snapshot.color; break;
         case Kind::AssetRef: *property.GetValuePtrAt<core::AssetReference>(container) = snapshot.assetRef; break;

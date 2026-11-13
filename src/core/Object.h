@@ -85,7 +85,8 @@ public:                                                                         
                      ::husky::core::PropertyTypeOf<decltype(ThisType::member)>(),                \
                      offsetof(ThisType, member),                                                 \
                      ::husky::core::DetailTypeOf<decltype(ThisType::member)>(),                  \
-                     ::husky::core::ArrayInfoOf<decltype(ThisType::member)>());
+                     ::husky::core::ArrayInfoOf<decltype(ThisType::member)>(),                   \
+                     ::husky::core::EnumInfoOf<decltype(ThisType::member)>());
 
 // メンバー関数1つをメソッドとして登録する。
 //   &ThisType::method: メンバー関数のアドレス。同じ名前の関数が複数ある(オーバーロード)と、

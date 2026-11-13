@@ -648,6 +648,7 @@ namespace husky::tools
             case core::PropertyType::Float:
             case core::PropertyType::Int64:
             case core::PropertyType::Double:
+            case core::PropertyType::Enum: // 値の名前の文字列(数でも、登録した値なら)
             case core::PropertyType::String:
             case core::PropertyType::Struct: // 構造体は {"x": 1} のような形で、書いた値だけを書き換える
             case core::PropertyType::AssetRef: // GUID の文字列か、null(何も指さない)
