@@ -4,6 +4,7 @@
 
 #include "core/AssetRef.h"
 #include "engine/Actor.h"
+#include "engine/SoundAsset.h"
 #include "game/BouncerSettings.h"
 #include "render/RenderDevice.h" // render::Color
 
@@ -35,6 +36,8 @@ namespace husky::game
         float vy = 0.0f;
         // 全員で共有する設定(SD-4。プレハブで指すので、置いたもの1体ずつの違いとしては保存されない)。触れたときの色を読む。
         core::AssetRef<BouncerSettings> settings;
+        // プレイヤーに触れ始めたときに鳴らす音(AUD-4。プレハブで指すので、1体ずつの違いとしては保存されない)。
+        core::AssetRef<engine::SoundAsset> touchSound;
         // 今、触れているプレイヤーの数(0 なら元の色)。元の色は savedColor に控える。
         // どちらも再生中だけの状態なので、プロパティにしない(保存しない。アニメーションの経った時間と同じ考え方)
         std::int32_t touching = 0;
@@ -54,6 +57,7 @@ namespace husky::game
             HUSKY_PROPERTY(vx)
             HUSKY_PROPERTY(vy)
             HUSKY_PROPERTY(settings)
+            HUSKY_PROPERTY(touchSound)
         HUSKY_REFLECTION_END()
     };
 

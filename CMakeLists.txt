@@ -276,6 +276,7 @@ add_library(husky_engine STATIC
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
     src/engine/Collider2D.cpp
+    src/engine/AudioSourceComponent.cpp
     src/engine/Rigidbody2D.cpp
     src/engine/PhysicsScene2D.cpp
     src/engine/FixedStepper.cpp
@@ -520,6 +521,7 @@ if(HUSKY_BUILD_TESTS)
         tests/audio/AudioDeviceTests.cpp
         tests/audio/WavFileTests.cpp
         tests/engine/SoundAssetTests.cpp
+        tests/engine/AudioSourceComponentTests.cpp
         tests/audio/MixerTests.cpp
         tests/core/GuidTests.cpp
         tests/core/JsonLinesLogSinkTests.cpp

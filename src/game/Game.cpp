@@ -3,6 +3,7 @@
 #include "game/GameLog.h"
 
 #include "engine/AssetLoader.h"
+#include "engine/AudioSourceComponent.h"
 #include "engine/CameraComponent.h"
 #include "engine/Collider2D.h"
 #include "engine/Rigidbody2D.h"
@@ -196,6 +197,7 @@ namespace husky::game
         if (engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr)
         {
             loader->Resolve(settings);
+            loader->Resolve(touchSound); // 音も同じ理由で先に読んでおく(PlaySoundOnce は読み終わっていなければ鳴らさない)
         }
         // 位置は真ん中なので、世界の端から大きさの半分だけ内側で跳ね返る。
         const float half = BouncerSize / 2.0f;
@@ -216,6 +218,11 @@ namespace husky::game
             if (touching++ == 0) // 触れ始め(0 → 1): 元の色を控えてから、設定のデータの色にする
             {
                 savedColor = sprite->color;
+                if (GetScene() != nullptr)
+                {
+                    // 触れ始めの音。たくさん同時に触れたときは、ミキサーが古い効果音から止めるので、鳴りすぎない。
+                    engine::PlaySoundOnce(*GetScene(), touchSound, 0.5f);
+                }
                 sprite->color = TouchedColor; // データが読めないときの既定
                 engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr;
                 if (const BouncerSettings* data = loader != nullptr ? loader->Resolve(settings) : nullptr)
@@ -317,6 +324,23 @@ namespace husky::game
         {
             camera->name = "MainCamera";
             camera->AddComponent<engine::CameraComponent>();
+        }
+
+        // BGM(AUD-4): 音を鳴らすコンポーネントだけを持つアクター。再生を始めると鳴り始め、ループする。
+        // 音のファイルが無ければ(テストのアセットなど)置かない。
+        const core::Guid* bgmGuid = app.GetAssetDatabase().FindGuid("sounds/bgm.wav");
+        engine::Actor* music = bgmGuid != nullptr ? scene.Spawn<engine::Actor>() : nullptr;
+        if (music != nullptr)
+        {
+            music->name = "Music";
+            if (engine::AudioSourceComponent* source = music->AddComponent<engine::AudioSourceComponent>())
+            {
+                source->sound.guid = *bgmGuid;
+                source->volume = 0.4f;
+                source->loop = true;
+                source->playOnStart = true;
+                source->bus = audio::Bus::Music;
+            }
         }
 
         // プレイヤー(player.prefab): PlayerActor + スプライトシート(shapes.spritesheet)の切り出しを貼る SpriteComponent

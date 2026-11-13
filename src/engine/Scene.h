@@ -24,6 +24,11 @@
 #include <utility>
 #include <vector>
 
+namespace husky::audio
+{
+    class AudioDevice; // 前方宣言(ポインタで持つだけ)
+}
+
 namespace husky::engine
 {
     class Input; // 前方宣言: ポインタで持つだけなので、中身(Input.h)は要らない
@@ -95,6 +100,10 @@ namespace husky::engine
         AssetLoader* GetAssetLoader() const { return m_assetLoader; }
         void SetAssetLoader(AssetLoader* loader) { m_assetLoader = loader; }
 
+        // 音を鳴らす窓口(AUD-4)。ローダと同じく、Application が SetAudio で渡す。渡されていなければ nullptr(音は鳴らない)。
+        audio::AudioDevice* GetAudio() const { return m_audio; }
+        void SetAudio(audio::AudioDevice* audio) { m_audio = audio; }
+
         // 全アクターと全コンポーネントの Tick を、実行順(TickOrder)の小さい順に呼ぶ。
         //   - アクター自身の Tick の実行順は TickOrder::Default(0)。
         //   - 実行順が同じものは、シーンの一覧の順(アクターの順。1つのアクターの中では、アクター自身 → 付けた順のコンポーネント)。
@@ -148,6 +157,7 @@ namespace husky::engine
         // 借りている入力(SetInput で渡されたもの)。GC 管理の型ではないので、ハンドルではなくポインタ。
         const Input* m_input = nullptr;
         AssetLoader* m_assetLoader = nullptr; // 借りているだけ(持ち主は Application)
+        audio::AudioDevice* m_audio = nullptr; // 借りているだけ(持ち主は Application)
 
         // ハンドルからアクターを引く。もう無いか、レジストリで作っていないシーンなら nullptr。
         Actor* ResolveActor(core::ObjectHandle handle) const

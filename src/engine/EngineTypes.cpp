@@ -2,6 +2,7 @@
 #include "engine/EngineTypes.h"
 
 #include "engine/Actor.h"
+#include "engine/AudioSourceComponent.h"
 #include "engine/CameraComponent.h"
 #include "engine/Collider2D.h"
 #include "engine/Component.h"
@@ -23,5 +24,6 @@ namespace husky::engine
         types.Register<BoxCollider2D>();    // Collider2D そのものは形が決まらないので登録しない
         types.Register<CircleCollider2D>();
         types.Register<Rigidbody2D>();
+        types.Register<AudioSourceComponent>();
     }
 }

@@ -45,7 +45,7 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
     husky::game::SpawnInitialActors(app);
-    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + husky::game::CrateCount + husky::game::WallCount + 2); // + 木箱 + 壁 + カメラ + プレイヤー
+    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + husky::game::CrateCount + husky::game::WallCount + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
 
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
@@ -209,7 +209,7 @@ TEST_CASE("SD-4: 跳ね回るものの数・速さ・プレハブは設定のデ
     CHECK(bouncer->settings.guid == *dataGuid);
     const husky::game::BouncerSettings* settings = app.GetAssetLoader().Resolve(bouncer->settings);
     REQUIRE(settings != nullptr);
-    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count + husky::game::CrateCount + husky::game::WallCount) + 2); // + 木箱 + 壁 + カメラ + プレイヤー
+    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count + husky::game::CrateCount + husky::game::WallCount) + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
     CHECK(settings->IsReadOnly());
 }
 

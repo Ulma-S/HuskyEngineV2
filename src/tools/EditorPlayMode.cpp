@@ -4,6 +4,7 @@
 #if HUSKY_DEVELOPMENT
 
 #include "engine/Actor.h"
+#include "engine/Application.h"
 #include "engine/SceneSerializer.h"
 
 #include <cstdio>  // std::printf
@@ -106,6 +107,10 @@ namespace husky::tools
         {
             return EditorCommandResult::Failure(reason);
         }
+
+        // 0. 鳴っている音をすべて止める(再生中に鳴らした効果音や BGM。コンポーネントは壊れるときにも止めるが、
+        //    1 回だけ鳴らした効果音は持ち主がいないので、ここでまとめて止める)。
+        app.GetAudio().StopAll();
 
         // 1. 今いるアクターをすべて Destroy する(消えるのはフレームの終わり。それまでは Tick も描画もされない)。
         engine::Scene& scene = app.GetScene();
