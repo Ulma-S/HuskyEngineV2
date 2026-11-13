@@ -137,6 +137,11 @@ namespace husky::engine
         void SetCameraOverride(const CameraView& view) { m_cameraOverride = view; m_hasCameraOverride = true; }
         void ClearCameraOverride() { m_hasCameraOverride = false; }
 
+        // 【開発ビルドだけ】シーンのスプライトより先に(奥に)描く関数を渡す。毎フレーム、カメラの行列を決めた後に呼ばれる。
+        // エディタのグリッド(シーンビュー)を描くのに使う。中では renderDevice.DrawSprite を呼んでよい。
+        using BeforeSceneDrawCallback = std::function<void(render::RenderDevice&)>;
+        void SetBeforeSceneDrawCallback(BeforeSceneDrawCallback callback) { m_beforeSceneDraw = std::move(callback); }
+
         // 【開発ビルドだけ】今のシーンを、シーンのファイル(JSON、読みやすい形)に保存する。
         // 保存はエディタの役目なので、製品(Release)にはコードごと入らない。
         // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
@@ -183,6 +188,7 @@ namespace husky::engine
         DevUiCallback m_devUiCallback;
         CameraView m_cameraOverride;      // SetCameraOverride の見え方
         bool m_hasCameraOverride = false; // true の間は、シーンのカメラの代わりに m_cameraOverride で映す
+        BeforeSceneDrawCallback m_beforeSceneDraw; // シーンより奥に描くもの(SetBeforeSceneDrawCallback)
 #endif
     };
 }

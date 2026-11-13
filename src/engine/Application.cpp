@@ -265,6 +265,12 @@ namespace husky::engine
                 renderDevice.SetViewProjection(camera.ViewProjection());
 
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
+#if HUSKY_DEVELOPMENT
+                if (m_beforeSceneDraw) // エディタのグリッドなど、シーンより奥に描くもの
+                {
+                    m_beforeSceneDraw(renderDevice);
+                }
+#endif
                 DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
 #if HUSKY_DEVELOPMENT
                 // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。

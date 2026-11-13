@@ -8,6 +8,7 @@
 #include "engine/SpriteComponent.h"
 #include "tools/EditorPlayMode.h"
 #include "tools/Inspector.h"
+#include "tools/SceneGrid.h"
 
 #include <imgui.h>
 
@@ -43,6 +44,7 @@ namespace husky::tools
         if (playMode.GetState() != EditorPlayMode::State::Edit)
         {
             app.ClearCameraOverride(); // 再生中はゲームのカメラで映す
+            m_gridSprites.clear();     // グリッドも描かない
             return;
         }
 
@@ -82,6 +84,16 @@ namespace husky::tools
             }
         }
         app.SetCameraOverride(m_view);
+        // グリッドの線を、このカメラに合わせて作り直す(次に描くフレームで、同じカメラと一緒に使われる)
+        BuildGridSprites(m_view, screenWidth, screenHeight, m_gridSprites);
+    }
+
+    void SceneView::DrawGrid(render::RenderDevice& renderDevice) const
+    {
+        for (const render::Sprite& line : m_gridSprites)
+        {
+            renderDevice.DrawSprite(line);
+        }
     }
 }
 #endif

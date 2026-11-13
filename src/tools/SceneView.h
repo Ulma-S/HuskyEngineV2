@@ -2,6 +2,7 @@
 //   - 右ドラッグか中ドラッグ: 画面を動かす(パン)
 //   - ホイール: マウスの下の点を中心に、寄る・引く(ズーム)
 //   - 左クリック: マウスの下のアクター(いちばん手前のスプライト)を選ぶ。何も無い所なら選択を外す
+//   - グリッド(方眼)をシーンより奥に描く(tools/SceneGrid.h)
 // マウスが ImGui の窓の上にあるときは、窓の操作を優先して何もしない(io.WantCaptureMouse)。
 // 再生中(Play / Pause)は、ゲームのカメラに戻す(エディタのカメラの位置は覚えておき、Stop で戻ると続きから)。
 //
@@ -15,6 +16,9 @@
 #if HUSKY_DEVELOPMENT
 
 #include "engine/Camera.h"
+#include "render/RenderDevice.h"
+
+#include <vector>
 
 namespace husky::engine
 {
@@ -33,12 +37,17 @@ namespace husky::tools
         // 選んだアクターは inspector に渡す(インスペクタに出る)。
         void Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector);
 
+        // グリッド(方眼。tools/SceneGrid.h)を描く。シーンより奥に描くので、Application::SetBeforeSceneDrawCallback から呼ぶ。
+        // 線は Update で、そのときのエディタのカメラに合わせて作ってある(編集中だけ。再生中は何も描かない)。
+        void DrawGrid(render::RenderDevice& renderDevice) const;
+
         // 今のエディタのカメラ(テストや、ほかの道具が読むため)。
         const engine::CameraView& GetView() const { return m_view; }
 
     private:
         engine::CameraView m_view;  // エディタのカメラ
         bool m_initialized = false; // 最初の1回だけ、ゲームのカメラと同じ見え方から始める
+        std::vector<render::Sprite> m_gridSprites; // グリッドの線(使い回す入れ物。毎フレーム作り直すが、確保は最初だけ)
     };
 
     // ホイールのズーム(RS-2)。マウスの下の点(画面の (screenX, screenY))が、ズームの前後で同じワールドの位置に映るように、

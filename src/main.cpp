@@ -157,6 +157,8 @@ int main()
     tools::DebugWindow debugWindow;
     tools::SceneInspector inspector;
     tools::SceneView sceneView;
+    // シーンビューのグリッドは、シーンのスプライトより奥に描く(開発用の UI はスプライトの後なので、別の口から描く)
+    app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector);
