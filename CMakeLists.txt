@@ -260,6 +260,7 @@ add_library(husky_engine STATIC
     src/engine/Camera.cpp
     src/engine/Collider2D.cpp
     src/engine/PhysicsScene2D.cpp
+    src/engine/FixedStepper.cpp
     src/engine/Box2DPhysicsWorld2D.cpp
     src/engine/PhysicsMemory.cpp
     src/engine/TransformMatrix.cpp
@@ -465,6 +466,8 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/CameraTests.cpp
         tests/engine/Collider2DTests.cpp
         tests/engine/PhysicsWorld2DTests.cpp
+        tests/engine/FixedStepperTests.cpp
+        tests/engine/PhysicsBodyTests.cpp
         tests/engine/TransformTests.cpp
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp

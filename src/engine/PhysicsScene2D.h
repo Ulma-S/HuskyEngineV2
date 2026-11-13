@@ -2,7 +2,7 @@
 // 毎フレーム(シーンを更新した後)Update を呼ぶと、次の順で進める:
 //   1. 同期: シーンの全コライダーを見て、新しいものは世界に置き、あるものは場所を伝え、消えたものは世界から外す
 //      (大きさなどが変わったものは置き直す。前のフレームから動いていないものは伝えない)。位置の向きは「アクター → 世界」だけ(物理を足したら逆向きも足す)
-//   2. 世界を dt 進める(今は物理が無いので、準備だけ)
+//   2. 世界を決まった刻み(1/60 秒)で、貯まった分だけ進める(PHY-1。Dynamic の体が動く)
 //   3. 重なりを調べ、前のフレームと比べて、重なり始めた・離れたイベントを作る
 //   4. イベントを届ける(Actor::OnOverlap と、そのアクターの全コンポーネントの Component::OnOverlap)
 // 調べ終わってからまとめて届けるので、受け取った側が何かを消したり動かしたりしても、調べている途中の一覧は崩れない。
@@ -11,6 +11,7 @@
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
 
+#include "engine/FixedStepper.h"
 #include "engine/PhysicsTypes.h"
 #include "engine/PhysicsWorld2D.h"
 
@@ -29,7 +30,13 @@ namespace husky::engine
         PhysicsScene2D();
 
         // 上の 1〜4 を行う。
-        void Update(Scene& scene, float dt);
+        // dt は画面のフレームの長さ。物理は決まった刻み(GetStepper)で、貯まった分だけ進める。
+        void Update(Scene& scene, double dt);
+
+        // 物理を進める決まった刻みの時計(既定は 1/60 秒、1 フレームに最大 4 歩)。
+        const FixedStepper& GetStepper() const { return m_stepper; }
+        // 前の Update で進めた歩数。
+        int GetLastStepCount() const { return m_lastStepCount; }
 
         // 当たり判定の世界(ゲームが問い合わせに使う。OverlapPoint、Raycast など。結果の owner はコライダーのハンドル)。
         PhysicsWorld2D& GetWorld() { return *m_world; }
@@ -65,6 +72,8 @@ namespace husky::engine
         void Deliver(Scene& scene);
 
         std::unique_ptr<PhysicsWorld2D> m_world;
+        FixedStepper m_stepper;
+        int m_lastStepCount = 0;
         // 控えは、コライダーのハンドルの場所の番号(handle.index)をそのまま添字にした配列に置く(ハッシュの表より速い)。
         // 同じ場所が、消えた後に別のコライダーへ貸し直されることがあるので、控えのハンドル(世代つき)と比べて見分ける。
         // 空いている場所は collider が null。

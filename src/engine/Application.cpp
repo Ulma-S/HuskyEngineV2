@@ -68,7 +68,7 @@ namespace husky::engine
             }
             // 当たり判定: アクターが動いた後に、コライダーを当たり判定の世界に伝え、重なりを調べてイベントを届ける。
             // 受け取った側は同じフレームのうちに反応でき、Destroy などはこの後のフレームの終わりで確定する。
-            m_physics2D.Update(*m_scene, static_cast<float>(dt)); // 中で区間 "Physics2D.*" を測る
+            m_physics2D.Update(*m_scene, dt); // 中で区間 "Physics2D.*" を測る
             m_sceneStepRequested = false;
         }
 

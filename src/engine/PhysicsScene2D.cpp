@@ -31,7 +31,7 @@ namespace husky::engine
     {
     }
 
-    void PhysicsScene2D::Update(Scene& scene, float dt)
+    void PhysicsScene2D::Update(Scene& scene, double dt)
     {
         HUSKY_PROFILE_SCOPE("Physics2D"); // 全体(下の区間を含む)
         {
@@ -40,7 +40,12 @@ namespace husky::engine
         }
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Step");
-            m_world->Step(dt);
+            m_lastStepCount = m_stepper.Advance(dt);
+            const float stepSeconds = static_cast<float>(m_stepper.GetStepSeconds());
+            for (int i = 0; i < m_lastStepCount; ++i)
+            {
+                m_world->Step(stepSeconds);
+            }
         }
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Detect");

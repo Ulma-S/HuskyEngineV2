@@ -58,7 +58,11 @@ namespace husky::engine
         float radius = 16.0f;  // 円の半径(Circle のとき)
         core::Vector2 offset;  // 持ち主の位置からのずらし(持ち主と一緒に回り、拡大される)
         CollisionFilter filter;
-        bool isTrigger = false;   // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。物理を足すときに効く)
+        bool isTrigger = false;   // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。PHY-3 で効かせる)
+        // 材質(物理で押し合うときに使う。Box2D の既定と同じ値)
+        float density = 1.0f;     // 密度(重さ = 面積 × 密度。面積はワールドの単位で測る: 32 × 32 の四角なら 1024)
+        float friction = 0.6f;    // 摩擦(0 でつるつる、1 くらいでざらざら)
+        float restitution = 0.0f; // 跳ね返り(0 で跳ねない、1 で同じ速さで跳ね返る)
         core::ObjectHandle owner; // 持ち主のアクター(問い合わせの結果で返す。弱い参照)
     };
 
@@ -90,6 +94,34 @@ namespace husky::engine
         float fraction = 0.0f; // 線分のどこで当たったか(始点 0 〜 終点 1)
     };
 
+    // 世界に置いた体を指すハンドル(PHY-1)。形のハンドルと同じく、中身の ID を整数で持つ。0 は「何も指さない」。
+    struct PhysicsBodyHandle2D
+    {
+        std::uint64_t id = 0;
+
+        bool IsNull() const { return id == 0; }
+        bool operator==(const PhysicsBodyHandle2D& other) const { return id == other.id; }
+        bool operator!=(const PhysicsBodyHandle2D& other) const { return id != other.id; }
+    };
+
+    // 体の種類(Unity の Rigidbody2D の Body Type と同じ)。
+    enum class BodyType2D
+    {
+        Static,    // 動かない(壁、床)。押されても動かない
+        Kinematic, // コードが動かす。物理の体を押すが、押し返されない(重さが無限大のように振る舞う)
+        Dynamic,   // 物理で動く(重力、速度、押し合い)
+    };
+
+    // 置く体の決め事。
+    struct BodyDesc2D
+    {
+        BodyType2D type = BodyType2D::Dynamic;
+        float gravityScale = 1.0f;   // 重力の倍率(0 なら重力を受けない)
+        float linearDamping = 0.0f;  // 進む速さの減り方(空気抵抗のようなもの。0 で減らない)
+        float angularDamping = 0.0f; // 回る速さの減り方
+        bool fixedRotation = false;  // true なら回らない(ぶつかっても傾かない)
+    };
+
     class PhysicsWorld2D
     {
     public:
@@ -104,7 +136,44 @@ namespace husky::engine
         // 置いている形の数。
         virtual std::size_t GetShapeCount() const = 0;
 
-        // 時間を dt 秒進める(今は物理が無いので、中身の準備だけ。物理を足したら、決まった刻みで呼ぶ)。
+        // ---- 体(PHY-1。物理で動くもの)----
+        // 上の AddShape は、形ごとに「コードが動かす体」を中で1つ作る(当たり判定だけのもの)。
+        // 物理で動かすときは、体を置いてから形を付ける(1つの体に形をいくつも付けられる)。
+
+        // 体を置く。pose の拡大縮小は、この体に付ける形の大きさに効く。
+        virtual PhysicsBodyHandle2D AddBody(const BodyDesc2D& desc, const Pose2D& pose) = 0;
+        // 体に形を付ける(形の場所は、体からのずらし desc.offset)。知らない体なら null を返す。
+        // 付けた形は SetPose では動かない(体と一緒に動く)。RemoveShape で形だけを外せる。
+        virtual PhysicsShapeHandle2D AttachShape(PhysicsBodyHandle2D body, const ShapeDesc2D& desc) = 0;
+        // 体を消す(付いている形も消える)。知らない体なら何もしない。
+        virtual void RemoveBody(PhysicsBodyHandle2D body) = 0;
+        // AddBody で置いた体の数(AddShape が中で作る体は数えない)。
+        virtual std::size_t GetBodyCount() const = 0;
+
+        // 体を瞬間移動させる(速度はそのまま)。拡大縮小が変わったら、付いている形を作り直す。
+        virtual void SetBodyPose(PhysicsBodyHandle2D body, const Pose2D& pose) = 0;
+        // 体の今の場所と回転(拡大縮小は最後に渡した値)。知らない体なら既定の値。
+        virtual Pose2D GetBodyPose(PhysicsBodyHandle2D body) const = 0;
+        // Kinematic の体を、次の 1 歩(stepSeconds 秒)でちょうど pose に着く速さにする。
+        // 瞬間移動と違い、通り道にある Dynamic の体を押しのける(コードで動かすものが物理の体を押すときに使う)。
+        virtual void MoveBodyTo(PhysicsBodyHandle2D body, const Pose2D& pose, float stepSeconds) = 0;
+
+        // 速度(単位/秒)と回る速さ(度/秒、反時計回りが +)。
+        virtual void SetLinearVelocity(PhysicsBodyHandle2D body, const core::Vector2& velocity) = 0;
+        virtual core::Vector2 GetLinearVelocity(PhysicsBodyHandle2D body) const = 0;
+        virtual void SetAngularVelocity(PhysicsBodyHandle2D body, float degreesPerSecond) = 0;
+        virtual float GetAngularVelocity(PhysicsBodyHandle2D body) const = 0;
+        // 重心を押す。力(force)は次の 1 歩の間ずっと押し続け、衝撃(impulse)は一瞬で速さを変える(速さの変化 = 衝撃 / 重さ)。
+        virtual void ApplyForce(PhysicsBodyHandle2D body, const core::Vector2& force) = 0;
+        virtual void ApplyImpulse(PhysicsBodyHandle2D body, const core::Vector2& impulse) = 0;
+        // 重さ(付いている形の 面積 × 密度 の合計)。Static と Kinematic は 0。
+        virtual float GetMass(PhysicsBodyHandle2D body) const = 0;
+
+        // 重力(単位/秒²。下向きなら y がマイナス)。既定は 0(重力を使うかはシーン・ゲームが決める)。
+        virtual void SetGravity(const core::Vector2& gravity) = 0;
+        virtual core::Vector2 GetGravity() const = 0;
+
+        // 時間を dt 秒進める(Dynamic の体が動く)。決まった刻み(FixedStepper)で呼ぶ。
         virtual void Step(float dt) = 0;
 
         // 点 (x, y) に重なる形を out に入れる(前の中身は消す)。mask に当てはまるレイヤーの形だけ。
