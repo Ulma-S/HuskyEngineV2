@@ -1892,6 +1892,35 @@ namespace husky::tools
     }
 
 
+    namespace
+    {
+        // プレハブの新しい値の木 newData をファイル(directory/prefabPath)に書き、新しいアセットとして読み直す
+        // (読み込んだアセットは書き換えない。変わらないデータなので)。読み直したアセットのハンドルを reloaded に入れる。
+        // prefab.apply と prefab.applyComponent が使う。
+        bool WriteAndReloadPrefab(engine::Application& app, const std::string& directory, const std::string& prefabPath,
+                                  const core::Guid& guid, const engine::ArchiveValue& newData, core::ObjectHandle& reloaded,
+                                  std::string& error)
+        {
+            const std::string fullPath = directory + "/" + prefabPath;
+            std::string text;
+            if (!engine::JsonFormat::Write(newData, text, true) || !platform::WriteTextFile(fullPath.c_str(), text))
+            {
+                error = "Could not write " + fullPath;
+                return false;
+            }
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            reloaded = loader.ReloadPrefab(guid);
+            loader.WaitForAllLoads();
+            const engine::PrefabAsset* newPrefab = loader.ResolvePrefab(reloaded);
+            if (newPrefab == nullptr || !newPrefab->IsLoaded())
+            {
+                error = "Wrote " + prefabPath + " but could not load it again";
+                return false;
+            }
+            return true;
+        }
+    }
+
     EditorCommand MakeApplyPrefabCommand(std::string assetsDirectory)
     {
         EditorCommand command;
@@ -1942,25 +1971,15 @@ namespace husky::tools
                 changes.push_back({item->component, item->path, item->prefabValue, item->value, item->componentId});
             }
             engine::ArchiveValue newData;
-            std::string text;
             if (!engine::Prefab::WriteChanges(found.prefab->GetData(), changes, newData, error))
             {
                 return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
             }
-            const std::string fullPath = directory + "/" + prefabPath;
-            if (!engine::JsonFormat::Write(newData, text, true) || !platform::WriteTextFile(fullPath.c_str(), text))
-            {
-                return EditorCommandResult::Failure("Could not write " + fullPath);
-            }
-
             // 2. ファイルから読み直す(新しいアセットになる)
-            engine::AssetLoader& loader = app.GetAssetLoader();
-            const core::ObjectHandle reloaded = loader.ReloadPrefab(guid);
-            loader.WaitForAllLoads();
-            const engine::PrefabAsset* newPrefab = loader.ResolvePrefab(reloaded);
-            if (newPrefab == nullptr || !newPrefab->IsLoaded())
+            core::ObjectHandle reloaded;
+            if (!WriteAndReloadPrefab(app, directory, prefabPath, guid, newData, reloaded, error))
             {
-                return EditorCommandResult::Failure("Wrote " + prefabPath + " but could not load it again");
+                return EditorCommandResult::Failure(error);
             }
 
             // 3. 同じプレハブから置いた全員に伝える: 古いプレハブの値のままのものだけが、新しい値になる。
@@ -1991,6 +2010,196 @@ namespace husky::tools
         };
         return command;
     }
+    namespace
+    {
+        // 選んだアクターの、置いた後に足したコンポーネントの型を選ばせる選択肢。
+        std::vector<EditorArgChoice> AddedComponentChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> choices;
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string error;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actor == nullptr)
+            {
+                return choices;
+            }
+            for (const engine::Prefab::ComponentChange& added : engine::Prefab::FindOverrides(*actor).addedComponents)
+            {
+                choices.push_back({added.type, std::string()});
+            }
+            return choices;
+        }
+    }
+
+    EditorCommand MakeApplyComponentCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "prefab.applyComponent";
+        command.label = "Apply component to prefab";
+        command.description = "Write a component change of an actor into its prefab file, and pass it on to every actor placed "
+                              "from the prefab. Give added (an added component's type: it is added to the prefab) or removed "
+                              "(a removed component's id: it is removed from the prefab). Cannot be undone (it rewrites the "
+                              "prefab file).";
+        command.modifiesScene = true; // 置いたものにコンポーネントが増える・減る(CLI では、シーンも保存する)
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of an actor placed from a prefab", true};
+        actorArg.choices = PrefabInstanceChoices;
+        EditorCommandArg addedArg{"added", EditorArgType::String,
+                                  "Type name of a component added after placing (the first such one)", false};
+        addedArg.choices = AddedComponentChoices;
+        EditorCommandArg removedArg{"removed", EditorArgType::String, "Id (in the prefab) of a component removed after placing",
+                                    false};
+        removedArg.choices = RemovedComponentChoices;
+        command.args = {actorArg, addedArg, removedArg};
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::ArchiveValue* addedValue = context.args.Find("added");
+            const engine::ArchiveValue* removedValue = context.args.Find("removed");
+            if ((addedValue == nullptr) == (removedValue == nullptr)) // 両方ある、または両方無い
+            {
+                return EditorCommandResult::Failure("Give exactly one of added or removed");
+            }
+            const std::string who = DescribeActor(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const core::Guid prefabGuid = found.prefab->GetGuid();
+            const std::string* relativePath = app.GetAssetDatabase().FindPath(prefabGuid);
+            if (relativePath == nullptr)
+            {
+                return EditorCommandResult::Failure("The prefab " + prefabGuid.ToString() + " is not in the asset table");
+            }
+            const std::string prefabPath = *relativePath; // 表を作り直しても消えないように写す
+
+            // 1. プレハブの新しい値の木を作る
+            engine::ArchiveValue newData;
+            std::vector<std::string> warnings;
+            std::string what;            // 結果の1行に書く("added SpriteComponent" など)
+            core::Guid componentId;      // 足す・消すコンポーネントのプレハブの中の ID
+            engine::Component* applied = nullptr; // 足すとき: 置いたもののコンポーネント(新しい ID を覚えさせる)
+            if (addedValue != nullptr)
+            {
+                const engine::Prefab::ComponentChange* added = nullptr;
+                for (const engine::Prefab::ComponentChange& item : found.addedComponents)
+                {
+                    if (added == nullptr && item.type == addedValue->AsString())
+                    {
+                        added = &item;
+                    }
+                }
+                applied = added != nullptr ? app.GetRegistry().Resolve<engine::Component>(actor->components[added->index]) : nullptr;
+                if (applied == nullptr)
+                {
+                    return EditorCommandResult::Failure(who + " has no added component " + addedValue->AsString());
+                }
+                // 新しい ID を振り、プレハブの中で、置いたものと同じ並びの位置に入れる
+                componentId = core::Guid::Generate();
+                const engine::ArchiveValue entry =
+                    engine::Prefab::MakeComponentEntry(*applied, found.prefab->GetData(), componentId, warnings);
+                if (!engine::Prefab::AddComponentToData(found.prefab->GetData(), entry, added->prefabIndex, newData, error))
+                {
+                    return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+                }
+                what = "added " + added->type;
+            }
+            else
+            {
+                if (!core::Guid::Parse(removedValue->AsString(), componentId))
+                {
+                    return EditorCommandResult::Failure("\"removed\" is not a guid: " + removedValue->AsString());
+                }
+                std::string type;
+                for (const engine::Prefab::ComponentChange& item : found.removedComponents)
+                {
+                    type = item.componentId == componentId ? item.type : type;
+                }
+                if (type.empty())
+                {
+                    return EditorCommandResult::Failure(who + " has no removed component with id " + removedValue->AsString());
+                }
+                if (!engine::Prefab::RemoveComponentFromData(found.prefab->GetData(), componentId, newData, error))
+                {
+                    return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+                }
+                what = "removed " + type;
+            }
+
+            // 2. ファイルに書いて、読み直す
+            core::ObjectHandle reloaded;
+            if (!WriteAndReloadPrefab(app, directory, prefabPath, prefabGuid, newData, reloaded, error))
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().ResolvePrefab(reloaded);
+            if (applied != nullptr)
+            {
+                applied->prefabComponentId = componentId; // 置いたもののコンポーネントは、プレハブの新しいものと組になる
+            }
+
+            // 3. 同じプレハブから置いた全員に伝える(全員が新しいアセットを指すようにしてから)。
+            //    足したとき: ほかの全員に、プレハブの値で同じコンポーネントを足す(新しいプレハブと比べると「外したもの」に見えるので、
+            //    prefab.revertComponent と同じ道具で戻す)。消したとき: その ID のコンポーネントを持つ全員から外す。
+            std::size_t followed = 0;
+            std::vector<engine::Actor*> instances;
+            app.GetScene().ForEachActor([&](engine::Actor& other) {
+                if (other.prefab.guid == prefabGuid)
+                {
+                    other.prefab.asset = reloaded;
+                    instances.push_back(&other);
+                }
+            });
+            for (engine::Actor* other : instances)
+            {
+                if (other == actor)
+                {
+                    continue;
+                }
+                if (applied != nullptr)
+                {
+                    for (const engine::Prefab::ComponentChange& missing : engine::Prefab::FindOverrides(*other).removedComponents)
+                    {
+                        if (missing.componentId == componentId)
+                        {
+                            const engine::ArchiveValue data = MakeDataFromPrefabEntry(newPrefab->GetData(), missing.prefabEntry, *other);
+                            if (AddComponentToActor(app, *other, missing.type, missing.index, &data).succeeded)
+                            {
+                                ++followed;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                for (std::size_t i = 0; i < other->components.size(); ++i)
+                {
+                    engine::Component* component = app.GetRegistry().Resolve<engine::Component>(other->components[i]);
+                    if (component != nullptr && !component->IsPendingDestroy() && component->prefabComponentId == componentId)
+                    {
+                        other->RemoveComponent(*component);
+                        ++followed;
+                        break;
+                    }
+                }
+            }
+
+            EditorCommandResult result = EditorCommandResult::Success("Applied (" + what + ") of " + who + " to " + prefabPath +
+                                                                      "; " + std::to_string(followed) + " other actor(s) followed");
+            result.details = std::move(warnings);
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("prefab", engine::ArchiveValue(prefabPath));
+            result.data.Set("componentId", engine::ArchiveValue(componentId.ToString()));
+            result.data.Set("followed", engine::ArchiveValue(static_cast<std::int64_t>(followed)));
+            return result;
+        };
+        return command;
+    }
+
     EditorCommand MakeCreatePrefabCommand(std::string assetsDirectory)
     {
         EditorCommand command;

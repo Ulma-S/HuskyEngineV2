@@ -506,6 +506,7 @@ namespace husky::tools
                                     m_removedComponents.size());
                     }
                     const EditorCommand* revertComponent = commands != nullptr ? commands->Find("prefab.revertComponent") : nullptr;
+                    const EditorCommand* applyComponent = commands != nullptr ? commands->Find("prefab.applyComponent") : nullptr;
                     for (std::size_t r = 0; r < m_removedComponents.size(); ++r)
                     {
                         ImGui::PushID(static_cast<int>(r));
@@ -521,6 +522,21 @@ namespace husky::tools
                                 args.Set("componentId", engine::ArchiveValue(m_removedComponents[r].second));
                                 commands->Execute("prefab.revertComponent", app, args);
                                 m_overridesAge = 30; // 次のフレームで一覧を作り直す
+                            }
+                            ImGui::EndDisabled();
+                        }
+                        // Apply: 外したことをプレハブに書き戻す(プレハブから消し、同じプレハブから置いた全員から外す。PF-7e)
+                        if (applyComponent != nullptr)
+                        {
+                            ImGui::SameLine();
+                            ImGui::BeginDisabled(commands->GetUnavailableReason(*applyComponent, app) != nullptr);
+                            if (ImGui::SmallButton("Apply"))
+                            {
+                                engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                                args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                                args.Set("removed", engine::ArchiveValue(m_removedComponents[r].second));
+                                commands->Execute("prefab.applyComponent", app, args);
+                                m_overridesAge = 30;
                             }
                             ImGui::EndDisabled();
                         }
@@ -595,6 +611,23 @@ namespace husky::tools
                             m_addedComponentIndexes.end())
                         {
                             ImGui::TextDisabled("(added: not in the prefab)");
+                            // 足したことをプレハブに書き戻す(プレハブに足し、同じプレハブから置いた全員に足す。PF-7e)。
+                            // 型の名前で指すので、同じ型を2つ足していると、最初のものが書き戻される(今の制限)。
+                            const EditorCommand* apply = commands != nullptr ? commands->Find("prefab.applyComponent") : nullptr;
+                            if (apply != nullptr)
+                            {
+                                ImGui::SameLine();
+                                ImGui::BeginDisabled(commands->GetUnavailableReason(*apply, app) != nullptr);
+                                if (ImGui::SmallButton("Apply to prefab"))
+                                {
+                                    engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                                    args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                                    args.Set("added", engine::ArchiveValue(std::string(component->GetType().GetName())));
+                                    commands->Execute("prefab.applyComponent", app, args);
+                                    m_overridesAge = 30;
+                                }
+                                ImGui::EndDisabled();
+                            }
                         }
                         m_recorder.SetOwner(*component);
                         marks.component = component->GetType().GetName();

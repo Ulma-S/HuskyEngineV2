@@ -80,6 +80,9 @@ namespace husky::engine::Prefab
         // 足したもの: 置いたものの components の中の位置(component.remove で外せば Revert になる)。
         // 外したもの: Revert で戻すときに入れる位置(プレハブで1つ前にある、組になったコンポーネントのすぐ後ろ。無ければ 0)。
         std::size_t index = 0;
+        // 足したもの: Apply でプレハブに入れるときの、プレハブの components の中の位置(置いたもので1つ前にある、
+        // 組になったコンポーネントのプレハブでの位置 + 1。無ければ 0)(PF-7e)。外したものは使わない
+        std::size_t prefabIndex = 0;
         ArchiveValue prefabEntry; // 外したもの: プレハブの中の記録({"type", "properties"})。足したものは null
     };
 
@@ -120,4 +123,21 @@ namespace husky::engine::Prefab
     // プレハブが changes のとおりに変わったことを、置いたもの actor に伝える。
     // 値がプレハブの古い値のまま(違いでない)ものだけを新しい値にし、違い(上書き)はそのまま残す。書き換えた値の数を返す。
     std::size_t FollowChanges(Actor& actor, const std::vector<ValueChange>& changes);
+
+    // --- コンポーネントの出し入れをプレハブへ書き戻す(PF-7e。prefab.applyComponent が使う) ---
+
+    // 置いたものの component を、プレハブに書き込める記録({"type", "properties"})にする。prefabComponentId は componentId にする。
+    // ハンドルは、持ち主のアクターを指すものだけをプレハブのアクターの番号にし、ほかは null にして warnings に書く(Write と同じ決まり)。
+    // data は、書き込む先のプレハブの値の木(アクターの番号を知るため)。
+    ArchiveValue MakeComponentEntry(const Component& component, const ArchiveValue& data, const core::Guid& componentId,
+                                    std::vector<std::string>& warnings);
+
+    // プレハブの値の木 data に、コンポーネントの記録 componentEntry を足した新しい値の木を out に作る(data は変えない)。
+    // 番号は今あるもののいちばん大きいもの + 1。アクターの components の position 番目(長さ以上なら末尾)に入れる。
+    bool AddComponentToData(const ArchiveValue& data, const ArchiveValue& componentEntry, std::size_t position,
+                            ArchiveValue& out, std::string& error);
+
+    // プレハブの値の木 data から、ID が componentId のコンポーネントを消した新しい値の木を out に作る。無ければ false と error。
+    bool RemoveComponentFromData(const ArchiveValue& data, const core::Guid& componentId, ArchiveValue& out,
+                                 std::string& error);
 }

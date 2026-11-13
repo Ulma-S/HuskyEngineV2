@@ -110,6 +110,7 @@ namespace husky::tools
             commands.Register(MakeRevertPrefabCommand());
             commands.Register(MakeRevertRemovedComponentCommand());
             commands.Register(MakeApplyPrefabCommand(assetsDirectory));
+            commands.Register(MakeApplyComponentCommand(assetsDirectory));
         }
 
         // value を JSON にして path に書く。書けなければ、理由を out に足して false。

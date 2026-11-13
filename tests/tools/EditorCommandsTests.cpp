@@ -1326,4 +1326,125 @@ TEST_CASE("PF-7d: prefab.revertComponent は外したコンポーネントをプ
     CHECK(placed->GetComponent<husky::engine::SpriteComponent>()->width == 24.0f);
     CHECK(husky::engine::Prefab::FindOverrides(*placed).overrides.empty());
 }
+
+namespace
+{
+    // PF-7e のテスト用: スプライト(幅 24)だけのプレハブ "prefabs/coin.prefab" を作り、そこから2体置く。置いた2体の guid を返す。
+    std::pair<std::string, std::string> PlaceTwoCoins(Application& app, EditorCommandRegistry& commands,
+                                                      const husky::tests::TestFolder& folder)
+    {
+        REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+        REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+        REQUIRE(commands.Register(husky::tools::MakeApplyComponentCommand(folder.Root())));
+        RegisterComponentCommands(commands);
+        husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+        original->name = "Coin";
+        original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+        REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+        original->Destroy();
+        app.GetScene().RemoveDestroyedActors();
+        const EditorCommandResult a = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
+        const EditorCommandResult b = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab", "x": 50})"));
+        REQUIRE(a.succeeded);
+        REQUIRE(b.succeeded);
+        return {a.data.Find("guid")->AsString(), b.data.Find("guid")->AsString()};
+    }
+
+    husky::engine::Actor* ActorByGuidText(Application& app, const std::string& text)
+    {
+        husky::core::Guid guid;
+        return husky::core::Guid::Parse(text, guid) ? app.GetScene().FindActorByGuid(guid) : nullptr;
+    }
+}
+
+TEST_CASE("PF-7e: prefab.applyComponent(added)は足したものを新しい ID でプレハブの同じ位置に足し、ほかの置いたものにも足す")
+{
+    husky::tests::TestFolder folder("husky_test_apply_added_component");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    const auto [aText, bText] = PlaceTwoCoins(app, commands, folder);
+    husky::engine::Actor* a = ActorByGuidText(app, aText);
+    husky::engine::Actor* b = ActorByGuidText(app, bText);
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+
+    // A の先頭にカメラ(zoom 3)を足し、プレハブに書き戻す
+    const std::string addArgs = "{\"actor\": \"" + aText + "\", \"type\": \"CameraComponent\", \"index\": 0}";
+    REQUIRE(commands.Execute("component.add", app, Json(addArgs.c_str())).succeeded);
+    a->GetComponent<husky::engine::CameraComponent>()->zoom = 3.0f;
+    REQUIRE(husky::engine::Prefab::FindOverrides(*a).addedComponents.size() == 1);
+    CHECK(husky::engine::Prefab::FindOverrides(*a).addedComponents[0].prefabIndex == 0);
+    const std::string applyArgs = "{\"actor\": \"" + aText + "\", \"added\": \"CameraComponent\"}";
+    const EditorCommandResult applied = commands.Execute("prefab.applyComponent", app, Json(applyArgs.c_str()));
+    REQUIRE(applied.succeeded);
+    CHECK(applied.data.Find("followed")->AsInt() == 1);
+    husky::core::Guid newId;
+    REQUIRE(husky::core::Guid::Parse(applied.data.Find("componentId")->AsString(), newId));
+
+    // A: カメラはプレハブの新しいものと組になり、違いが無くなる
+    CHECK(a->GetComponent<husky::engine::CameraComponent>()->prefabComponentId == newId);
+    const husky::engine::Prefab::OverridesResult foundA = husky::engine::Prefab::FindOverrides(*a);
+    CHECK(foundA.error.empty());
+    CHECK(foundA.addedComponents.empty());
+    CHECK(foundA.removedComponents.empty());
+    CHECK(foundA.overrides.empty());
+    // B: 先頭に、プレハブの値(zoom 3)と同じ ID のカメラが足される
+    CHECK(ComponentTypeAt(app, *b, 0) == "CameraComponent");
+    REQUIRE(b->GetComponent<husky::engine::CameraComponent>() != nullptr);
+    CHECK(b->GetComponent<husky::engine::CameraComponent>()->zoom == 3.0f);
+    CHECK(b->GetComponent<husky::engine::CameraComponent>()->prefabComponentId == newId);
+    CHECK(b->GetComponent<husky::engine::CameraComponent>()->GetOwner() == b);
+    CHECK(husky::engine::Prefab::FindOverrides(*b).removedComponents.empty());
+    // プレハブのファイルにも書かれている(新しく置くとカメラが付いてくる)
+    const EditorCommandResult c = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
+    REQUIRE(c.succeeded);
+    husky::engine::Actor* placedC = ActorByGuidText(app, c.data.Find("guid")->AsString());
+    REQUIRE(placedC != nullptr);
+    CHECK(ComponentTypeAt(app, *placedC, 0) == "CameraComponent");
+    CHECK(ComponentTypeAt(app, *placedC, 1) == "SpriteComponent");
+
+    // もう足したものではないので、2回目は断る。added と removed の両方・どちらも無しも断る
+    CHECK_FALSE(commands.Execute("prefab.applyComponent", app, Json(applyArgs.c_str())).succeeded);
+    const std::string both = "{\"actor\": \"" + aText + "\", \"added\": \"CameraComponent\", \"removed\": \"x\"}";
+    CHECK_FALSE(commands.Execute("prefab.applyComponent", app, Json(both.c_str())).succeeded);
+    const std::string neither = "{\"actor\": \"" + aText + "\"}";
+    CHECK_FALSE(commands.Execute("prefab.applyComponent", app, Json(neither.c_str())).succeeded);
+}
+
+TEST_CASE("PF-7e: prefab.applyComponent(removed)は外したものをプレハブから消し、ほかの置いたものからも外す")
+{
+    husky::tests::TestFolder folder("husky_test_apply_removed_component");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    const auto [aText, bText] = PlaceTwoCoins(app, commands, folder);
+    husky::engine::Actor* a = ActorByGuidText(app, aText);
+    husky::engine::Actor* b = ActorByGuidText(app, bText);
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    REQUIRE(a->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+    const husky::core::Guid spriteId = a->GetComponent<husky::engine::SpriteComponent>()->prefabComponentId;
+
+    const std::string removeArgs = "{\"actor\": \"" + aText + "\", \"component\": \"SpriteComponent\"}";
+    REQUIRE(commands.Execute("component.remove", app, Json(removeArgs.c_str())).succeeded);
+    const std::string applyArgs = "{\"actor\": \"" + aText + "\", \"removed\": \"" + spriteId.ToString() + "\"}";
+    const EditorCommandResult applied = commands.Execute("prefab.applyComponent", app, Json(applyArgs.c_str()));
+    REQUIRE(applied.succeeded);
+    CHECK(applied.data.Find("followed")->AsInt() == 1);
+
+    // A: 外したものではなくなる。B: スプライトが外れる。新しく置いたものにもスプライトは無い
+    CHECK(husky::engine::Prefab::FindOverrides(*a).removedComponents.empty());
+    CHECK(b->GetComponent<husky::engine::SpriteComponent>() == nullptr);
+    CHECK(husky::engine::Prefab::FindOverrides(*b).removedComponents.empty());
+    const EditorCommandResult c = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
+    REQUIRE(c.succeeded);
+    husky::engine::Actor* placedC = ActorByGuidText(app, c.data.Find("guid")->AsString());
+    REQUIRE(placedC != nullptr);
+    CHECK(placedC->components.empty());
+    // もう外したものではないので、2回目は断る
+    CHECK_FALSE(commands.Execute("prefab.applyComponent", app, Json(applyArgs.c_str())).succeeded);
+}
 #endif

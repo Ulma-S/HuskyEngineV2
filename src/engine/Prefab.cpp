@@ -4,6 +4,7 @@
 #include "engine/ObjectSerializer.h"
 #include "engine/SceneSerializer.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 
@@ -245,6 +246,14 @@ namespace husky::engine::Prefab
                 ComponentChange added;
                 added.type = components[c]->GetType().GetName();
                 added.index = rawIndexOf[c];
+                for (std::size_t d = c; d > 0; --d)
+                {
+                    if (pairOf[d - 1] != none)
+                    {
+                        added.prefabIndex = pairOf[d - 1] + 1;
+                        break;
+                    }
+                }
                 result.addedComponents.push_back(std::move(added));
                 continue;
             }
@@ -441,5 +450,162 @@ namespace husky::engine::Prefab
             }
         }
         return changed;
+    }
+
+    namespace
+    {
+        // プレハブの値の木を、書き換えられる部品に分ける: objects の写し、アクターの記録の位置、components の番号の並び。
+        // 読めなければ false と error。
+        bool SplitPrefabData(const ArchiveValue& data, std::vector<ArchiveValue>& entries, std::size_t& actorIndex,
+                             std::vector<std::int64_t>& componentIds, std::string& error)
+        {
+            const ArchiveValue* objects = data.Find("objects");
+            const ArchiveValue* actors = data.Find("actors");
+            if (objects == nullptr || actors == nullptr || actors->GetArraySize() != 1)
+            {
+                error = "the prefab has no actor";
+                return false;
+            }
+            const std::int64_t actorId = actors->At(0).AsInt(-1);
+            actorIndex = objects->GetArraySize();
+            for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
+            {
+                entries.push_back(objects->At(i));
+                const ArchiveValue* id = objects->At(i).Find("id");
+                if (id != nullptr && id->AsInt(-1) == actorId)
+                {
+                    actorIndex = i;
+                }
+            }
+            const ArchiveValue* properties = actorIndex < entries.size() ? entries[actorIndex].Find("properties") : nullptr;
+            if (properties == nullptr)
+            {
+                error = "the prefab has no actor";
+                return false;
+            }
+            const ArchiveValue* ids = properties->Find("components");
+            for (std::size_t i = 0; ids != nullptr && i < ids->GetArraySize(); ++i)
+            {
+                componentIds.push_back(ids->At(i).AsInt(-1));
+            }
+            return true;
+        }
+
+        // SplitPrefabData で分けた部品から、値の木を組み立て直す(data の objects とアクターの components だけを差し替える)。
+        void JoinPrefabData(const ArchiveValue& data, std::vector<ArchiveValue>& entries, std::size_t actorIndex,
+                            const std::vector<std::int64_t>& componentIds, ArchiveValue& out)
+        {
+            ArchiveValue ids = ArchiveValue::MakeArray();
+            for (const std::int64_t id : componentIds)
+            {
+                ids.Append(ArchiveValue(id));
+            }
+            ArchiveValue properties = *entries[actorIndex].Find("properties");
+            properties.Set("components", std::move(ids));
+            entries[actorIndex].Set("properties", std::move(properties));
+            out = data;
+            ArchiveValue& objects = out.Set("objects", ArchiveValue::MakeArray());
+            for (ArchiveValue& entry : entries)
+            {
+                objects.Append(std::move(entry));
+            }
+        }
+    }
+
+    ArchiveValue MakeComponentEntry(const Component& component, const ArchiveValue& data, const core::Guid& componentId,
+                                    std::vector<std::string>& warnings)
+    {
+        const ArchiveValue* actors = data.Find("actors");
+        const std::int64_t actorId = actors != nullptr && actors->GetArraySize() == 1 ? actors->At(0).AsInt(-1) : -1;
+        const Actor* owner = component.GetOwner();
+        const Scene* scene = owner != nullptr ? owner->GetScene() : nullptr;
+        const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
+        // ハンドルは、持ち主のアクターを指すものだけを、プレハブのアクターの番号にする(Prefab::Write と同じ決まり)。
+        ArchiveValue entry = ObjectSerializer::Write(component, [&](core::ObjectHandle handle) -> std::int64_t {
+            if (handle.IsNull())
+            {
+                return -1;
+            }
+            if (owner != nullptr && handle == owner->GetHandle())
+            {
+                return actorId;
+            }
+            const core::Object* target = registry != nullptr ? registry->Resolve<core::Object>(handle) : nullptr;
+            if (target != nullptr)
+            {
+                warnings.push_back(std::string(component.GetType().GetName()) + " points to a " + target->GetType().GetName() +
+                                   " outside the actor; it is null in the prefab");
+            }
+            return -1;
+        });
+        ArchiveValue properties = entry.Find("properties") != nullptr ? *entry.Find("properties") : ArchiveValue::MakeObject();
+        properties.Set("prefabComponentId", ArchiveValue(componentId.ToString()));
+        entry.Set("properties", std::move(properties));
+        return entry;
+    }
+
+    bool AddComponentToData(const ArchiveValue& data, const ArchiveValue& componentEntry, std::size_t position,
+                            ArchiveValue& out, std::string& error)
+    {
+        std::vector<ArchiveValue> entries;
+        std::size_t actorIndex = 0;
+        std::vector<std::int64_t> componentIds;
+        if (!SplitPrefabData(data, entries, actorIndex, componentIds, error))
+        {
+            return false;
+        }
+        // 新しい番号: 今ある番号のいちばん大きいもの + 1(ファイルの中で重ならなければよい)
+        std::int64_t newId = 0;
+        for (const ArchiveValue& entry : entries)
+        {
+            const ArchiveValue* id = entry.Find("id");
+            if (id != nullptr && id->AsInt(-1) >= newId)
+            {
+                newId = id->AsInt() + 1;
+            }
+        }
+        ArchiveValue added = componentEntry;
+        added.Set("id", ArchiveValue(newId));
+        entries.push_back(std::move(added));
+        const std::size_t at = position < componentIds.size() ? position : componentIds.size();
+        componentIds.insert(componentIds.begin() + static_cast<std::ptrdiff_t>(at), newId);
+        JoinPrefabData(data, entries, actorIndex, componentIds, out);
+        return true;
+    }
+
+    bool RemoveComponentFromData(const ArchiveValue& data, const core::Guid& componentId, ArchiveValue& out,
+                                 std::string& error)
+    {
+        std::vector<ArchiveValue> entries;
+        std::size_t actorIndex = 0;
+        std::vector<std::int64_t> componentIds;
+        if (!SplitPrefabData(data, entries, actorIndex, componentIds, error))
+        {
+            return false;
+        }
+        // ID(prefabComponentId)が合うコンポーネントの記録を探し、objects とアクターの components の両方から外す
+        for (std::size_t c = 0; c < componentIds.size(); ++c)
+        {
+            for (std::size_t i = 0; i < entries.size(); ++i)
+            {
+                const ArchiveValue* id = entries[i].Find("id");
+                const ArchiveValue* properties = entries[i].Find("properties");
+                const ArchiveValue* guid = properties != nullptr ? properties->Find("prefabComponentId") : nullptr;
+                if (id != nullptr && id->AsInt(-1) == componentIds[c] && guid != nullptr &&
+                    guid->AsString() == componentId.ToString())
+                {
+                    entries.erase(entries.begin() + static_cast<std::ptrdiff_t>(i));
+                    if (i < actorIndex)
+                    {
+                        --actorIndex; // 前の記録を消したので、アクターの記録は1つ前へずれる
+                    }
+                    componentIds.erase(componentIds.begin() + static_cast<std::ptrdiff_t>(c));
+                    JoinPrefabData(data, entries, actorIndex, componentIds, out);
+                    return true;
+                }
+            }
+        }
+        error = "the prefab has no component with id " + componentId.ToString();
+        return false;
     }
 }

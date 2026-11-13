@@ -322,6 +322,12 @@ namespace husky::tools
     // 足したコンポーネントの Revert は、component.remove でそのまま外せばよい。
     EditorCommand MakeRevertRemovedComponentCommand();
 
+    // 「コンポーネントの出し入れをプレハブに書き戻す」コマンド(prefab.applyComponent)を作る(PF-7e)。引数: actor と、
+    // added(置いた後に足したコンポーネントの型の名前。プレハブに新しい ID で足す)か removed(外したもののプレハブの中の ID。
+    // プレハブから消す)のどちらか一方。プレハブのファイル(assetsDirectory の中)を書き直して読み直し、同じプレハブから置いた
+    // 全員に伝える(足したときは全員に足し、消したときは全員から外す)。Undo できない。
+    EditorCommand MakeApplyComponentCommand(std::string assetsDirectory);
+
     // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
     // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
     EditorCommand MakeListOverridesCommand();
