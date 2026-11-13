@@ -111,6 +111,22 @@ target_link_libraries(husky_glm INTERFACE glm::glm-header-only)
 # SDL_GPU(Direct3D 12、Vulkan、Metal)のクリップ座標の z は 0〜1。3D で奥行きを使うときに必要になる。
 target_compile_definitions(husky_glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
+# --- 依存ライブラリ: Box2D(2D の当たり判定と物理。2026-11-13 にユーザーと相談して追加) ---
+# C で書かれたライブラリ。使うのは engine の物理の中身(Box2D の .cpp)の中だけにし、PRIVATE でリンクする。
+# エンジンとゲームは自前の型とインターフェース(PhysicsWorld2D)だけを使うので、中身を替えてもほかは変わらない(設計メモ「当たり判定と物理」)。
+# サンプル、ベンチマーク、テスト、ドキュメントは作らない(ダウンロードとビルドの時間を減らす)。
+set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
+set(BOX2D_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_DOCS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(box2d
+    GIT_REPOSITORY https://github.com/erincatto/box2d.git
+    GIT_TAG        v3.1.1   # バージョンを固定する(出たばかりの最新版 v3.2.0 は避ける)
+    GIT_SHALLOW    TRUE
+    SYSTEM                  # Box2D の中の警告は出さない
+)
+FetchContent_MakeAvailable(box2d)
+
 # --- 依存ライブラリ: Dear ImGui(開発用の UI。2026-11-12 にユーザーと相談して追加) ---
 # 開発ビルド(Debug)だけでリンクし、製品(Release)には入れない(CLAUDE.md: ImGui のコードをリリースビルドに含めない)。
 # ImGui のリポジトリには CMakeLists.txt が無いので、FetchContent でソースを取ってくるだけにして、
@@ -241,6 +257,7 @@ add_library(husky_engine STATIC
     src/engine/AssetDatabase.cpp
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
+    src/engine/PhysicsMemory.cpp
     src/engine/TransformMatrix.cpp
     src/engine/CameraComponent.cpp
     src/engine/EngineTypes.cpp
@@ -272,6 +289,8 @@ target_include_directories(husky_engine PUBLIC src)
 target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render husky_glm) # husky_glm: カメラの行列などの計算に使う
 # yyjson は JsonFormat.cpp の中だけで使うので PRIVATE。engine を使う側(exe やテスト)には yyjson のヘッダが見えない。
 target_link_libraries(husky_engine PRIVATE yyjson)
+# Box2D も物理の中身の .cpp の中だけで使うので PRIVATE(設計メモ「当たり判定と物理」)。
+target_link_libraries(husky_engine PRIVATE box2d)
 
 # --- シェーダの変換 ---
 # HLSL で書いたシェーダを、ビルドの途中で DXC(Vulkan SDK に付属)に変換させる。
@@ -438,6 +457,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetLoaderTests.cpp
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
+        tests/engine/Box2DSmokeTests.cpp
         tests/engine/CameraTests.cpp
         tests/engine/TransformTests.cpp
         tests/platform/FileSystemTests.cpp
@@ -468,6 +488,8 @@ if(HUSKY_BUILD_TESTS)
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
     target_link_libraries(HuskyTests PRIVATE husky_core husky_engine husky_game doctest::doctest)
+    # Box2D はふつう engine の中だけで使うが、組み込みのスモークテスト(Box2DSmokeTests.cpp)だけは直接読む。
+    target_link_libraries(HuskyTests PRIVATE box2d)
     # テストで共通に使うヘッダ(TestFolder.h など)を、#include "TestFolder.h" で読めるようにする。
     target_include_directories(HuskyTests PRIVATE tests)
     # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。
