@@ -113,6 +113,22 @@ namespace husky::engine
         // アクターが生きている間は、そのコンポーネントも生きている。
         std::vector<core::ObjectHandle> components;
 
+        // 描くときに使う transform(PHY-4)。物理の体は 1/60 秒ごとにしか動かないので、PhysicsScene2D が前の歩と今の歩の間を
+        // 混ぜた(補間した)位置を入れる。ゲームの決め事・保存・当たり判定は、いつも本当の transform を使う。
+        // 入れた後に transform が書き換えられていたら(コードやエディタが動かした)、古いので transform をそのまま返す。
+        const Transform& GetRenderTransform() const
+        {
+            return m_hasRenderTransform && SameTransform(m_renderBase, transform) ? m_renderTransform : transform;
+        }
+        // 描くときの transform を入れる(今の transform を基準として覚える)。
+        void SetRenderTransform(const Transform& renderTransform)
+        {
+            m_renderTransform = renderTransform;
+            m_renderBase = transform;
+            m_hasRenderTransform = true;
+        }
+        void ClearRenderTransform() { m_hasRenderTransform = false; }
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(guid)
@@ -122,6 +138,16 @@ namespace husky::engine
         HUSKY_REFLECTION_END()
 
     private:
+        static bool SameTransform(const Transform& a, const Transform& b)
+        {
+            return a.position == b.position && a.rotation == b.rotation && a.scale == b.scale;
+        }
+
+        // 描くときの transform(保存しない)。m_renderBase は、入れたときの本当の transform
+        Transform m_renderTransform;
+        Transform m_renderBase;
+        bool m_hasRenderTransform = false;
+
         // 下のコンポーネントの更新と片付けは、Scene だけが呼ぶ。
         // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
         friend class Scene;

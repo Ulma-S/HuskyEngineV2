@@ -5,7 +5,8 @@
 //      Rigidbody2D を持つアクターは、先に体を置き(PHY-2)、そのアクターのコライダーはすべてその体に付ける。
 //      体の場所は、アクターが前に伝えた(書き戻した)場所から動いていたときだけ、瞬間移動として伝える。
 //   2. 世界を決まった刻み(1/60 秒)で、貯まった分だけ進める(PHY-1。Dynamic の体が動く)。
-//      進めたら、Dynamic の体の場所と回転をアクターの transform に書き戻す(Box2D → アクター。PHY-2)
+//      進めたら、Dynamic の体の場所と回転をアクターの transform に書き戻す(Box2D → アクター。PHY-2)。
+//      描くときの位置(Actor::GetRenderTransform)には、最後の 1 歩の前と今の場所を、貯まった時間の割合で混ぜたものを入れる(PHY-4)
 //   3. 重なりを調べ、前のフレームと比べて、重なり始めた・離れたイベントを作る(物理で押し合う組は除く)。
 //      ぶつかり始めた・離れたイベント(PHY-3)は、進めたときの Box2D の接触のイベントから作る
 //   4. イベントを届ける(Actor::OnOverlap / OnCollision と、そのアクターの全コンポーネントの Component::OnOverlap / OnCollision)
@@ -65,6 +66,7 @@ namespace husky::engine
             // 30 度を渡して読むと 30.03 度のように少しずれる。書き戻しは「この角度からの差」だけを足し、
             // 回っていない体ではアクターの角度を 1 つも変えない
             float bodyRotation = 0.0f;
+            Pose2D previous; // 最後の 1 歩の前の場所(アクターの角度で)。描くときは previous から pose までを混ぜる(PHY-4)
             bool moving = false; // このフレームにコードが動かした Kinematic(MoveBodyTo で速さを付けた。進めた後に止める)
             bool seen = false;
         };
@@ -100,6 +102,10 @@ namespace husky::engine
         void RemoveBody(BodyEntry& entry);
         // Dynamic の体の場所と回転を、アクターの transform に書き戻す。
         void WriteBackBodies(Scene& scene);
+        // 最後の 1 歩の前に、動く体(Static 以外)の場所を previous に控える(PHY-4)。
+        void RecordPreviousPoses();
+        // 動く体のアクターに、描くときの transform(previous と pose を、貯まった時間の割合で混ぜたもの)を入れる(PHY-4)。
+        void ApplyInterpolation(Scene& scene);
         // コライダーのハンドルの控えを探す。無ければ(置いていない、同じ場所の別の代)nullptr。
         Entry* FindEntry(core::ObjectHandle collider);
         void DetectOverlaps();

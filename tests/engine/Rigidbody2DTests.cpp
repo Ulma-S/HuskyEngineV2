@@ -8,6 +8,7 @@
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
 #include "engine/Scene.h"
+#include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
 
@@ -372,4 +373,57 @@ TEST_CASE("PHY-3: ぶつかっている相手が消えると end が届く。体
     REQUIRE(box->collisions.size() == 4);
     CHECK_FALSE(box->collisions[3].begin);
     CHECK(box->collisions[3].otherActor == floorHandle);
+}
+
+TEST_CASE("PHY-4: 描くときは、前の歩と今の歩の間を、貯まった時間の割合で混ぜる(本当の transform は物理の位置のまま)")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 144.0); // 画面は 144 Hz、物理は 60 Hz(1 フレームに 0 歩か 1 歩)
+    app.GetPhysics2D().GetWorld().SetGravity({0.0f, 0.0f});
+    Actor* actor = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    actor->GetComponent<Rigidbody2D>()->SetLinearVelocity({60.0f, 0.0f}); // 1 歩で 1 単位進む
+    Steps(app, 20);
+    int zeroStepFrames = 0;
+    for (int i = 0; i < 30; ++i)
+    {
+        Steps(app, 1);
+        zeroStepFrames += app.GetPhysics2D().GetLastStepCount() == 0 ? 1 : 0;
+        const float alpha = static_cast<float>(app.GetPhysics2D().GetStepper().GetAlpha());
+        // 描く位置は、1 歩前(transform - 1)から今(transform)までの alpha の所
+        CHECK(actor->GetRenderTransform().position.x == doctest::Approx(actor->transform.position.x - (1.0f - alpha)));
+    }
+    CHECK(zeroStepFrames > 0); // 物理が進まないフレームでも、描く位置は時間の分だけ進んでいた
+
+    // 描くスプライトも、描くときの transform を使う
+    actor->AddComponent<husky::engine::SpriteComponent>();
+    Steps(app, 1);
+    float drawnX = 0.0f;
+    husky::engine::ForEachSprite(app.GetScene(), [&](const husky::render::Sprite& sprite, husky::engine::SpriteComponent&) {
+        drawnX = sprite.model.m[12]; // 列優先なので、移動の x は 12 番目
+    });
+    CHECK(drawnX == doctest::Approx(actor->GetRenderTransform().position.x));
+}
+
+TEST_CASE("PHY-4: コードが動かしたら、すぐ本当の transform で描く。瞬間移動の後は、途中を混ぜない")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 144.0);
+    app.GetPhysics2D().GetWorld().SetGravity({0.0f, 0.0f});
+    Actor* actor = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    actor->GetComponent<Rigidbody2D>()->SetLinearVelocity({60.0f, 0.0f});
+    Steps(app, 20);
+    actor->transform.position = {500.0f, 0.0f, 0.0f};
+    CHECK(actor->GetRenderTransform().position.x == 500.0f); // 入れた後に transform が変わったので、古い値は使わない
+    Steps(app, 1);
+    // 瞬間移動の直後は、前の歩(古い場所)と混ぜないので、0 近くからの途中を通って見えない
+    CHECK(actor->GetRenderTransform().position.x > 498.0f);
+
+    // Static の体と、体の無いアクターは、本当の transform で描く
+    Actor* wall = SpawnBody(app, 100.0f, 0.0f, BodyType2D::Static);
+    Steps(app, 3);
+    CHECK(wall->GetRenderTransform().position.x == 100.0f);
+    // Rigidbody2D を外すと、描くのも本当の transform に戻る
+    actor->RemoveComponent(*actor->GetComponent<Rigidbody2D>());
+    Steps(app, 1);
+    CHECK(actor->GetRenderTransform().position.x == actor->transform.position.x);
 }

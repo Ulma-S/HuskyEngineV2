@@ -58,6 +58,10 @@ namespace husky::engine
             const float stepSeconds = static_cast<float>(m_stepper.GetStepSeconds());
             for (int i = 0; i < m_lastStepCount; ++i)
             {
+                if (i == m_lastStepCount - 1)
+                {
+                    RecordPreviousPoses(); // 最後の 1 歩の前の場所(描くときに、ここから今の場所までを混ぜる)
+                }
                 m_world->Step(stepSeconds);
             }
             if (m_lastStepCount > 0)
@@ -65,6 +69,7 @@ namespace husky::engine
                 WriteBackBodies(scene); // 物理が動かした分を、アクターへ戻す
                 ProcessContactEvents(); // ぶつかり始めた・離れた
             }
+            ApplyInterpolation(scene); // 描く位置を、前の歩と今の歩の間で混ぜる(進めなかったフレームでも、時間の分だけ進む)
         }
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Detect");
@@ -186,6 +191,10 @@ namespace husky::engine
             if (!entry.seen && !entry.rigidbody.IsNull())
             {
                 RemoveBody(entry);
+                if (Actor* owner = registry->Resolve<Actor>(entry.actor))
+                {
+                    owner->ClearRenderTransform(); // 体が無くなったので、描くのも本当の transform に戻す
+                }
                 entry.rigidbody = core::ObjectHandle{};
                 entry.actor = core::ObjectHandle{};
             }
@@ -238,6 +247,7 @@ namespace husky::engine
             entry.rigidbody = handle;
             entry.body = m_world->AddBody(desc, pose);
             entry.pose = pose;
+            entry.previous = pose;
             entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
             entry.moving = false;
             if (sameRigidbody)
@@ -259,6 +269,7 @@ namespace husky::engine
                 {
                     m_world->MoveBodyTo(entry.body, pose, static_cast<float>(m_pendingSteps * m_stepper.GetStepSeconds()));
                     entry.pose = pose;
+                    entry.previous = pose;
                     entry.moving = true; // 進めた後に、ぴったりの場所に合わせて止める(WriteBackBodies)
                 }
             }
@@ -267,6 +278,7 @@ namespace husky::engine
                 // Dynamic と Static(と、拡大縮小が変わった Kinematic): 瞬間移動として伝える
                 m_world->SetBodyPose(entry.body, pose);
                 entry.pose = pose;
+                entry.previous = pose; // 瞬間移動: 前の歩とは混ぜない(混ぜると、途中を通って見える)
                 entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
             }
         }
@@ -314,6 +326,7 @@ namespace husky::engine
                 m_world->SetAngularVelocity(entry.body, 0.0f);
                 entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
                 entry.moving = false;
+                entry.previous = entry.pose; // コードが決めた場所なので、混ぜない
                 continue;
             }
             if (entry.desc.type == BodyType2D::Static)
@@ -418,6 +431,56 @@ namespace husky::engine
                 }
             }
             entry.contacts.swap(m_current); // swap: 中身を入れ替える(コピーしない。前の入れ物は次のフレームで使い回す)
+        }
+    }
+
+    void PhysicsScene2D::RecordPreviousPoses()
+    {
+        for (const std::uint32_t index : m_bodyOrder)
+        {
+            BodyEntry& entry = m_bodies[index];
+            if (entry.desc.type == BodyType2D::Static)
+            {
+                continue;
+            }
+            const Pose2D bodyPose = m_world->GetBodyPose(entry.body);
+            entry.previous = entry.pose;
+            entry.previous.position = bodyPose.position;
+            // 角度はアクターの角度で持つ(書き戻しと同じく、体から最後に読んだ角度からの差を足す)
+            entry.previous.rotationDegrees =
+                entry.pose.rotationDegrees + std::remainder(bodyPose.rotationDegrees - entry.bodyRotation, 360.0f);
+        }
+    }
+
+    void PhysicsScene2D::ApplyInterpolation(Scene& scene)
+    {
+        core::ObjectRegistry* registry = scene.GetObjectRegistry();
+        if (registry == nullptr)
+        {
+            return;
+        }
+        // 貯まっている余り(次の 1 歩のどこまで来たか、0〜1)。0 なら previous、1 に近いほど pose
+        const float alpha = static_cast<float>(m_stepper.GetAlpha());
+        for (const std::uint32_t index : m_bodyOrder)
+        {
+            const BodyEntry& entry = m_bodies[index];
+            Actor* actor = registry->Resolve<Actor>(entry.actor);
+            if (actor == nullptr)
+            {
+                continue;
+            }
+            if (entry.desc.type == BodyType2D::Static || !SamePose(MakePose2D(actor->transform), entry.pose))
+            {
+                // 動かない体、またはコードが動かしてまだ体に伝えていない(0 歩のフレームの Kinematic)もの: そのまま描く
+                actor->ClearRenderTransform();
+                continue;
+            }
+            Transform render = actor->transform;
+            render.position.x = entry.previous.position.x + (entry.pose.position.x - entry.previous.position.x) * alpha;
+            render.position.y = entry.previous.position.y + (entry.pose.position.y - entry.previous.position.y) * alpha;
+            render.rotation =
+                entry.previous.rotationDegrees + (entry.pose.rotationDegrees - entry.previous.rotationDegrees) * alpha;
+            actor->SetRenderTransform(render);
         }
     }
 
