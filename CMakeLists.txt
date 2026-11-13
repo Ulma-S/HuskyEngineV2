@@ -366,7 +366,7 @@ add_library(husky_tools STATIC
     src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
     src/tools/PropertyEditRecorder.cpp
-    src/tools/MoveGizmo.cpp
+    src/tools/TransformGizmo.cpp
     src/tools/SceneGrid.cpp
     src/tools/SceneView.cpp
 )

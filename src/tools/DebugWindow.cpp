@@ -322,7 +322,13 @@ namespace husky::tools
         {
             const EditorCommandResult& result = commands.GetLastResult();
             const ImVec4 color = result.succeeded ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
-            ImGui::TextColored(color, "%s: %s", result.succeeded ? "OK" : "FAILED", result.message.c_str());
+            // 長い結果(transform をまとめて書いたときなど)で窓が横に広がり、シーンビューを覆わないように、決まった幅で折り返す。
+            // 窓は中身に合わせて大きさが決まる(AlwaysAutoResize)ので、折り返す位置は「今の左端 + 決まった幅」で指定する。
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 360.0f);
+            ImGui::TextWrapped("%s: %s", result.succeeded ? "OK" : "FAILED", result.message.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
             if (!result.details.empty() && ImGui::IsItemHovered())
             {
                 ImGui::BeginTooltip();

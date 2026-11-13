@@ -2,7 +2,8 @@
 //   - 右ドラッグか中ドラッグ: 画面を動かす(パン)
 //   - ホイール: マウスの下の点を中心に、寄る・引く(ズーム)
 //   - 左クリック: マウスの下のアクター(いちばん手前のスプライト)を選ぶ。何も無い所なら選択を外す
-//   - 移動のギズモ(RS-4。tools/MoveGizmo.h): 選んだアクターに出る矢印をドラッグすると、その軸だけ動く。真ん中の四角は x と y を
+//   - ギズモ(RS-4、RS-5。tools/TransformGizmo.h): W で移動、E で回転、R で拡大縮小に切り替える(今の道具は画面の上に出る)。
+//     移動: 選んだアクターに出る矢印をドラッグすると、その軸だけ動く。真ん中の四角は x と y を
 //     一気に動かす。離したときに property.set を1回だけ通すので、Ctrl+Z 1回で元の位置へ戻る(RS-3)。
 //     Unity と同じく、アクターの本体をドラッグしても動かさない(左クリックは選ぶだけ。ユーザーが決定)
 //   - グリッド(方眼)をシーンより奥に描く(tools/SceneGrid.h)
@@ -22,7 +23,8 @@
 #include "core/Vector3.h"
 #include "engine/Camera.h"
 #include "render/RenderDevice.h"
-#include "tools/MoveGizmo.h"
+#include "engine/Transform.h"
+#include "tools/TransformGizmo.h"
 
 #include <vector>
 
@@ -51,7 +53,7 @@ namespace husky::tools
         // 線は Update で、そのときのエディタのカメラに合わせて作ってある(編集中だけ。再生中は何も描かない)。
         void DrawGrid(render::RenderDevice& renderDevice) const;
 
-        // 移動のギズモ(tools/MoveGizmo.h)を描く。シーンより手前に描くので、Application::SetAfterSceneDrawCallback から呼ぶ。
+        // 移動のギズモ(tools/TransformGizmo.h)を描く。シーンより手前に描くので、Application::SetAfterSceneDrawCallback から呼ぶ。
         void DrawGizmo(render::RenderDevice& renderDevice) const;
 
         // 今のエディタのカメラ(テストや、ほかの道具が読むため)。
@@ -65,17 +67,23 @@ namespace husky::tools
         GizmoHandle m_hovered = GizmoHandle::None;    // マウスを乗せている(つかんでいる)ギズモの部品(光らせる)
         GizmoHandle m_dragHandle = GizmoHandle::None; // つかんでいるギズモの部品
         core::ObjectHandle m_dragging;   // ギズモで動かしているアクター(弱い参照。動かしていなければ null)
-        core::Vector3 m_dragFrom;        // つかむ前の位置(離したときに Undo のための「前の値」にする)
+        engine::Transform m_dragFrom;    // つかむ前の位置・回転・拡大縮小(離したときに Undo のための「前の値」にする)
+        GizmoTool m_tool = GizmoTool::Move; // 今の道具(W / E / R で切り替える)
+        float m_dragStartScreenX = 0.0f; // つかんだときのマウスの画面の位置(拡大縮小で使う)
+        float m_dragStartScreenY = 0.0f;
+        float m_dragPrevScreenX = 0.0f;  // 前のフレームのマウスの画面の位置(回転で、フレームごとの角度を足すため)
+        float m_dragPrevScreenY = 0.0f;
+        float m_rotateTotal = 0.0f;      // つかんでから回した角度の合計(度)
         float m_dragStartX = 0.0f;       // つかんだときのマウスのワールドの位置(ここからの動いた量を軸に足す)
         float m_dragStartY = 0.0f;
     };
 
-    // ドラッグで動かしたアクターの位置を、property.set で書く(RS-3)。actor は今「動かした後の位置」にいる。
-    // いったん from(つかむ前の位置)に戻してから property.set を呼ぶので、Undo で from に戻る。
+    // ギズモで変えたアクターの transform(位置・回転・拡大縮小)を、property.set で書く(RS-3、RS-5)。actor は今「変えた後」。
+    // いったん from(つかむ前の transform)に戻してから property.set を1回呼ぶので、Undo で from に戻る。
     // コマンドが使えなければ(再生中など)動かした所のまま false を返す。ImGui を使わないので、テストできる。
     // 動作スレッド: ゲームスレッドのみ
-    bool CommitActorMove(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
-                         const core::Vector3& from);
+    bool CommitActorTransform(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
+                              const engine::Transform& from);
 
     // ホイールのズーム(RS-2)。マウスの下の点(画面の (screenX, screenY))が、ズームの前後で同じワールドの位置に映るように、
     // 真ん中をずらしながら zoom を steps 段(1 段 = 1.1 倍。負なら縮小)変える。zoom は 0.05〜20 に収める。

@@ -9,7 +9,7 @@
 #include "tools/EditorCommands.h"
 #include "tools/EditorPlayMode.h"
 #include "tools/Inspector.h"
-#include "tools/MoveGizmo.h"
+#include "tools/TransformGizmo.h"
 #include "tools/SceneGrid.h"
 
 #include <imgui.h>
@@ -41,23 +41,31 @@ namespace husky::tools
         return result;
     }
 
-    bool CommitActorMove(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
-                         const core::Vector3& from)
+    bool CommitActorTransform(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
+                              const engine::Transform& from)
     {
         // インスペクタの書き換え(PropertyEditRecorder)と同じ形: いったん前の値に戻してから、コマンドで新しい値を書く。
-        // こうすると property.set が「前の値」を正しく控え、Undo でつかむ前の位置に戻れる。
-        const core::Vector3 to = actor.transform.position;
-        actor.transform.position = from;
+        // こうすると property.set が「前の値」を正しく控え、Undo でつかむ前の状態に戻れる。
+        // 位置・回転・拡大縮小をまとめて1回で書く(どのギズモでも、ドラッグ全体が Undo の1件になる)。z は書かない(変えない)。
+        const engine::Transform to = actor.transform;
+        actor.transform = from;
         engine::ArchiveValue position = engine::ArchiveValue::MakeObject();
-        position.Set("x", engine::ArchiveValue(static_cast<double>(to.x)));
-        position.Set("y", engine::ArchiveValue(static_cast<double>(to.y)));
+        position.Set("x", engine::ArchiveValue(static_cast<double>(to.position.x)));
+        position.Set("y", engine::ArchiveValue(static_cast<double>(to.position.y)));
+        engine::ArchiveValue scale = engine::ArchiveValue::MakeObject();
+        scale.Set("x", engine::ArchiveValue(static_cast<double>(to.scale.x)));
+        scale.Set("y", engine::ArchiveValue(static_cast<double>(to.scale.y)));
+        engine::ArchiveValue value = engine::ArchiveValue::MakeObject();
+        value.Set("position", std::move(position));
+        value.Set("rotation", engine::ArchiveValue(static_cast<double>(to.rotation)));
+        value.Set("scale", std::move(scale));
         engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
         args.Set("actor", engine::ArchiveValue(actor.guid.ToString()));
-        args.Set("property", engine::ArchiveValue("transform.position"));
-        args.Set("value", std::move(position));
+        args.Set("property", engine::ArchiveValue("transform"));
+        args.Set("value", std::move(value));
         if (!commands.Execute("property.set", app, args).succeeded)
         {
-            actor.transform.position = to; // コマンドが使えない・失敗した: 動かした所のまま(履歴には残らない)
+            actor.transform = to; // コマンドが使えない・失敗した: 動かした所のまま(履歴には残らない)
             return false;
         }
         return true;
@@ -96,18 +104,39 @@ namespace husky::tools
         {
             selected = nullptr;
         }
-        // マウスがギズモのどの部品の上か(ドラッグしていない間だけ調べる。画面のピクセルで比べる)
+        // ギズモの真ん中が映る画面の位置(画面のピクセル。部品の当たりと、回転の角度に使う)
+        auto GizmoOriginOnScreen = [&](const engine::Actor& actor) {
+            const engine::CameraMatrices camera =
+                engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, screenWidth, screenHeight);
+            return engine::WorldToScreen(camera, actor.transform.position.x, actor.transform.position.y, screenWidth, screenHeight);
+        };
+        // マウスがギズモのどの部品の上か(画面のピクセルで比べる)
         auto PickAtMouse = [&]() {
             if (selected == nullptr)
             {
                 return GizmoHandle::None;
             }
-            const engine::CameraMatrices camera =
-                engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, screenWidth, screenHeight);
-            const core::Vector3 origin = engine::WorldToScreen(camera, selected->transform.position.x,
-                                                               selected->transform.position.y, screenWidth, screenHeight);
-            return PickGizmoHandle(origin.x, origin.y, io.MousePos.x, io.MousePos.y);
+            const core::Vector3 origin = GizmoOriginOnScreen(*selected);
+            return PickGizmoHandle(m_tool, origin.x, origin.y, io.MousePos.x, io.MousePos.y, selected->transform.rotation);
         };
+
+        // 道具の切り替え: W(移動)、E(回転)、R(拡大縮小)。Unity と同じキー。
+        // 文字を打っている間(ImGui の入力欄)、Ctrl を押している間、ドラッグ中は切り替えない
+        if (!io.WantCaptureKeyboard && !io.KeyCtrl && m_dragging.IsNull())
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+            {
+                m_tool = GizmoTool::Move;
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+            {
+                m_tool = GizmoTool::Rotate;
+            }
+            else if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+            {
+                m_tool = GizmoTool::Scale;
+            }
+        }
 
         // マウスが ImGui の窓の上なら、窓の操作を優先する(シーンビューは何もしない)
         m_hovered = GizmoHandle::None;
@@ -129,7 +158,7 @@ namespace husky::tools
             {
                 m_hovered = PickAtMouse(); // 乗せている部品を光らせる
             }
-            // 左ボタンを押した: ギズモの上ならつかむ(動かす)。そうでなければ、その下のアクターを選ぶだけ(Unity と同じく、
+            // 左ボタンを押した: ギズモの上ならつかむ。そうでなければ、その下のアクターを選ぶだけ(Unity と同じく、
             // アクターの本体のドラッグでは動かさない。うっかり動かさないため)。何も無い所なら選択を外す。
             // ギズモを先に調べるので、ギズモがほかのアクターに重なっていても、ギズモが優先される。
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -140,9 +169,14 @@ namespace husky::tools
                 {
                     m_dragging = selected->GetHandle();
                     m_dragHandle = handle;
-                    m_dragFrom = selected->transform.position;
+                    m_dragFrom = selected->transform;
                     m_dragStartX = world.x;
                     m_dragStartY = world.y;
+                    m_dragStartScreenX = io.MousePos.x;
+                    m_dragStartScreenY = io.MousePos.y;
+                    m_dragPrevScreenX = io.MousePos.x;
+                    m_dragPrevScreenY = io.MousePos.y;
+                    m_rotateTotal = 0.0f;
                 }
                 else
                 {
@@ -164,21 +198,45 @@ namespace husky::tools
             else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
             {
                 // 動かしている間は、値をその場で書き換えて見せる(まだ履歴には積まない)。
-                // つかんでからマウスが動いた量を、つかんだ部品の軸だけに足す(X なら x だけ、真ん中なら両方)
-                const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
-                // Ctrl を押している間だけ、見えているグリッドの線の上に吸い付かせる(スナップ。Unity と同じキー)。
-                // 間隔はグリッドと同じ(ChooseGridSpacing。寄ると細かく、引くと粗い)
-                const float snap = io.KeyCtrl ? ChooseGridSpacing(m_view.zoom) : 0.0f;
-                actor->transform.position =
-                    ApplyGizmoDrag(m_dragHandle, m_dragFrom, world.x - m_dragStartX, world.y - m_dragStartY, snap);
+                // Ctrl を押している間だけスナップする(Unity と同じキー)。刻みは道具ごと(移動はグリッドの間隔)
+                if (m_dragHandle == GizmoHandle::Ring)
+                {
+                    // 回転: 前のフレームからマウスが真ん中のまわりに回った角度を足していく(半周を越えても続けて回せる)
+                    const core::Vector3 origin = GizmoOriginOnScreen(*actor);
+                    m_rotateTotal += MouseAngleDelta(origin.x, origin.y, m_dragPrevScreenX, m_dragPrevScreenY, io.MousePos.x,
+                                                     io.MousePos.y);
+                    m_dragPrevScreenX = io.MousePos.x;
+                    m_dragPrevScreenY = io.MousePos.y;
+                    actor->transform.rotation =
+                        ApplyRotateDrag(m_dragFrom.rotation, m_rotateTotal, io.KeyCtrl ? GizmoSnap::RotationDegrees : 0.0f);
+                }
+                else if (m_tool == GizmoTool::Scale)
+                {
+                    // 拡大縮小: つかんでから動いた量(画面のピクセル)を、アクターの向きの軸に直して掛ける
+                    actor->transform.scale =
+                        ApplyScaleDrag(m_dragHandle, m_dragFrom.scale, m_dragFrom.rotation, m_dragStartScreenX,
+                                       m_dragStartScreenY, io.MousePos.x, io.MousePos.y, io.KeyCtrl ? GizmoSnap::Scale : 0.0f);
+                }
+                else
+                {
+                    // 移動: つかんでからマウスが動いた量を、つかんだ部品の軸だけに足す(X なら x だけ、真ん中なら両方)。
+                    // スナップの間隔は、見えているグリッドと同じ(ChooseGridSpacing。寄ると細かく、引くと粗い)
+                    const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
+                    const float snap = io.KeyCtrl ? ChooseGridSpacing(m_view.zoom) : 0.0f;
+                    actor->transform.position = ApplyGizmoDrag(m_dragHandle, m_dragFrom.position, world.x - m_dragStartX,
+                                                               world.y - m_dragStartY, snap);
+                }
                 m_hovered = m_dragHandle; // つかんでいる部品は光らせたまま
             }
             else
             {
-                // 離した: 動いていれば、ドラッグ全体を1回の property.set にする(Ctrl+Z 1回で、つかむ前の位置へ戻る)
-                if (actor->transform.position != m_dragFrom && commands != nullptr)
+                // 離した: 変わっていれば、ドラッグ全体を1回の property.set にする(Ctrl+Z 1回で、つかむ前に戻る)
+                const engine::Transform& now = actor->transform;
+                const bool changed = now.position != m_dragFrom.position || now.rotation != m_dragFrom.rotation ||
+                                     now.scale != m_dragFrom.scale;
+                if (changed && commands != nullptr)
                 {
-                    CommitActorMove(app, *commands, *actor, m_dragFrom);
+                    CommitActorTransform(app, *commands, *actor, m_dragFrom);
                 }
                 m_dragging = core::ObjectHandle();
             }
@@ -186,12 +244,16 @@ namespace husky::tools
         app.SetCameraOverride(m_view);
         // グリッドの線を、このカメラに合わせて作り直す(次に描くフレームで、同じカメラと一緒に使われる)
         BuildGridSprites(m_view, screenWidth, screenHeight, m_gridSprites);
-        // 移動のギズモ: 選んでいるアクターの位置に(動かした後の位置に作る)
+        // ギズモ: 選んでいるアクターの位置に(動かした後の値で作る)
         m_gizmoSprites.clear();
         if (selected != nullptr)
         {
-            BuildGizmoSprites(m_view, selected->transform.position, m_hovered, m_gizmoSprites);
+            BuildGizmoSprites(m_tool, m_view, selected->transform.position, selected->transform.rotation, m_hovered,
+                              m_gizmoSprites);
         }
+        // 今の道具の名前を、画面の上の真ん中に出す(ImGui の窓より奥。文字は定数なので、毎フレームの確保は無い)
+        ImGui::GetBackgroundDrawList()->AddText(ImVec2(screenWidth * 0.5f - 30.0f, 8.0f), IM_COL32(255, 255, 255, 200),
+                                                GetGizmoToolName(m_tool));
     }
 
     void SceneView::DrawGrid(render::RenderDevice& renderDevice) const
