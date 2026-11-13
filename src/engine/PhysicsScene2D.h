@@ -1,8 +1,11 @@
 // シーンのコライダーと、当たり判定の世界(PhysicsWorld2D)をつなぐ(COL-3)。Application が1つ持つ。
 // 毎フレーム(シーンを更新した後)Update を呼ぶと、次の順で進める:
 //   1. 同期: シーンの全コライダーを見て、新しいものは世界に置き、あるものは場所を伝え、消えたものは世界から外す
-//      (大きさなどが変わったものは置き直す。前のフレームから動いていないものは伝えない)。位置の向きは「アクター → 世界」だけ(物理を足したら逆向きも足す)
-//   2. 世界を決まった刻み(1/60 秒)で、貯まった分だけ進める(PHY-1。Dynamic の体が動く)
+//      (大きさなどが変わったものは置き直す。前のフレームから動いていないものは伝えない)。
+//      Rigidbody2D を持つアクターは、先に体を置き(PHY-2)、そのアクターのコライダーはすべてその体に付ける。
+//      体の場所は、アクターが前に伝えた(書き戻した)場所から動いていたときだけ、瞬間移動として伝える。
+//   2. 世界を決まった刻み(1/60 秒)で、貯まった分だけ進める(PHY-1。Dynamic の体が動く)。
+//      進めたら、Dynamic の体の場所と回転をアクターの transform に書き戻す(Box2D → アクター。PHY-2)
 //   3. 重なりを調べ、前のフレームと比べて、重なり始めた・離れたイベントを作る
 //   4. イベントを届ける(Actor::OnOverlap と、そのアクターの全コンポーネントの Component::OnOverlap)
 // 調べ終わってからまとめて届けるので、受け取った側が何かを消したり動かしたりしても、調べている途中の一覧は崩れない。
@@ -22,6 +25,7 @@
 
 namespace husky::engine
 {
+    class Actor;
     class Scene;
 
     class PhysicsScene2D
@@ -44,8 +48,25 @@ namespace husky::engine
 
         // 世界に置いているコライダーの数。
         std::size_t GetColliderCount() const { return m_order.size(); }
+        // 世界に置いている体(Rigidbody2D)の数。
+        std::size_t GetBodyCount() const { return m_bodyOrder.size(); }
 
     private:
+        // 世界に置いた体(Rigidbody2D)1 つの控え(PHY-2)。
+        struct BodyEntry
+        {
+            core::ObjectHandle rigidbody;
+            core::ObjectHandle actor;
+            PhysicsBodyHandle2D body;
+            BodyDesc2D desc; // 置いたときの決め事(変わったら置き直す)
+            Pose2D pose;     // 最後に伝えた、または書き戻した場所(アクターがここから動いていたら、コードが動かした)
+            // 最後に体から読んだ角度(Box2D の値。-180〜180 度)。Box2D は角度を近似の sin・cos で持つので、
+            // 30 度を渡して読むと 30.03 度のように少しずれる。書き戻しは「この角度からの差」だけを足し、
+            // 回っていない体ではアクターの角度を 1 つも変えない
+            float bodyRotation = 0.0f;
+            bool seen = false;
+        };
+
         // 重なっている相手 1 つ(相手が消えた後の「離れた」でもアクターを渡せるように、アクターも覚える)。
         struct Contact
         {
@@ -59,6 +80,7 @@ namespace husky::engine
             core::ObjectHandle collider;
             core::ObjectHandle actor;
             PhysicsShapeHandle2D shape;
+            PhysicsBodyHandle2D body; // 付けている体(Rigidbody2D の体)。null なら、形だけの自分の体(AddShape)
             ShapeDesc2D desc; // 置いたときの決め事(変わったら置き直す)
             Pose2D pose;
             std::vector<Contact> contacts; // 前のフレームで重なっていた相手
@@ -66,6 +88,12 @@ namespace husky::engine
         };
 
         void Sync(Scene& scene);
+        // アクターの Rigidbody2D に合わせて体を置く・置き直す・伝える。体が無ければ null を返す。
+        PhysicsBodyHandle2D SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose);
+        // 体を世界から外す。付いていたコライダーの控えの形も「置いていない」にする(体と一緒に消えるため)。
+        void RemoveBody(BodyEntry& entry);
+        // Dynamic の体の場所と回転を、アクターの transform に書き戻す。
+        void WriteBackBodies(Scene& scene);
         // コライダーのハンドルの控えを探す。無ければ(置いていない、同じ場所の別の代)nullptr。
         Entry* FindEntry(core::ObjectHandle collider);
         void DetectOverlaps();
@@ -80,6 +108,10 @@ namespace husky::engine
         std::vector<Entry> m_entries;
         std::vector<std::uint32_t> m_order;         // このフレームに置いているコライダーの場所の番号(シーンの一覧の順。調べる順・届ける順をそろえる)
         std::vector<std::uint32_t> m_previousOrder; // 前のフレームの m_order(消えたものを探すときは、これだけを見る)
+        // 体の控え。コライダーと同じく、Rigidbody2D のハンドルの場所の番号を添字にする。
+        std::vector<BodyEntry> m_bodies;
+        std::vector<std::uint32_t> m_bodyOrder;
+        std::vector<std::uint32_t> m_previousBodyOrder;
         // 使い回す入れ物(毎フレームの確保を避ける)
         std::vector<QueryHit2D> m_hits;
         std::vector<Contact> m_current;

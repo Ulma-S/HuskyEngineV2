@@ -472,6 +472,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/Box2DSmokeTests.cpp
         tests/engine/CameraTests.cpp
         tests/engine/Collider2DTests.cpp
+        tests/engine/Rigidbody2DTests.cpp
         tests/engine/PhysicsWorld2DTests.cpp
         tests/engine/FixedStepperTests.cpp
         tests/engine/PhysicsBodyTests.cpp

@@ -5,7 +5,10 @@
 
 #include "engine/Actor.h"
 #include "engine/Collider2D.h"
+#include "engine/Rigidbody2D.h"
 #include "engine/Scene.h"
+
+#include <cmath> // std::remainder
 
 namespace husky::engine
 {
@@ -23,6 +26,13 @@ namespace husky::engine
             return a.type == b.type && a.width == b.width && a.height == b.height && a.radius == b.radius &&
                    a.offset == b.offset && a.filter.layer == b.filter.layer && a.filter.mask == b.filter.mask &&
                    a.isTrigger == b.isTrigger;
+        }
+
+        // 体の置き直しが要るか(種類・重力の倍率など、体の決め事が変わった)。
+        bool SameBody(const BodyDesc2D& a, const BodyDesc2D& b)
+        {
+            return a.type == b.type && a.gravityScale == b.gravityScale && a.linearDamping == b.linearDamping &&
+                   a.angularDamping == b.angularDamping && a.fixedRotation == b.fixedRotation;
         }
     }
 
@@ -46,6 +56,10 @@ namespace husky::engine
             {
                 m_world->Step(stepSeconds);
             }
+            if (m_lastStepCount > 0)
+            {
+                WriteBackBodies(scene); // 物理が動かした分を、アクターへ戻す
+            }
         }
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Detect");
@@ -67,12 +81,24 @@ namespace husky::engine
         {
             m_entries[index].seen = false;
         }
+        m_previousBodyOrder.swap(m_bodyOrder);
+        m_bodyOrder.clear();
+        for (const std::uint32_t index : m_previousBodyOrder)
+        {
+            m_bodies[index].seen = false;
+        }
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
+        if (registry == nullptr)
+        {
+            return;
+        }
         scene.ForEachActor([&](Actor& actor) {
             const Pose2D pose = MakePose2D(actor.transform);
+            // Rigidbody2D があれば先に体を置く。コライダーはその体に付ける(無ければ null で、形だけの体に置く)
+            const PhysicsBodyHandle2D body = SyncBody(actor, *registry, pose);
             for (const core::ObjectHandle handle : actor.components)
             {
-                const Collider2D* collider = registry != nullptr ? registry->Resolve<Collider2D>(handle) : nullptr;
+                const Collider2D* collider = registry->Resolve<Collider2D>(handle);
                 if (collider == nullptr || collider->IsPendingDestroy())
                 {
                     continue;
@@ -84,6 +110,11 @@ namespace husky::engine
                     m_entries.resize(static_cast<std::size_t>(handle.index) + 1);
                 }
                 Entry& entry = m_entries[handle.index];
+                // 形を置く: 体があればその体に付け、無ければ形だけの体ごと置く
+                auto place = [&] {
+                    entry.body = body;
+                    entry.shape = body.IsNull() ? m_world->AddShape(desc, pose) : m_world->AttachShape(body, desc);
+                };
                 if (entry.collider != handle)
                 {
                     // 空いている場所、または同じ場所の前の代(消えたコライダー)の控えが残っている: 前の形を外して置き直す
@@ -93,16 +124,21 @@ namespace husky::engine
                     }
                     entry.collider = handle;
                     entry.contacts.clear();
-                    entry.shape = m_world->AddShape(desc, pose); // 新しいコライダー: 置く
+                    place(); // 新しいコライダー: 置く
                 }
-                else if (!SameShape(entry.desc, desc))
+                else if (entry.body != body || !SameShape(entry.desc, desc))
                 {
-                    m_world->RemoveShape(entry.shape); // 大きさなどが変わった: 置き直す
-                    entry.shape = m_world->AddShape(desc, pose);
+                    // 付ける体が変わった(Rigidbody2D を足した・外した・体を置き直した)か、大きさなどが変わった: 置き直す。
+                    // 重なっている相手(contacts)は残すので、置き直しただけで「離れた・重なった」は届かない
+                    if (!entry.shape.IsNull())
+                    {
+                        m_world->RemoveShape(entry.shape);
+                    }
+                    place();
                 }
-                else if (!SamePose(entry.pose, pose))
+                else if (body.IsNull() && !SamePose(entry.pose, pose))
                 {
-                    m_world->SetPose(entry.shape, pose); // 動いた: 場所を伝える(止まっているものは伝えない)
+                    m_world->SetPose(entry.shape, pose); // 動いた: 場所を伝える(止まっているものは伝えない。体に付けた形は体と一緒に動く)
                 }
                 entry.actor = actor.GetHandle();
                 entry.desc = desc;
@@ -116,13 +152,145 @@ namespace husky::engine
         for (const std::uint32_t index : m_previousOrder)
         {
             Entry& entry = m_entries[index];
-            if (!entry.seen && !entry.shape.IsNull())
+            if (!entry.seen && !entry.collider.IsNull())
             {
-                m_world->RemoveShape(entry.shape);
+                if (!entry.shape.IsNull())
+                {
+                    m_world->RemoveShape(entry.shape);
+                }
                 entry.collider = core::ObjectHandle{};
                 entry.actor = core::ObjectHandle{};
                 entry.shape = PhysicsShapeHandle2D{};
+                entry.body = PhysicsBodyHandle2D{};
                 entry.contacts.clear(); // 中身だけ消す(確保した領域は残り、次にこの場所を使うときに使い回す)
+            }
+        }
+        // 見つからなかった体(Rigidbody2D を外した、アクターが消えた)を外す。付いていた形は、上で外すか置き直した後
+        for (const std::uint32_t index : m_previousBodyOrder)
+        {
+            BodyEntry& entry = m_bodies[index];
+            if (!entry.seen && !entry.rigidbody.IsNull())
+            {
+                RemoveBody(entry);
+                entry.rigidbody = core::ObjectHandle{};
+                entry.actor = core::ObjectHandle{};
+            }
+        }
+    }
+
+    PhysicsBodyHandle2D PhysicsScene2D::SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose)
+    {
+        // 最初の Rigidbody2D を探す(2 つ目からは使わない)
+        const Rigidbody2D* rigidbody = nullptr;
+        core::ObjectHandle handle;
+        for (const core::ObjectHandle component : actor.components)
+        {
+            const Rigidbody2D* found = registry.Resolve<Rigidbody2D>(component);
+            if (found != nullptr && !found->IsPendingDestroy())
+            {
+                rigidbody = found;
+                handle = component;
+                break;
+            }
+        }
+        if (rigidbody == nullptr)
+        {
+            return PhysicsBodyHandle2D{};
+        }
+        if (handle.index >= m_bodies.size())
+        {
+            m_bodies.resize(static_cast<std::size_t>(handle.index) + 1);
+        }
+        BodyEntry& entry = m_bodies[handle.index];
+        const BodyDesc2D desc = rigidbody->MakeBodyDesc();
+        if (entry.rigidbody != handle || !SameBody(entry.desc, desc))
+        {
+            // 新しい Rigidbody2D(または同じ場所の前の代の控え)か、決め事が変わった: 体を置き直す。
+            // 付いていた形は体と一緒に消えるので、コライダーはこの後の同期で新しい体に付け直される
+            if (!entry.body.IsNull())
+            {
+                RemoveBody(entry);
+            }
+            entry.rigidbody = handle;
+            entry.body = m_world->AddBody(desc, pose);
+            entry.pose = pose;
+            entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+        }
+        else if (!SamePose(entry.pose, pose))
+        {
+            // アクターが、前に伝えた(書き戻した)場所から動いている = コードが動かした: 瞬間移動として伝える
+            m_world->SetBodyPose(entry.body, pose);
+            entry.pose = pose;
+            entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+        }
+        entry.actor = actor.GetHandle();
+        entry.desc = desc;
+        entry.seen = true;
+        m_bodyOrder.push_back(handle.index);
+        return entry.body;
+    }
+
+    void PhysicsScene2D::RemoveBody(BodyEntry& entry)
+    {
+        // この体に付いていたコライダーの控えは、形が体と一緒に消えるので「置いていない」にする
+        // (付いていたのは前のフレームに置いたものだけなので、前の一覧を見れば足りる)
+        for (const std::uint32_t index : m_previousOrder)
+        {
+            Entry& collider = m_entries[index];
+            if (collider.body == entry.body)
+            {
+                collider.shape = PhysicsShapeHandle2D{};
+                collider.body = PhysicsBodyHandle2D{};
+            }
+        }
+        m_world->RemoveBody(entry.body);
+        entry.body = PhysicsBodyHandle2D{};
+    }
+
+    void PhysicsScene2D::WriteBackBodies(Scene& scene)
+    {
+        core::ObjectRegistry* registry = scene.GetObjectRegistry();
+        if (registry == nullptr)
+        {
+            return;
+        }
+        for (const std::uint32_t index : m_bodyOrder)
+        {
+            BodyEntry& entry = m_bodies[index];
+            if (entry.desc.type != BodyType2D::Dynamic)
+            {
+                continue; // Kinematic と Static は、アクターが場所を決める(アクター → Box2D だけ)
+            }
+            Actor* actor = registry->Resolve<Actor>(entry.actor);
+            if (actor == nullptr)
+            {
+                continue;
+            }
+            const Pose2D bodyPose = m_world->GetBodyPose(entry.body);
+            actor->transform.position.x = bodyPose.position.x;
+            actor->transform.position.y = bodyPose.position.y;
+            // Box2D の角度は -180〜180 度に丸められ、近似の誤差もある。アクターの角度(370 度など)をそのまま保つため、
+            // 前に体から読んだ角度からの差(-180〜180 に丸める)だけを足す。回っていなければ差は 0 で、角度は変わらない
+            const float delta = std::remainder(bodyPose.rotationDegrees - entry.bodyRotation, 360.0f);
+            if (delta != 0.0f)
+            {
+                actor->transform.rotation = entry.pose.rotationDegrees + delta;
+                entry.bodyRotation = bodyPose.rotationDegrees;
+            }
+            entry.pose = MakePose2D(actor->transform); // 書き戻した場所を覚える(次の同期で、コードが動かしたかを見分ける)
+        }
+        // 体に付けたコライダーの控えの場所も合わせる(この後の重なりの調べで使う)
+        for (const std::uint32_t index : m_order)
+        {
+            Entry& entry = m_entries[index];
+            if (entry.body.IsNull())
+            {
+                continue;
+            }
+            const Actor* actor = registry->Resolve<Actor>(entry.actor);
+            if (actor != nullptr)
+            {
+                entry.pose = MakePose2D(actor->transform);
             }
         }
     }
