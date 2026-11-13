@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 0,
+      "type": "Actor",
+      "properties": {
+        "name": "Crate",
+        "transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": 0.0,
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "components": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "type": "SpriteComponent",
+      "properties": {
+        "prefabComponentId": "c8d6d431-b5c5-4445-ac4d-ce8805707aaf",
+        "width": 64.0,
+        "height": 64.0,
+        "color": {
+          "r": 0.62,
+          "g": 0.42,
+          "b": 0.22,
+          "a": 1.0
+        },
+        "texture": null,
+        "region": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "sheet": null,
+        "sprite": 0
+      }
+    },
+    {
+      "id": 2,
+      "type": "BoxCollider2D",
+      "properties": {
+        "prefabComponentId": "687d4287-f261-4e99-a14f-2ee317788aa4",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "isTrigger": false,
+        "layer": 2,
+        "collisionMask": 13,
+        "density": 1.0,
+        "friction": 0.3,
+        "restitution": 0.0,
+        "size": {
+          "x": 64.0,
+          "y": 64.0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "Rigidbody2D",
+      "properties": {
+        "prefabComponentId": "d60756f4-64be-49b7-a04a-5b2928aec213",
+        "bodyType": "Dynamic",
+        "gravityScale": 0.0,
+        "linearDamping": 4.0,
+        "angularDamping": 4.0,
+        "fixedRotation": false
+      }
+    }
+  ],
+  "actors": [
+    0
+  ]
+}

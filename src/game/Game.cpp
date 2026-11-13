@@ -3,6 +3,8 @@
 
 #include "engine/AssetLoader.h"
 #include "engine/CameraComponent.h"
+#include "engine/Collider2D.h"
+#include "engine/Rigidbody2D.h"
 #include "game/CameraFollowComponent.h"
 #include "engine/Input.h"
 #include "engine/Prefab.h"
@@ -127,6 +129,61 @@ namespace husky::game
                 sprite->color = {randomColor(random), randomColor(random), randomColor(random), 1.0f};
             }
         }
+
+        // 木箱を、プレイヤーの最初の場所(世界の真ん中)の右に 4 個 × 2 段で置く(PHY-5)。
+        // 1 つずつ違うのは位置だけ(ほかの値はプレハブのもの)。
+        void SpawnCrates(engine::Application& app, const engine::PrefabAsset& prefab)
+        {
+            for (int i = 0; i < CrateCount; ++i)
+            {
+                engine::Actor* crate = PlacePrefab<engine::Actor>(app, prefab);
+                if (crate == nullptr)
+                {
+                    return;
+                }
+                crate->transform.position.x = WorldWidth / 2.0f + 200.0f + static_cast<float>(i % 4) * 80.0f;
+                crate->transform.position.y = WorldHeight / 2.0f + (i < 4 ? 40.0f : -40.0f);
+            }
+        }
+
+        // 世界の端の 4 枚の壁(PHY-5)。見た目は無く、動かない体(Static)の四角のコライダーだけ。
+        // プレイヤーは世界の外へ出ない(PlayerActor::Tick)が、押された木箱はここで止まる。壁は木箱とだけ当たる。
+        void SpawnWalls(engine::Scene& scene)
+        {
+            constexpr float thickness = 64.0f;
+            struct WallPlace
+            {
+                const char* name;
+                float x, y, width, height;
+            };
+            // 世界の外側に、端の線に接するように置く(四隅もふさぐよう、縦の壁は厚みの分だけ長くする)
+            const WallPlace places[] = {
+                {"WallLeft", -thickness / 2.0f, WorldHeight / 2.0f, thickness, WorldHeight + thickness * 2.0f},
+                {"WallRight", WorldWidth + thickness / 2.0f, WorldHeight / 2.0f, thickness, WorldHeight + thickness * 2.0f},
+                {"WallBottom", WorldWidth / 2.0f, -thickness / 2.0f, WorldWidth, thickness},
+                {"WallTop", WorldWidth / 2.0f, WorldHeight + thickness / 2.0f, WorldWidth, thickness},
+            };
+            for (const WallPlace& place : places)
+            {
+                engine::Actor* wall = scene.Spawn<engine::Actor>();
+                if (wall == nullptr)
+                {
+                    return;
+                }
+                wall->name = place.name;
+                wall->transform.position = {place.x, place.y, 0.0f};
+                if (engine::Rigidbody2D* body = wall->AddComponent<engine::Rigidbody2D>())
+                {
+                    body->bodyType = engine::BodyType2D::Static;
+                }
+                if (engine::BoxCollider2D* box = wall->AddComponent<engine::BoxCollider2D>())
+                {
+                    box->size = {place.width, place.height};
+                    box->layer = WallLayer;
+                    box->collisionMask = 1 << CrateLayer;
+                }
+            }
+        }
     }
 
     void BouncerActor::Tick(double dt)
@@ -242,6 +299,14 @@ namespace husky::game
             SpawnBouncers(app, *bouncerPrefab, settings != nullptr ? settings->count : BouncerCount,
                           settings != nullptr ? settings->maxSpeed : 200.0f);
         }
+
+        // 押せる木箱(PHY-5。crate.prefab: スプライト + 四角のコライダー + Dynamic の Rigidbody2D)と、世界の端の壁。
+        // 描く順は一覧の順なので、プレイヤーより先に置く(木箱の上にプレイヤーが描かれる)。
+        if (const engine::PrefabAsset* cratePrefab = LoadPrefab(app, "prefabs/crate.prefab"))
+        {
+            SpawnCrates(app, *cratePrefab);
+        }
+        SpawnWalls(scene);
 
         // カメラ: プレイヤーを追いかける(追いかける相手は、プレイヤーを作った後に決める)。
         // カメラは特別な型ではなく、ふつうのアクターにカメラのコンポーネントを付けたもの。

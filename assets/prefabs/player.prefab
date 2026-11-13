@@ -22,7 +22,8 @@
         "components": [
           1,
           2,
-          3
+          3,
+          4
         ],
         "moveSpeed": 300.0
       }
@@ -71,13 +72,25 @@
         },
         "isTrigger": false,
         "layer": 0,
-        "collisionMask": 2,
+        "collisionMask": 6,
         "density": 1.0,
         "friction": 0.6,
         "restitution": 0.0,
         "radius": 48.0
       },
       "id": 3
+    },
+    {
+      "id": 4,
+      "type": "Rigidbody2D",
+      "properties": {
+        "prefabComponentId": "b0a839a3-9009-497c-889d-8d7a175f3fbd",
+        "bodyType": "Kinematic",
+        "gravityScale": 0.0,
+        "linearDamping": 0.0,
+        "angularDamping": 0.0,
+        "fixedRotation": true
+      }
     }
   ],
   "actors": [

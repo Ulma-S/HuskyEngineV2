@@ -4,6 +4,7 @@
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
 #include "engine/Collider2D.h"
+#include "engine/Rigidbody2D.h"
 #include "game/CameraFollowComponent.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -44,7 +45,7 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
     husky::game::SpawnInitialActors(app);
-    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + 2); // + カメラ + プレイヤー
+    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + husky::game::CrateCount + husky::game::WallCount + 2); // + 木箱 + 壁 + カメラ + プレイヤー
 
     // 一覧の最後(一番手前)がプレイヤー
     const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
@@ -208,7 +209,7 @@ TEST_CASE("SD-4: 跳ね回るものの数・速さ・プレハブは設定のデ
     CHECK(bouncer->settings.guid == *dataGuid);
     const husky::game::BouncerSettings* settings = app.GetAssetLoader().Resolve(bouncer->settings);
     REQUIRE(settings != nullptr);
-    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count) + 2); // + カメラ + プレイヤー
+    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count + husky::game::CrateCount + husky::game::WallCount) + 2); // + 木箱 + 壁 + カメラ + プレイヤー
     CHECK(settings->IsReadOnly());
 }
 
@@ -234,7 +235,7 @@ TEST_CASE("SD-4: 設定のデータの count と maxSpeed を変えると、置�
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     husky::game::SpawnInitialActors(app);
-    REQUIRE(app.GetScene().actors.size() == 5 + 1); // 跳ね回るもの 5 + カメラ(プレイヤーのプレハブは無い)
+    REQUIRE(app.GetScene().actors.size() == 5 + husky::game::WallCount + 1); // 跳ね回るもの 5 + 壁 + カメラ(プレイヤーと木箱のプレハブは無い)
     for (std::size_t i = 0; i < 5; ++i)
     {
         const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors[i]);
@@ -244,4 +245,55 @@ TEST_CASE("SD-4: 設定のデータの count と maxSpeed を変えると、置�
         CHECK(bouncer->vy >= -10.0f);
         CHECK(bouncer->vy <= 10.0f);
     }
+}
+
+TEST_CASE("PHY-5: プレイヤー(Kinematic)で木箱(Dynamic)を押せる。木箱は世界の端の壁で止まる")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    husky::game::SpawnInitialActors(app);
+    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
+    REQUIRE(player != nullptr);
+    // プレイヤーはプレハブで Kinematic の体を持つ
+    REQUIRE(player->GetComponent<husky::engine::Rigidbody2D>() != nullptr);
+    CHECK(player->GetComponent<husky::engine::Rigidbody2D>()->bodyType == husky::engine::BodyType2D::Kinematic);
+
+    // 木箱(名前 "Crate")を集める。最初の木箱は、プレイヤーの右 200、上 40 にある
+    std::vector<husky::engine::Actor*> crates;
+    int walls = 0;
+    app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+        if (actor.name == "Crate")
+        {
+            crates.push_back(&actor);
+        }
+        walls += actor.name.rfind("Wall", 0) == 0 ? 1 : 0;
+    });
+    REQUIRE(crates.size() == static_cast<std::size_t>(husky::game::CrateCount));
+    CHECK(walls == 4);
+    husky::engine::Actor* first = crates[0];
+    const float startX = first->transform.position.x;
+    REQUIRE(first->GetComponent<husky::engine::Rigidbody2D>() != nullptr);
+
+    // プレイヤーを木箱の高さに合わせ、右へ 1 フレームに 5 ずつ 1 秒動かす(PlayerActor::Tick と同じく、コードが位置を書く)
+    player->transform.position.y = first->transform.position.y;
+    app.StepFrame(0, {});
+    for (int i = 0; i < 60; ++i)
+    {
+        player->transform.position.x += 5.0f;
+        app.StepFrame(0, {});
+    }
+    // 押された木箱は、プレイヤーの右側(円の半径 48 + 箱の半分 32)より先にいる
+    CHECK(first->transform.position.x > startX + 50.0f);
+    CHECK(first->transform.position.x >= player->transform.position.x + 48.0f + 32.0f - 2.0f);
+
+    // 木箱を世界の右の端の向こうへ押し出そうとしても、壁で止まる(速さを付けて壁へ向かわせる)
+    first->transform.position = {husky::game::WorldWidth - 100.0f, 100.0f, 0.0f};
+    first->GetComponent<husky::engine::Rigidbody2D>()->SetLinearVelocity({2000.0f, 0.0f});
+    for (int i = 0; i < 60; ++i)
+    {
+        app.StepFrame(0, {});
+    }
+    CHECK(first->transform.position.x <= husky::game::WorldWidth - 32.0f + 1.0f);
 }

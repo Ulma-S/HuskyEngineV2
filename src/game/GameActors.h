@@ -16,8 +16,13 @@ namespace husky::game
 
     // 当たり判定のグループ(COL-4)。プレハブのコライダーの layer / collisionMask と同じ番号にしておく。
     // 跳ね回るもの同士は当たらない(数が多いので、プレイヤーとだけ調べる)。
-    constexpr int PlayerLayer = 0;  // プレイヤー(collisionMask は跳ね回るものだけ = 1 << 1)
+    constexpr int PlayerLayer = 0;  // プレイヤー(collisionMask は跳ね回るものと木箱 = (1 << 1) | (1 << 2))
     constexpr int BouncerLayer = 1; // 跳ね回るもの(collisionMask はプレイヤーだけ = 1 << 0)
+    // 押せる木箱と、世界の端の壁(PHY-5)。木箱はプレイヤー・木箱・壁と当たる(collisionMask = 1 + 4 + 8 = 13)、壁は木箱とだけ
+    constexpr int CrateLayer = 2;
+    constexpr int WallLayer = 3;
+    constexpr int CrateCount = 8; // 置く木箱の数
+    constexpr int WallCount = 4;  // 世界の端の壁の数(上下左右)
     // プレイヤーに触れている間の、跳ね回るものの色の既定(設定のデータ BouncerSettings::touchedColor が読めないときに使う)
     constexpr render::Color TouchedColor = {1.0f, 0.25f, 0.25f, 1.0f};
 
