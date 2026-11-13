@@ -157,6 +157,7 @@ int main()
     tools::DebugWindow debugWindow;
     tools::SceneInspector inspector;
     tools::SceneView sceneView;
+    sceneView.RegisterCommands(commands); // view.grid(グリッドを出す・隠す)
     // シーンビューのグリッドは、シーンのスプライトより奥に描く(開発用の UI はスプライトの後なので、別の口から描く)
     app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     // 移動のギズモは、シーンのスプライトより手前に描く(ImGui の窓よりは奥)

@@ -263,6 +263,25 @@ namespace husky::tools
     {
         return space == GizmoSpace::Local ? "Local (X)" : "Global (X)";
     }
+
+    void BuildSelectionOutline(const render::SpriteCorners& corners, const engine::CameraView& view,
+                               std::vector<render::Sprite>& out)
+    {
+        out.clear();
+        constexpr render::Color OutlineColor = {1.0f, 0.55f, 0.1f, 1.0f}; // Unity の選択の枠と同じ橙色
+        const float thickness = GizmoSize::Thickness / (view.zoom > 0.0f ? view.zoom : 1.0f);
+        // 角 i から角 i + 1 へ(3 の次は 0)の辺を 1 本ずつ。辺の真ん中に、辺の長さの細い板を、辺の向きに回して置く
+        for (int i = 0; i < 4; ++i)
+        {
+            const int next = (i + 1) % 4;
+            const float dx = corners.x[next] - corners.x[i];
+            const float dy = corners.y[next] - corners.y[i];
+            const float length = std::hypot(dx, dy);
+            const float angle = std::atan2(dy, dx) * 180.0f / Pi; // 辺の向き(度)
+            AddQuad(out, (corners.x[i] + corners.x[next]) * 0.5f, (corners.y[i] + corners.y[next]) * 0.5f, length + thickness,
+                    thickness, angle, OutlineColor);
+        }
+    }
 }
 
 #endif

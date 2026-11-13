@@ -105,6 +105,11 @@ namespace husky::tools
     // 道具の名前("Move (W)" など。画面の隅に出す)。
     const char* GetGizmoToolName(GizmoTool tool);
 
+    // 選んでいるアクターの枠(スプライトの四隅 corners を結ぶ 4 本の線。Unity と同じ橙色)を、out に作り直す。
+    // 線の太さは画面で一定(view の zoom から決める)。回っていれば、枠も回って見える(四隅がもう回っているため)。
+    void BuildSelectionOutline(const render::SpriteCorners& corners, const engine::CameraView& view,
+                               std::vector<render::Sprite>& out);
+
     // ギズモの向きの名前("Global (X)" など。Unity の表示に合わせる)。
     const char* GetGizmoSpaceName(GizmoSpace space);
 }

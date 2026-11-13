@@ -326,4 +326,43 @@ TEST_CASE("Global / Local: Local のときだけ移動の矢印を回して描�
     CHECK(std::string(husky::tools::GetGizmoSpaceName(GizmoSpace::Local)) == "Local (X)");
     CHECK(std::string(husky::tools::GetGizmoSpaceName(GizmoSpace::World)) == "Global (X)");
 }
+
+TEST_CASE("仕上げ: view.grid は呼ぶたびにグリッドを出す・隠すを切り替える")
+{
+    husky::engine::Application app;
+    husky::tools::EditorCommandRegistry commands;
+    husky::tools::SceneView sceneView;
+    sceneView.RegisterCommands(commands);
+    CHECK(sceneView.IsGridShown());
+    REQUIRE(commands.Execute("view.grid", app).succeeded);
+    CHECK_FALSE(sceneView.IsGridShown());
+    REQUIRE(commands.Execute("view.grid", app).succeeded);
+    CHECK(sceneView.IsGridShown());
+    const husky::tools::EditorCommandResult hidden = commands.Execute("view.grid", app);
+    REQUIRE(hidden.succeeded);
+    CHECK(hidden.message == "Grid: hidden");
+    CHECK_FALSE(sceneView.IsGridShown());
+    CHECK(commands.Execute("editor.undo", app).succeeded == false); // 見た目だけなので、履歴には積まない(undo も無い)
+}
+
+TEST_CASE("仕上げ: 選んだアクターの枠は、スプライトの四隅を結ぶ 4 本の線(回っていれば枠も回る)")
+{
+    // 真ん中 (0, 0)、40 x 20 のスプライトの四隅
+    husky::render::Sprite shape;
+    shape.width = 40.0f;
+    shape.height = 20.0f;
+    std::vector<husky::render::Sprite> lines;
+    husky::tools::BuildSelectionOutline(husky::render::ComputeSpriteCorners(shape), CameraView{0.0f, 0.0f, 1.0f}, lines);
+    REQUIRE(lines.size() == 4);
+    // 1 本目は上の辺(左上 → 右上): 真ん中は (0, 10)、長さ 40(+ 太さの分)、向き 0 度
+    CHECK(lines[0].model.m[12] == doctest::Approx(0.0f));
+    CHECK(lines[0].model.m[13] == doctest::Approx(10.0f));
+    CHECK(lines[0].width == doctest::Approx(40.0f + husky::tools::GizmoSize::Thickness));
+    // 2 本目は右の辺(右上 → 右下): 真ん中は (20, 0)
+    CHECK(lines[1].model.m[12] == doctest::Approx(20.0f));
+    CHECK(lines[1].model.m[13] == doctest::Approx(0.0f).epsilon(0.001));
+    // 2 倍に寄ると、線の太さはワールドで半分(画面では同じ)
+    husky::tools::BuildSelectionOutline(husky::render::ComputeSpriteCorners(shape), CameraView{0.0f, 0.0f, 2.0f}, lines);
+    CHECK(lines[0].height == doctest::Approx(husky::tools::GizmoSize::Thickness / 2.0f));
+}
 #endif

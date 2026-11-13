@@ -57,6 +57,13 @@ namespace husky::tools
         // 移動のギズモ(tools/TransformGizmo.h)を描く。シーンより手前に描くので、Application::SetAfterSceneDrawCallback から呼ぶ。
         void DrawGizmo(render::RenderDevice& renderDevice) const;
 
+        // シーンビューのコマンドを登録する: view.grid(グリッドを出す・隠す)。この SceneView を覚えるので、SceneView は
+        // commands より長く生きること(main の中で両方を作る)。
+        void RegisterCommands(EditorCommandRegistry& commands);
+
+        // グリッドを出しているか(view.grid で切り替える)。
+        bool IsGridShown() const { return m_showGrid; }
+
         // 今のエディタのカメラ(テストや、ほかの道具が読むため)。
         const engine::CameraView& GetView() const { return m_view; }
 
@@ -64,7 +71,9 @@ namespace husky::tools
         engine::CameraView m_view;  // エディタのカメラ
         bool m_initialized = false; // 最初の1回だけ、ゲームのカメラと同じ見え方から始める
         std::vector<render::Sprite> m_gridSprites; // グリッドの線(使い回す入れ物。毎フレーム作り直すが、確保は最初だけ)
-        std::vector<render::Sprite> m_gizmoSprites; // 移動のギズモの線(使い回す入れ物)
+        std::vector<render::Sprite> m_gizmoSprites;   // ギズモの線(使い回す入れ物)
+        std::vector<render::Sprite> m_outlineSprites; // 選んでいるアクターの枠の線(使い回す入れ物)
+        bool m_showGrid = true;                       // グリッドを出すか(view.grid)
         GizmoHandle m_hovered = GizmoHandle::None;    // マウスを乗せている(つかんでいる)ギズモの部品(光らせる)
         GizmoHandle m_dragHandle = GizmoHandle::None; // つかんでいるギズモの部品
         core::ObjectHandle m_dragging;   // ギズモで動かしているアクター(弱い参照。動かしていなければ null)

@@ -6,6 +6,7 @@
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
 #include "engine/SpriteComponent.h"
+#include "engine/TransformMatrix.h"
 #include "tools/EditorCommands.h"
 #include "tools/EditorPlayMode.h"
 #include "tools/Inspector.h"
@@ -80,6 +81,7 @@ namespace husky::tools
             m_gridSprites.clear();     // グリッドも描かない
             m_dragging = core::ObjectHandle();
             m_gizmoSprites.clear();
+            m_outlineSprites.clear();
             return;
         }
 
@@ -248,7 +250,27 @@ namespace husky::tools
         }
         app.SetCameraOverride(m_view);
         // グリッドの線を、このカメラに合わせて作り直す(次に描くフレームで、同じカメラと一緒に使われる)
-        BuildGridSprites(m_view, screenWidth, screenHeight, m_gridSprites);
+        if (m_showGrid)
+        {
+            BuildGridSprites(m_view, screenWidth, screenHeight, m_gridSprites);
+        }
+        else
+        {
+            m_gridSprites.clear(); // 隠している(view.grid)
+        }
+        // 選んでいるアクターの枠(スプライトを持っていれば、その四隅を結ぶ。描くときと同じ形を、同じ道具で作る)
+        m_outlineSprites.clear();
+        const engine::SpriteComponent* sprite = selected != nullptr ? selected->GetComponent<engine::SpriteComponent>() : nullptr;
+        if (sprite != nullptr)
+        {
+            render::Sprite shape;
+            shape.model = engine::MakeModelMatrix(selected->transform);
+            shape.width = sprite->width;
+            shape.height = sprite->height;
+            shape.pivotX = sprite->pivot.x;
+            shape.pivotY = sprite->pivot.y;
+            BuildSelectionOutline(render::ComputeSpriteCorners(shape), m_view, m_outlineSprites);
+        }
         // ギズモ: 選んでいるアクターの位置に(動かした後の値で作る)
         m_gizmoSprites.clear();
         if (selected != nullptr)
@@ -273,10 +295,30 @@ namespace husky::tools
 
     void SceneView::DrawGizmo(render::RenderDevice& renderDevice) const
     {
+        for (const render::Sprite& line : m_outlineSprites) // 先に枠(ギズモがその上に重なる)
+        {
+            renderDevice.DrawSprite(line);
+        }
         for (const render::Sprite& quad : m_gizmoSprites)
         {
             renderDevice.DrawSprite(quad);
         }
+    }
+
+    void SceneView::RegisterCommands(EditorCommandRegistry& commands)
+    {
+        // グリッドを出す・隠す(view.grid)。見た目だけの切り替えなので、シーンは変えず、Undo の履歴にも積まない。
+        // [this]: ラムダ式がこの SceneView を覚える(EditorPlayMode::RegisterCommands と同じ形)。
+        EditorCommand grid;
+        grid.name = "view.grid";
+        grid.label = "Toggle grid";
+        grid.description = "Show or hide the grid in the scene view (while editing). Each run switches between shown and hidden.";
+        grid.execute = [this](EditorCommandContext&) {
+            // 引数は持たせない(画面のボタン1回で切り替わるように。引数があると、入力の小窓が開く)
+            m_showGrid = !m_showGrid;
+            return EditorCommandResult::Success(m_showGrid ? "Grid: shown" : "Grid: hidden");
+        };
+        commands.Register(std::move(grid));
     }
 }
 #endif
