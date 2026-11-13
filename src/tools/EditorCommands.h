@@ -258,6 +258,7 @@ namespace husky::tools
     //     (Actor::prefab)。読み込み中なら、読み終わるまで待つ。
     //   - type(型の名前。Actor の子孫で、型の登録簿にあるもの): アクターだけを作る(コンポーネントは付かない)。
     // 結果の data に、置いたアクターの guid を入れる。シーンを書き換えるコマンド(modifiesScene)。
+    // Undo は actor.destroy、Redo は置いた直後の控えでの actor.restore(同じ guid に戻るので、後の履歴と食い違わない)。
     EditorCommand MakeSpawnActorCommand();
 
     // 「プレハブを作る」コマンド(prefab.create)を作る。引数: actor(名前か guid)、path(assets の中の、.prefab で終わるパス)。

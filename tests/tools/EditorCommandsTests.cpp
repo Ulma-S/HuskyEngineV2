@@ -924,6 +924,46 @@ TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.rest
     CHECK(app.GetScene().FindActorByGuid(guid) != nullptr);
 }
 
+TEST_CASE("EditorCommands: actor.spawn は Undo で消え、Redo で同じ guid のまま戻る(後の履歴の guid と食い違わない)")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"type": "Actor", "x": 3, "y": 4})"));
+    REQUIRE(spawned.succeeded);
+    const std::string guidText = spawned.data.Find("guid")->AsString();
+    husky::core::Guid guid;
+    REQUIRE(husky::core::Guid::Parse(guidText, guid));
+    // 置いた後に名前を変える(この履歴は guid で指す)
+    REQUIRE(commands.Execute("property.set", app, Json(("{\"actor\": \"" + guidText +
+                                                        R"(", "property": "name", "value": "Box"})")
+                                                           .c_str()))
+                .succeeded);
+    CHECK(commands.GetUndoCount() == 2);
+
+    // 名前を戻し、置いたのも戻す → いなくなる
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
+    app.GetScene().RemoveDestroyedActors();
+    app.GetRegistry().FlushDestroyed();
+
+    // やり直す → 同じ guid・同じ位置で戻り、続く名前の変更もやり直せる
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    husky::engine::Actor* back = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(back != nullptr);
+    CHECK(back->transform.position.x == 3.0f);
+    CHECK(back->transform.position.y == 4.0f);
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(back->name == "Box");
+}
+
 TEST_CASE("EditorCommands: property.setMany はまとめて書き換え、1つでも書けなければ何も変えない")
 {
     Application app;

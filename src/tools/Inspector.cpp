@@ -532,7 +532,20 @@ namespace husky::tools
                 DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
                 if (ImGui::Button("Destroy"))
                 {
-                    selected->Destroy(); // フレームの終わりに消える(弱い参照なので、選択は自然に外れる)
+                    // 編集中は actor.destroy を通す(Ctrl+Z で戻せる)。再生中など、コマンドが使えないときは、
+                    // 値の書き換えと同じく、その場で消すだけで履歴に残さない(Stop で元に戻る)。
+                    // どちらも消えるのはフレームの終わり(弱い参照なので、選択は自然に外れる)。
+                    const EditorCommand* destroy = commands != nullptr ? commands->Find("actor.destroy") : nullptr;
+                    if (destroy != nullptr && commands->GetUnavailableReason(*destroy, app) == nullptr)
+                    {
+                        engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                        args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                        commands->Execute("actor.destroy", app, args);
+                    }
+                    else
+                    {
+                        selected->Destroy();
+                    }
                 }
 
                 // --- コンポーネント ---

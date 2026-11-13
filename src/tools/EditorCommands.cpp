@@ -497,6 +497,13 @@ namespace husky::tools
         }
     }
 
+    namespace
+    {
+        // actor.spawn の Undo / Redo に使う(中身は actor.destroy の近くに書いている)。
+        EditorCommandCall MakeDestroyCall(const core::Guid& guid);
+        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data);
+    }
+
     EditorCommand MakeSpawnActorCommand()
     {
         EditorCommand command;
@@ -601,6 +608,10 @@ namespace husky::tools
             // 機械向け: 置いたアクターの guid(続けて property.set などで指すため)。
             result.data = engine::ArchiveValue::MakeObject();
             result.data.Set("guid", engine::ArchiveValue(actor->guid.ToString()));
+            // Undo は guid で消す。Redo は「置き直す」ではなく、置いた直後のアクターの控えから同じ guid で戻す
+            // (置き直すと新しい guid になり、この後の履歴(property.set など)が指す guid と食い違うため)。
+            result.undo = MakeDestroyCall(actor->guid);
+            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(scene, {actor}).value);
             return result;
         };
         return command;
