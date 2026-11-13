@@ -366,6 +366,7 @@ add_library(husky_tools STATIC
     src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
     src/tools/PropertyEditRecorder.cpp
+    src/tools/SceneView.cpp
 )
 husky_set_compile_options(husky_tools)
 target_include_directories(husky_tools PUBLIC src)
@@ -443,6 +444,7 @@ if(HUSKY_BUILD_TESTS)
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
         tests/tools/PropertyEditRecorderTests.cpp
+        tests/tools/SceneViewTests.cpp
         tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
         tests/tools/EditorPlayModeTests.cpp

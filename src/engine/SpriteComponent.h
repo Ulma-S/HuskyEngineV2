@@ -94,6 +94,12 @@ namespace husky::engine
         });
     }
 
+    // ワールドの点 (worldX, worldY) に重なっているスプライトを持つアクターのうち、いちばん手前(一覧で後ろ)のものを返す(RS-2)。
+    // 無ければ nullptr。回転・拡大縮小・ピボットも考える(点をスプライトのローカルの座標へ戻してから、四角形の中かを見る)。
+    // エディタのシーンビューで、クリックしたアクターを選ぶのに使う。
+    // 動作スレッド: ゲームスレッドのみ
+    Actor* FindSpriteActorAt(Scene& scene, float worldX, float worldY);
+
     // ピクセル単位の範囲 region を、大きさ textureWidth x textureHeight の画像の UV(0〜1)にして、sprite に書く。
     // region が空(大きさ 0)か、画像の大きさが分からない(0)なら、画像の全体(0〜1)にする。
     // 動作スレッド: どこでもよい

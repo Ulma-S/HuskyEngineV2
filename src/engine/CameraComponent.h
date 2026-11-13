@@ -37,4 +37,8 @@ namespace husky::engine
     // シーンを映すカメラの行列を作る。シーンにカメラがあればそれを使い、無ければ画面ちょうどの動かないカメラ
     // (MakeScreenCamera。カメラの無い古いシーンのファイルも、今までどおりに見える)を使う。
     CameraMatrices MakeSceneCamera(Scene& scene, float screenWidth, float screenHeight);
+
+    // シーンのカメラが「どこを、どれだけの拡大で映すか」(CameraView)。カメラが無ければ、画面ちょうどのカメラの値
+    // (真ん中 = 画面の大きさの半分、zoom 1)。エディタのカメラを、ゲームのカメラと同じ見え方から始めるのに使う(RS-2)。
+    CameraView FindSceneCameraView(Scene& scene, float screenWidth, float screenHeight);
 }

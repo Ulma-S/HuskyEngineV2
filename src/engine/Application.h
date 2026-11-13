@@ -19,6 +19,7 @@
 #include "core/TypeRegistry.h"
 #include "engine/AssetDatabase.h"
 #include "engine/AssetLoader.h"
+#include "engine/Camera.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/Scene.h"
@@ -130,6 +131,12 @@ namespace husky::engine
         using DevUiCallback = std::function<void(Application&)>;
         void SetDevUiCallback(DevUiCallback callback) { m_devUiCallback = std::move(callback); }
 
+        // 【開発ビルドだけ】シーンのカメラの代わりに、この見え方で映す(エディタのシーンビュー、RS-2)。
+        // 編集中はエディタのカメラで自由に見回し、再生中はゲームのカメラに戻す(ClearCameraOverride)。
+        // 描画は毎フレームここを読むので、変えると次に描くフレームから効く。
+        void SetCameraOverride(const CameraView& view) { m_cameraOverride = view; m_hasCameraOverride = true; }
+        void ClearCameraOverride() { m_hasCameraOverride = false; }
+
         // 【開発ビルドだけ】今のシーンを、シーンのファイル(JSON、読みやすい形)に保存する。
         // 保存はエディタの役目なので、製品(Release)にはコードごと入らない。
         // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
@@ -174,6 +181,8 @@ namespace husky::engine
 
 #if HUSKY_DEVELOPMENT
         DevUiCallback m_devUiCallback;
+        CameraView m_cameraOverride;      // SetCameraOverride の見え方
+        bool m_hasCameraOverride = false; // true の間は、シーンのカメラの代わりに m_cameraOverride で映す
 #endif
     };
 }

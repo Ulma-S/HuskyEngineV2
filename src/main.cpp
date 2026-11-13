@@ -17,6 +17,7 @@
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
+#include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
 #endif
 
 #include <cstdio> // std::printf
@@ -155,7 +156,10 @@ int main()
     // どちらも覚えておくもの(入力した引数、選んでいるアクター)があるので、main の中に1つだけ作り、参照で渡す。
     tools::DebugWindow debugWindow;
     tools::SceneInspector inspector;
-    app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode](engine::Application& application) {
+    tools::SceneView sceneView;
+    app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
+        // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
+        sceneView.Update(application, playMode, inspector);
         debugWindow.Draw(application, &commands, &playMode);
         inspector.Draw(application, &commands); // 値の書き換えは property.set を通す(Undo できる)
     });

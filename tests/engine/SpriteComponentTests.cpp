@@ -240,3 +240,40 @@ TEST_CASE("RS-1: 回転はピボットを中心に反時計回り、拡大縮小
     CHECK(corners.x[3] == doctest::Approx(60.0f));
     CHECK(corners.y[3] == doctest::Approx(20.0f));
 }
+
+TEST_CASE("RS-2: FindSpriteActorAt は点に重なるスプライトのうち、いちばん手前のアクターを返す(回転とピボットも考える)")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    // 奥: 真ん中 (100, 100)、40 x 20
+    Actor* back = scene->Spawn<Actor>();
+    back->transform.position = {100.0f, 100.0f, 0.0f};
+    SpriteComponent* backSprite = back->AddComponent<SpriteComponent>();
+    backSprite->width = 40.0f;
+    backSprite->height = 20.0f;
+    // 手前: 真ん中 (110, 100)、10 x 10
+    Actor* front = scene->Spawn<Actor>();
+    front->transform.position = {110.0f, 100.0f, 0.0f};
+    SpriteComponent* frontSprite = front->AddComponent<SpriteComponent>();
+    frontSprite->width = 10.0f;
+    frontSprite->height = 10.0f;
+
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 110.0f, 100.0f) == front); // 重なっている所は手前
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 85.0f, 100.0f) == back);
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 100.0f, 115.0f) == nullptr); // 奥の上の辺(110)より上
+
+    // 奥を 90 度回すと、縦長(20 x 40)になる: (100, 115) に重なり、(85, 100) には重ならない
+    back->transform.rotation = 90.0f;
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 100.0f, 115.0f) == back);
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 85.0f, 100.0f) == nullptr);
+
+    // ピボットを左下にすると、位置が左下の角になる: (105, 105) は手前の中(110〜120 の外)ではなく、奥にも入らない
+    back->transform.rotation = 0.0f;
+    frontSprite->pivot = {0.0f, 0.0f};
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 115.0f, 105.0f) == front);
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 108.0f, 100.0f) == back);
+
+    // 大きさ 0 に縮めたものには当たらない(逆行列が無い)
+    front->transform.scale = {0.0f, 0.0f, 1.0f};
+    CHECK(husky::engine::FindSpriteActorAt(*scene, 115.0f, 105.0f) == back);
+}

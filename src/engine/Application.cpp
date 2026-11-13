@@ -251,9 +251,17 @@ namespace husky::engine
             {
                 // カメラ: シーンのカメラ(CameraComponent)があればそれで、無ければ画面ちょうどの動かないカメラで映す。
                 // カメラは動き、画面の大きさも窓を広げると変わるので、毎フレーム作り直す。
-                const CameraMatrices camera = MakeSceneCamera(*m_scene,
+                CameraMatrices camera = MakeSceneCamera(*m_scene,
                                                               static_cast<float>(renderDevice.GetScreenWidth()),
                                                               static_cast<float>(renderDevice.GetScreenHeight()));
+#if HUSKY_DEVELOPMENT
+                if (m_hasCameraOverride) // エディタのカメラ(シーンビュー)で映す
+                {
+                    camera = MakeOrthographicCamera(m_cameraOverride.centerX, m_cameraOverride.centerY, m_cameraOverride.zoom,
+                                                    static_cast<float>(renderDevice.GetScreenWidth()),
+                                                    static_cast<float>(renderDevice.GetScreenHeight()));
+                }
+#endif
                 renderDevice.SetViewProjection(camera.ViewProjection());
 
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。

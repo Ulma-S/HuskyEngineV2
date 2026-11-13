@@ -1,6 +1,10 @@
 // SpriteComponent.h の実装。
 #include "engine/SpriteComponent.h"
 
+#include "engine/GlmConversion.h"
+
+#include <glm/matrix.hpp> // glm::inverse、glm::determinant
+
 namespace husky::engine
 {
     namespace
@@ -17,6 +21,28 @@ namespace husky::engine
         {
             return (asset != nullptr && !asset->GetTexture().IsNull()) ? asset : nullptr;
         }
+    }
+
+    Actor* FindSpriteActorAt(Scene& scene, float worldX, float worldY)
+    {
+        Actor* found = nullptr;
+        ForEachSprite(scene, [&](render::Sprite& sprite, SpriteComponent& component) {
+            // 描くときは「ローカル × モデル行列 = ワールド」。逆行列を掛けて、点をスプライトのローカルの座標へ戻す。
+            const glm::mat4 model = ToGlm(sprite.model);
+            if (glm::determinant(model) == 0.0f)
+            {
+                return; // 拡大縮小が 0 など、つぶれていて逆行列が無い(点に重なりようがない)
+            }
+            const glm::vec4 local = glm::inverse(model) * glm::vec4(worldX, worldY, 0.0f, 1.0f);
+            // ローカルの四角形(ピボットが原点。ComputeSpriteCorners と同じ決まり)の中か
+            const float left = -sprite.width * sprite.pivotX;
+            const float bottom = -sprite.height * sprite.pivotY;
+            if (local.x >= left && local.x <= left + sprite.width && local.y >= bottom && local.y <= bottom + sprite.height)
+            {
+                found = component.GetOwner(); // 後に描くもの(手前)で上書きする
+            }
+        });
+        return found;
     }
 
     void ApplyRegion(const PixelRect& region, int textureWidth, int textureHeight, render::Sprite& sprite)

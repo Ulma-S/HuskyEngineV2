@@ -4,6 +4,7 @@
 
 #include <glm/ext/matrix_clip_space.hpp> // glm::ortho
 #include <glm/ext/matrix_transform.hpp>  // glm::translate
+#include <glm/matrix.hpp>                // glm::inverse
 
 namespace husky::engine
 {
@@ -37,5 +38,21 @@ namespace husky::engine
     CameraMatrices MakeScreenCamera(float screenWidth, float screenHeight)
     {
         return MakeOrthographicCamera(screenWidth * 0.5f, screenHeight * 0.5f, 1.0f, screenWidth, screenHeight);
+    }
+
+    core::Vector3 ScreenToWorld(const CameraMatrices& camera, float screenX, float screenY, float screenWidth, float screenHeight)
+    {
+        if (screenWidth <= 0.0f || screenHeight <= 0.0f)
+        {
+            return core::Vector3{};
+        }
+        // 画面のピクセル → クリップ座標(左端 -1、右端 +1。y は上端 +1、下端 -1 なので裏返す)
+        const float clipX = screenX / screenWidth * 2.0f - 1.0f;
+        const float clipY = 1.0f - screenY / screenHeight * 2.0f;
+        // 描くときは「ワールド × (射影 × ビュー)= クリップ」。逆行列を掛ければ、クリップからワールドへ戻る。
+        // 正射影なので w は 1 のまま(遠近の割り算は要らない)。z は 2D の面(クリップの z = 0.5 = ワールドの z = 0)にする。
+        const glm::mat4 inverse = glm::inverse(ToGlm(camera.ViewProjection()));
+        const glm::vec4 world = inverse * glm::vec4(clipX, clipY, 0.5f, 1.0f);
+        return core::Vector3{world.x, world.y, 0.0f};
     }
 }

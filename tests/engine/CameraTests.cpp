@@ -113,3 +113,39 @@ TEST_CASE("カメラ: シーンにカメラが無ければ画面ちょうどの�
     actor->Destroy();
     CHECK(husky::engine::FindSceneCamera(scene) == nullptr);
 }
+
+TEST_CASE("RS-2: ScreenToWorld は画面の点(左上が原点、下が +y)を、カメラが映しているワールドの位置に戻す")
+{
+    // ワールドの (1000, 500) を真ん中に、2 倍で映す(見える範囲は 640 x 360)
+    const CameraMatrices camera = husky::engine::MakeOrthographicCamera(1000.0f, 500.0f, 2.0f, 1280.0f, 720.0f);
+    const husky::core::Vector3 center = husky::engine::ScreenToWorld(camera, 640.0f, 360.0f, 1280.0f, 720.0f);
+    CHECK(center.x == doctest::Approx(1000.0f));
+    CHECK(center.y == doctest::Approx(500.0f));
+    // 画面の左上 = ワールドの左上(x は小さく、y は大きい)
+    const husky::core::Vector3 topLeft = husky::engine::ScreenToWorld(camera, 0.0f, 0.0f, 1280.0f, 720.0f);
+    CHECK(topLeft.x == doctest::Approx(1000.0f - 320.0f));
+    CHECK(topLeft.y == doctest::Approx(500.0f + 180.0f));
+    // 行き来: ワールドの点を描くときの変換で画面へ送り、戻すと同じ点になる
+    const glm::vec4 clip = ToClip(camera, 1100.0f, 450.0f);
+    const float screenX = (clip.x + 1.0f) * 0.5f * 1280.0f;
+    const float screenY = (1.0f - clip.y) * 0.5f * 720.0f;
+    const husky::core::Vector3 back = husky::engine::ScreenToWorld(camera, screenX, screenY, 1280.0f, 720.0f);
+    CHECK(back.x == doctest::Approx(1100.0f));
+    CHECK(back.y == doctest::Approx(450.0f));
+}
+
+TEST_CASE("RS-2: FindSceneCameraView はシーンのカメラの位置と zoom、無ければ画面ちょうどの見え方")
+{
+    husky::engine::Application app;
+    const husky::engine::CameraView none = husky::engine::FindSceneCameraView(app.GetScene(), 1280.0f, 720.0f);
+    CHECK(none.centerX == 640.0f);
+    CHECK(none.centerY == 360.0f);
+    CHECK(none.zoom == 1.0f);
+    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    actor->transform.position = {50.0f, 60.0f, 0.0f};
+    actor->AddComponent<husky::engine::CameraComponent>()->zoom = 3.0f;
+    const husky::engine::CameraView view = husky::engine::FindSceneCameraView(app.GetScene(), 1280.0f, 720.0f);
+    CHECK(view.centerX == 50.0f);
+    CHECK(view.centerY == 60.0f);
+    CHECK(view.zoom == 3.0f);
+}

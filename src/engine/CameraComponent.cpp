@@ -18,15 +18,20 @@ namespace husky::engine
         return found;
     }
 
-    CameraMatrices MakeSceneCamera(Scene& scene, float screenWidth, float screenHeight)
+    CameraView FindSceneCameraView(Scene& scene, float screenWidth, float screenHeight)
     {
         const CameraComponent* camera = FindSceneCamera(scene);
         const Actor* owner = camera != nullptr ? camera->GetOwner() : nullptr;
         if (owner == nullptr)
         {
-            return MakeScreenCamera(screenWidth, screenHeight);
+            return CameraView{screenWidth * 0.5f, screenHeight * 0.5f, 1.0f}; // MakeScreenCamera と同じ見え方
         }
-        const core::Vector3& position = owner->transform.position;
-        return MakeOrthographicCamera(position.x, position.y, camera->zoom, screenWidth, screenHeight);
+        return CameraView{owner->transform.position.x, owner->transform.position.y, camera->zoom};
+    }
+
+    CameraMatrices MakeSceneCamera(Scene& scene, float screenWidth, float screenHeight)
+    {
+        const CameraView view = FindSceneCameraView(scene, screenWidth, screenHeight);
+        return MakeOrthographicCamera(view.centerX, view.centerY, view.zoom, screenWidth, screenHeight);
     }
 }
