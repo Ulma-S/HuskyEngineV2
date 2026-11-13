@@ -97,6 +97,7 @@ namespace husky::engine
 
     bool AssetDatabase::Scan(const std::string& rootDirectory, AssetScanReport* outReport)
     {
+        ++m_version; // 中身が変わったことを、一覧を覚えている側(アセットの窓など)に知らせる
         m_paths.clear();
         m_guids.clear();
         m_rootDirectory = WithTrailingSlash(rootDirectory);

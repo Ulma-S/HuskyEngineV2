@@ -385,6 +385,7 @@ target_link_libraries(husky_game PUBLIC husky_engine)
 # --- tools モジュール(開発用の UI とエディタの機能。開発ビルドだけ) ---
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
 add_library(husky_tools STATIC
+    src/tools/AssetBrowser.cpp
     src/tools/DebugWindow.cpp
     src/tools/EditorCli.cpp
     src/tools/EditorCommands.cpp
@@ -481,6 +482,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
         tests/tools/DataCommandsTests.cpp
+        tests/tools/AssetBrowserTests.cpp
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp

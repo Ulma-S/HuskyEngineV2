@@ -22,6 +22,7 @@
 #include "core/Guid.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -65,6 +66,10 @@ namespace husky::engine
 
         std::size_t GetAssetCount() const { return m_paths.size(); }
 
+        // Scan のたびに 1 つ増える番号。表を写して覚えている側(アセットの窓)が、作り直す時を知るのに使う
+        // (毎フレーム表を比べたり写したりしないため)。
+        std::uint32_t GetVersion() const { return m_version; }
+
         // 表のアセットすべてについて、function(guid, 相対パス) を呼ぶ。並びは決まっていない(必要なら呼ぶ側で並べる)。
         template <typename Function>
         void ForEachAsset(Function&& function) const
@@ -85,6 +90,7 @@ namespace husky::engine
 
     private:
         std::string m_rootDirectory;
+        std::uint32_t m_version = 0; // Scan の回数(GetVersion)
         // std::unordered_map は C# の Dictionary。Guid を鍵にできるのは、std::hash<Guid> を用意したから(Guid.h)。
         std::unordered_map<core::Guid, std::string> m_paths; // GUID → 相対パス
         std::unordered_map<std::string, core::Guid> m_guids; // 相対パス → GUID(逆引き)

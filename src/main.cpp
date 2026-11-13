@@ -13,6 +13,7 @@
 #include "render/RenderDevice.h"
 
 #if HUSKY_DEVELOPMENT
+#include "tools/AssetBrowser.h" // アセットの一覧とデータの窓(同じく開発ビルドだけ)
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
@@ -165,16 +166,18 @@ int main()
     tools::DebugWindow debugWindow;
     tools::SceneInspector inspector;
     tools::SceneView sceneView;
+    tools::AssetBrowser assetBrowser; // アセットの一覧と、開いたデータの窓(SD-3b。app より後に作るので、app より先に壊れる)
     sceneView.RegisterCommands(commands); // view.grid(グリッドを出す・隠す)
     // シーンビューのグリッドは、シーンのスプライトより奥に描く(開発用の UI はスプライトの後なので、別の口から描く)
     app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     // 移動のギズモは、シーンのスプライトより手前に描く(ImGui の窓よりは奥)
     app.SetAfterSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGizmo(renderDevice); });
-    app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
+    app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く
         debugWindow.Draw(application, &commands, &playMode);
         inspector.Draw(application, &commands); // 値の書き換えは property.set を通す(Undo できる)
+        assetBrowser.Draw(application, &commands); // データの値の書き換えは data.set を通す(Undo できる)
     });
 #endif
 
