@@ -31,7 +31,7 @@ namespace husky::core
         AssetRef,          // AssetRef<T>(アセットへの参照。保存すると GUID になる。AssetRef.h)
         Guid,              // core::Guid(変わらない ID。保存すると GUID の文字列になる。アクターの ID など)
         ObjectRef,         // ObjectRef<T>(型の付いた、ほかのオブジェクトへの参照。ObjectRef.h。保存は ObjectHandle と同じく番号)
-        Array,             // std::vector<E>(E は配列以外のプロパティにできる型。bool は除く。中身は ArrayInfo。SF-2)
+        Array,             // std::vector<E>(E は配列以外のプロパティにできる型。中身は ArrayInfo。SF-2)
     };
 
     class Property;
@@ -335,9 +335,20 @@ namespace husky::core
         Property element;
         std::size_t (*size)(const void* array);                 // 要素の数
         void (*resize)(void* array, std::size_t count);          // 要素の数を変える(増えた分は既定の値)
-        void* (*at)(void* array, std::size_t index);             // index 番目の要素の先頭
+        // index 番目の要素の先頭。要素の場所が取れない配列(std::vector<bool>)では nullptr で、代わりに load / store を使う。
+        void* (*at)(void* array, std::size_t index);
         const void* (*atConst)(const void* array, std::size_t index);
         void (*erase)(void* array, std::size_t index);           // index 番目の要素を消して詰める
+        // 要素の場所が取れない配列だけ(ほかは nullptr): 「写して触って戻す」ための2つ。
+        //   load(array, i, out):  i 番目の値を、out(要素の型の手元の変数)に写す
+        //   store(array, i, in):  in の値を i 番目に書き戻す
+        // std::vector<bool> は 1 要素を 1 ビットに詰めていて、bool としての場所(アドレス)が無いため。
+        // 今これを使うのは bool の配列だけなので、手元の変数は bool として用意すればよい(IsProxy で見分ける)。
+        void (*load)(const void* array, std::size_t index, void* out);
+        void (*store)(void* array, std::size_t index, const void* in);
+
+        // 要素の場所が取れず、写しを通して読み書きする配列か。
+        bool IsProxy() const { return at == nullptr; }
     };
 
     template <typename T>
@@ -346,24 +357,49 @@ namespace husky::core
         if constexpr (PropertyTypeOf<T>() == PropertyType::Array)
         {
             using E = typename IsStdVector<T>::Element;
-            static_assert(!std::is_same_v<E, bool>,
-                          "std::vector<bool> は要素の場所(アドレス)が取れないので配列のプロパティにできません");
             static_assert(!IsStdVector<E>::value, "配列の配列は、まだプロパティにできません(構造体に包んでください)");
             static_assert(!std::is_same_v<E, ObjectHandle>, "ここには来ない(ObjectHandleArray になる)");
             // 関数の中の static: 最初に通ったときに1回だけ作られる。要素の型ごとに別のもの(テンプレートの実体ごと)。
             // 取り込みの無いラムダ式は、関数のポインタに変換できる。
-            static const ArrayInfo info{
-                Property("element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
-                [](const void* array) { return static_cast<const T*>(array)->size(); },
-                [](void* array, std::size_t count) { static_cast<T*>(array)->resize(count); },
-                [](void* array, std::size_t index) -> void* { return &(*static_cast<T*>(array))[index]; },
-                [](const void* array, std::size_t index) -> const void* { return &(*static_cast<const T*>(array))[index]; },
-                [](void* array, std::size_t index) {
-                    T& vector = *static_cast<T*>(array);
-                    vector.erase(vector.begin() + static_cast<std::ptrdiff_t>(index));
-                },
+            constexpr auto size = [](const void* array) { return static_cast<const T*>(array)->size(); };
+            constexpr auto resize = [](void* array, std::size_t count) { static_cast<T*>(array)->resize(count); };
+            constexpr auto erase = [](void* array, std::size_t index) {
+                T& vector = *static_cast<T*>(array);
+                vector.erase(vector.begin() + static_cast<std::ptrdiff_t>(index));
             };
-            return &info;
+            if constexpr (std::is_same_v<E, bool>)
+            {
+                // std::vector<bool>: 場所の代わりに、写す(load)・戻す(store)を用意する
+                static const ArrayInfo info{
+                    Property("element", PropertyType::Bool, 0),
+                    size,
+                    resize,
+                    nullptr,
+                    nullptr,
+                    erase,
+                    [](const void* array, std::size_t index, void* out) {
+                        *static_cast<bool*>(out) = (*static_cast<const T*>(array))[index];
+                    },
+                    [](void* array, std::size_t index, const void* in) {
+                        (*static_cast<T*>(array))[index] = *static_cast<const bool*>(in);
+                    },
+                };
+                return &info;
+            }
+            else
+            {
+                static const ArrayInfo info{
+                    Property("element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
+                    size,
+                    resize,
+                    [](void* array, std::size_t index) -> void* { return &(*static_cast<T*>(array))[index]; },
+                    [](const void* array, std::size_t index) -> const void* { return &(*static_cast<const T*>(array))[index]; },
+                    erase,
+                    nullptr,
+                    nullptr,
+                };
+                return &info;
+            }
         }
         else
         {

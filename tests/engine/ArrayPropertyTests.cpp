@@ -57,6 +57,7 @@ namespace
         std::vector<std::int32_t> ids;
         std::vector<float> speeds;
         std::vector<std::string> names;
+        std::vector<bool> flags; // 要素の場所が取れない配列(写して触って戻す)
         std::vector<Stop> stops;
         std::vector<ObjectRef<Waypoint>> points;
         std::vector<husky::core::AssetRef<husky::engine::PrefabAsset>> prefabs;
@@ -65,6 +66,7 @@ namespace
             HUSKY_PROPERTY(ids)
             HUSKY_PROPERTY(speeds)
             HUSKY_PROPERTY(names)
+            HUSKY_PROPERTY(flags)
             HUSKY_PROPERTY(stops)
             HUSKY_PROPERTY(points)
             HUSKY_PROPERTY(prefabs)
@@ -134,6 +136,7 @@ TEST_CASE("SF-2a: 配列を保存して読み直すと、数・文字列・構�
     route->ids = {3, 1, 4};
     route->speeds = {0.5f, 2.0f};
     route->names = {"start", "goal"};
+    route->flags = {true, false, true};
     route->stops.resize(2);
     route->stops[0].wait = 0.25f;
     route->stops[0].at.Set(b);
@@ -162,6 +165,7 @@ TEST_CASE("SF-2a: 配列を保存して読み直すと、数・文字列・構�
     CHECK(loaded->ids == std::vector<std::int32_t>{3, 1, 4});
     CHECK(loaded->speeds == std::vector<float>{0.5f, 2.0f});
     CHECK(loaded->names == std::vector<std::string>{"start", "goal"});
+    CHECK(loaded->flags == std::vector<bool>{true, false, true});
     REQUIRE(loaded->stops.size() == 2);
     CHECK(loaded->stops[0].wait == 0.25f);
     CHECK(loaded->stops[0].at.Resolve(targetRegistry) == loadedB);
@@ -265,4 +269,31 @@ TEST_CASE("SF-2a: プレハブとの違いは、配列まるごとを1つの値�
     const husky::engine::Prefab::InstantiateResult again = husky::engine::Prefab::Instantiate(written, app.GetScene(), types);
     REQUIRE(again.actor != nullptr);
     CHECK(again.actor->GetComponent<Route>()->ids == std::vector<std::int32_t>{1, 2, 5});
+}
+
+TEST_CASE("SF-2a: std::vector<bool> は要素の場所が取れないので、写して(load)触って戻す(store)形で読み書きする")
+{
+    const husky::core::Property* flags = Route::StaticType().FindProperty("flags");
+    REQUIRE(flags != nullptr);
+    REQUIRE(flags->GetArrayInfo() != nullptr);
+    CHECK(flags->GetArrayInfo()->IsProxy());
+    CHECK(flags->GetArrayInfo()->element.GetType() == PropertyType::Bool);
+    CHECK_FALSE(Route::StaticType().FindProperty("ids")->GetArrayInfo()->IsProxy());
+
+    // 読めない要素は false のまま、ほかは読む
+    const TypeRegistry types = MakeTypes();
+    ArchiveValue file;
+    REQUIRE(husky::engine::JsonFormat::Read(R"({ "version": 1, "objects": [
+        { "id": 0, "type": "Actor", "properties": { "name": "Holder", "components": [1] } },
+        { "id": 1, "type": "Route", "properties": { "flags": [true, 3, true] } }
+    ], "actors": [0] })", file));
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
+    REQUIRE(report.warnings.size() == 1);
+    CHECK(report.warnings[0].find("[1]") != std::string::npos);
+    const Route* route = registry.Resolve<Actor>(scene->actors[0])->GetComponent<Route>();
+    REQUIRE(route != nullptr);
+    CHECK(route->flags == std::vector<bool>{true, false, true});
+    registry.CollectGarbage(); // GC は bool の配列に何もしない(落ちない)
 }

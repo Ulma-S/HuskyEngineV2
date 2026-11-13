@@ -80,6 +80,14 @@ namespace husky::engine::ObjectSerializer
                 for (std::size_t i = 0; i < count; ++i)
                 {
                     bool elementOk = true;
+                    if (array.IsProxy())
+                    {
+                        // 要素の場所が取れない配列(std::vector<bool>): 手元の変数に写してから書く
+                        bool temporary = false;
+                        array.load(address, i, &temporary);
+                        values.Append(PropertyToValue(array.element, &temporary, toId, elementOk));
+                        continue;
+                    }
                     values.Append(PropertyToValue(array.element, array.atConst(address, i), toId, elementOk));
                 }
                 return values;
@@ -240,9 +248,15 @@ namespace husky::engine::ObjectSerializer
                 std::string firstError;
                 for (std::size_t i = 0; i < value.GetArraySize(); ++i)
                 {
-                    void* element = array.at(address, i);
                     std::string error;
-                    if (array.element.GetType() == PropertyType::Struct)
+                    if (array.IsProxy())
+                    {
+                        // 要素の場所が取れない配列(std::vector<bool>): 手元の変数に読んでから、i 番目に書き戻す
+                        bool temporary = false;
+                        error = ValueToProperty(value.At(i), array.element, &temporary, toHandle, registry);
+                        array.store(address, i, &temporary);
+                    }
+                    else if (array.element.GetType() == PropertyType::Struct)
                     {
                         // 構造体の要素: 中のメンバーを、構造体のプロパティと同じく ReadMembers で読む
                         if (value.At(i).GetType() != ArchiveValue::Type::Object)
@@ -252,7 +266,7 @@ namespace husky::engine::ObjectSerializer
                         else
                         {
                             ReadReport elementReport;
-                            ReadMembers(value.At(i), *array.element.GetStructType(), element, toHandle, registry, "",
+                            ReadMembers(value.At(i), *array.element.GetStructType(), array.at(address, i), toHandle, registry, "",
                                         elementReport);
                             if (!elementReport.warnings.empty())
                             {
@@ -262,7 +276,7 @@ namespace husky::engine::ObjectSerializer
                     }
                     else
                     {
-                        error = ValueToProperty(value.At(i), array.element, element, toHandle, registry);
+                        error = ValueToProperty(value.At(i), array.element, array.at(address, i), toHandle, registry);
                     }
                     if (!error.empty() && firstError.empty())
                     {

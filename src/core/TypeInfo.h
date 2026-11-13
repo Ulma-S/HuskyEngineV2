@@ -149,7 +149,8 @@ namespace husky::core
         {
             // 配列(SF-2): 要素を1つずつ、要素のプロパティでたどる(ObjectRef や AssetRef、中にハンドルのある構造体の配列)。
             const ArrayInfo& info = *GetArrayInfo();
-            const std::size_t count = info.size(arrayAddress);
+            // 場所の取れない配列(std::vector<bool>)の要素は bool で、参照を持たないので、たどるものは無い。
+            const std::size_t count = info.IsProxy() ? 0 : info.size(arrayAddress);
             for (std::size_t i = 0; i < count; ++i)
             {
                 info.element.ForEachReferenceAt(info.atConst(arrayAddress, i), function);
