@@ -241,6 +241,7 @@ add_library(husky_engine STATIC
     src/engine/AssetDatabase.cpp
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
+    src/engine/TransformMatrix.cpp
     src/engine/CameraComponent.cpp
     src/engine/EngineTypes.cpp
     src/engine/FrameClock.cpp

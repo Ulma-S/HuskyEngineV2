@@ -20,14 +20,14 @@ namespace husky::game
 {
     namespace
     {
-        // 1つの軸について、位置を進め、画面の端に当たったら跳ね返す。
+        // 1つの軸について、位置を進め、範囲(minPosition〜maxPosition)の端に当たったら跳ね返す。
         // position と velocity は参照(&)なので、呼んだ側の変数が書き換わる。
-        void MoveAndBounce(float& position, float& velocity, float dt, float maxPosition)
+        void MoveAndBounce(float& position, float& velocity, float dt, float minPosition, float maxPosition)
         {
             position += velocity * dt;
-            if (position < 0.0f)
+            if (position < minPosition)
             {
-                position = 0.0f;
+                position = minPosition;
                 velocity = -velocity;
             }
             else if (position > maxPosition)
@@ -94,8 +94,10 @@ namespace husky::game
                     std::printf("跳ね回るアクターを置けませんでした(%d 個目)\n", i);
                     return;
                 }
-                bouncer->transform.position.x = static_cast<float>(randomX(random));
-                bouncer->transform.position.y = static_cast<float>(randomY(random));
+                // 位置はスプライトの真ん中(ピボットが真ん中のため)。乱数は左下の角として引き、大きさの半分を足す
+                // (乱数の引き方を変えないので、配置は今までと同じ見た目になる)。
+                bouncer->transform.position.x = static_cast<float>(randomX(random)) + BouncerSize / 2.0f;
+                bouncer->transform.position.y = static_cast<float>(randomY(random)) + BouncerSize / 2.0f;
                 bouncer->vx = static_cast<float>(randomSpeed(random));
                 bouncer->vy = static_cast<float>(randomSpeed(random));
                 sprite->color = {randomColor(random), randomColor(random), randomColor(random), 1.0f};
@@ -106,8 +108,10 @@ namespace husky::game
     void BouncerActor::Tick(double dt)
     {
         const float step = static_cast<float>(dt);
-        MoveAndBounce(transform.position.x, vx, step, WorldWidth - BouncerSize);
-        MoveAndBounce(transform.position.y, vy, step, WorldHeight - BouncerSize);
+        // 位置は真ん中なので、世界の端から大きさの半分だけ内側で跳ね返る。
+        const float half = BouncerSize / 2.0f;
+        MoveAndBounce(transform.position.x, vx, step, half, WorldWidth - half);
+        MoveAndBounce(transform.position.y, vy, step, half, WorldHeight - half);
     }
 
     void PlayerActor::Tick(double dt)
@@ -131,10 +135,11 @@ namespace husky::game
         transform.position.x += moveX * step;
         transform.position.y += moveY * step;
 
-        // 世界の外へは出られない(位置は左下の角なので、右と上の端は大きさの分だけ手前)。
+        // 世界の外へは出られない(位置は真ん中なので、四方の端から大きさの半分だけ内側まで)。
         // std::clamp(値, 下限, 上限): 値を範囲の中に収める(C# の Math.Clamp)。
-        transform.position.x = std::clamp(transform.position.x, 0.0f, WorldWidth - PlayerSize);
-        transform.position.y = std::clamp(transform.position.y, 0.0f, WorldHeight - PlayerSize);
+        const float half = PlayerSize / 2.0f;
+        transform.position.x = std::clamp(transform.position.x, half, WorldWidth - half);
+        transform.position.y = std::clamp(transform.position.y, half, WorldHeight - half);
     }
 
     void RegisterGameTypes(core::TypeRegistry& types)
@@ -171,8 +176,8 @@ namespace husky::game
         PlayerActor* player = playerPrefab != nullptr ? PlacePrefab<PlayerActor>(app, *playerPrefab) : nullptr;
         if (player != nullptr)
         {
-            player->transform.position.x = (WorldWidth - PlayerSize) / 2.0f; // 世界の真ん中
-            player->transform.position.y = (WorldHeight - PlayerSize) / 2.0f;
+            player->transform.position.x = WorldWidth / 2.0f; // 世界の真ん中(位置はスプライトの真ん中)
+            player->transform.position.y = WorldHeight / 2.0f;
         }
 
         if (camera != nullptr && player != nullptr)
@@ -180,12 +185,12 @@ namespace husky::game
             if (game::CameraFollowComponent* follow = camera->AddComponent<game::CameraFollowComponent>())
             {
                 follow->target = player->GetHandle();
-                // プレイヤーの位置は左下の角なので、大きさの半分だけずらして、プレイヤーの真ん中を画面の真ん中に映す。
-                follow->offset = {PlayerSize / 2.0f, PlayerSize / 2.0f, 0.0f};
+                // プレイヤーの位置は真ん中なので、ずらさずにそのまま画面の真ん中に映す。
+                follow->offset = {0.0f, 0.0f, 0.0f};
             }
             // 最初から追いついた位置に置く(編集中は Tick が止まり、追いかけないため)。
-            camera->transform.position.x = player->transform.position.x + PlayerSize / 2.0f;
-            camera->transform.position.y = player->transform.position.y + PlayerSize / 2.0f;
+            camera->transform.position.x = player->transform.position.x;
+            camera->transform.position.y = player->transform.position.y;
         }
     }
 }

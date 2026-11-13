@@ -38,12 +38,18 @@ namespace husky::render
 
     // 描きたいスプライト1枚分の情報。座標はワールドの単位で、右が +x、上が +y。
     // 画面のどこに出るかは、カメラの行列(RenderDevice::SetViewProjection)で決まる。
+    //
+    // 形の決め方(RS-1): まず「ピボットを原点にした、幅 width・高さ height の四角形」(ローカルの座標)を考え、
+    // その四隅にモデル行列(model。移動・回転・拡大縮小)を掛けて、ワールドの位置にする。
+    //   ピボット (0.5, 0.5) なら四角形の真ん中が原点になり、回転と拡大縮小は真ん中を中心にかかる。
+    //   ピボット (0, 0) なら左下の角が原点になる。
     struct Sprite
     {
-        float x = 0.0f;      // 左下の角の位置(y は上が + なので、x と y がいちばん小さい角)
-        float y = 0.0f;
-        float width = 0.0f;  // ワールドでの大きさ
+        glm::mat4 model = glm::mat4(1.0f); // ローカル → ワールドの行列(既定は何もしない「単位行列」)
+        float width = 0.0f;  // ローカルでの大きさ(拡大縮小の前)
         float height = 0.0f;
+        float pivotX = 0.5f; // ピボット: 四角形の中のどこを原点にするか(割合。0 が左・下、1 が右・上)
+        float pivotY = 0.5f;
         Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャの色に掛ける色。白ならテクスチャの色そのまま
         // 貼るテクスチャ。何も指さないか、もう手放されたテクスチャなら、白い板(color の色そのまま)として描く。
         TextureHandle texture;
@@ -54,6 +60,17 @@ namespace husky::render
         float u1 = 1.0f; // 右
         float v1 = 1.0f; // 下
     };
+
+    // スプライトの四隅のワールドでの位置(x, y)。順番は 0: 左上、1: 右上、2: 右下、3: 左下(ローカルでの向き。回すと向きも回る)。
+    struct SpriteCorners
+    {
+        float x[4];
+        float y[4];
+    };
+
+    // スプライトの四隅を計算する(ローカルの四角形にモデル行列を掛ける)。GPU を使わないので、テストできる。
+    // 動作スレッド: どこでもよい
+    SpriteCorners ComputeSpriteCorners(const Sprite& sprite);
 
     // 直前のフレームの描画の集計。性能の確認に使う。
     struct FrameStats

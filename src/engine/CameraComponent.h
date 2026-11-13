@@ -4,7 +4,7 @@
 //   camera->AddComponent<CameraComponent>();
 //   camera->transform.position = {640, 360, 0};   // この位置が画面の真ん中に映る
 //
-// カメラの位置は、持ち主のアクターの位置(transform.position)。スプライト(左下の角)と違い、カメラは「真ん中」を指す。
+// カメラの位置は、持ち主のアクターの位置(transform.position)。画面の真ん中に映る点を指す。
 // カメラを動かすには、アクターを動かすだけでよい(プレイヤーを追いかけるのも、ほかのアクターと同じ書き方になる)。
 // 動作スレッド: ゲームスレッドのみ
 #pragma once

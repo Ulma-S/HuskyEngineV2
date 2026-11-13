@@ -69,7 +69,7 @@
 - フレーム末の順番: `Scene::RemoveDestroyedActors()` → `ObjectRegistry::FlushDestroyed()` → (1秒に1回)`ObjectRegistry::CollectGarbage()`。
 - `Object`の子クラスに、`Object`のメンバーと同じ名前のメンバーを作らない(名前が隠れて、レジストリの設定が壊れる)。
 - アクターは変わらないID(`Actor::guid`、`core::Guid`。2026-11-12)を持つ。シーンに入れたとき(`Spawn`、`AddLoadedActor`)に無ければ振られ、保存しても、読み戻しても、Play / Stopで作り直しても変わらない。名前(`name`)は重なってよく、区別にはguidを使う。読み込みでguidがシーンの中(Destroy済みを除く)で重なったら、後のほうに振り直して警告を出す。探すのは`Scene::FindActorByGuid`。人はGUIDを意識しなくてよいようにする(インスペクタでは灰色で読むだけ。コマンドは名前でも指せるようにする)。
-- アクターの位置・回転・拡大縮小は`Actor::transform`(`engine::Transform`。2026-11-13にユーザーと決定)。付け外しできるコンポーネントではなく、どのアクターも必ず持つ構造体のメンバー(UnityのTransformと同じく外せない)。中身は`position`(`core::Vector3`)、`rotation`(z軸まわりの角度、度、反時計回りが+)、`scale`(`core::Vector3`)。回転と拡大縮小は今は保存するだけで、描画にはまだ効かない。親子の階層は無い。古い形(`"x"`, `"y"`)のシーンのファイルは、知らないプロパティとして警告が出て、位置は原点になる。
+- アクターの位置・回転・拡大縮小は`Actor::transform`(`engine::Transform`。2026-11-13にユーザーと決定)。付け外しできるコンポーネントではなく、どのアクターも必ず持つ構造体のメンバー(UnityのTransformと同じく外せない)。中身は`position`(`core::Vector3`)、`rotation`(z軸まわりの角度、度、反時計回りが+)、`scale`(`core::Vector3`)。回転と拡大縮小は描画に効く(RS-1、2026-11-13。`engine::MakeModelMatrix`(`engine/TransformMatrix.h`)が「移動 × 回転 × 拡大縮小」のモデル行列を作る)。位置はスプライトのピボット(`SpriteComponent::pivot`、`core::Vector2`。既定は真ん中 (0.5, 0.5)、Unity と同じ。ユーザーが決定)の位置。親子の階層は無い。古い形(`"x"`, `"y"`)のシーンのファイルは、知らないプロパティとして警告が出て、位置は原点になる。
 - `Pool<T>`とECSは今は作らない(保留)。
 
 ## メモリとGC
@@ -140,8 +140,8 @@
 - GPUリソースは世代付きハンドルで管理し、解放は数フレーム遅らせる。
   - テクスチャ: `RenderDevice::CreateTexture`で作り、`TextureHandle`(`core::Handle<render::Texture>`。中身は`RenderDevice.cpp`の中だけで定義)で指す。`ReleaseTexture`でハンドルはすぐ無効になり、GPUのメモリは`DeferredReleaseQueue`で3フレーム後に解放する。何も指さない、または手放されたハンドルは白い板として描く。
   - 描画命令は、同じテクスチャが続く区間ごとに1回(`SpriteBatch`)。積んだ順(奥から手前)は変えない。
-- カメラ(CAM-1、2026-11-12): `render::Sprite`の位置はワールドの単位(y上が+、`x`,`y`は左下の角)。描画層は`RenderDevice::SetViewProjection`で行列(射影 × ビュー、`glm::mat4`)を1つ受け取り、頂点シェーダが掛ける。行列を作るのはengine(`engine/Camera.h`。`MakeOrthographicCamera`(中心、zoom)と、カメラが無いとき用の`MakeScreenCamera`(画面ちょうど、左下が原点、1単位 = 1ピクセル))。`Application`が毎フレーム`MakeSceneCamera`で作って渡す。
-- カメラのコンポーネント(CAM-2、2026-11-12): `engine::CameraComponent`(`zoom`)をふつうのアクターに付ける。アクターの位置が画面の真ん中に映る(スプライトの左下の角とは違う)。シーンの一覧で最初のカメラを使い(`FindSceneCamera`)、無ければ`MakeScreenCamera`(カメラの無い古いシーンも今までどおり見える)。ゲームの最初の配置は、跳ね回るもの → カメラ("MainCamera") → プレイヤーの順。跳ね回るものとプレイヤーは`assets/prefabs/`のプレハブ(`bouncer.prefab`、`player.prefab`)から置き、1つずつ違う値(位置、速度、色)だけを置いた後に書く(PF-3b)。カメラは追う相手がプレハブの外にいるのでコードで作る。`game::SpawnInitialActors(app)`は先にアセットの表が要る。
+- カメラ(CAM-1、2026-11-12): `render::Sprite`はモデル行列(`model`)、大きさ、ピボットを持ち、四隅は`render::ComputeSpriteCorners`(GPUを使わない。テストできる)が「ピボットを原点にした四角形 × モデル行列」で計算する(RS-1。それまでは`x`,`y`が左下の角だった)。座標はワールドの単位(y上が+)。描画層は`RenderDevice::SetViewProjection`で行列(射影 × ビュー、`glm::mat4`)を1つ受け取り、頂点シェーダが掛ける。行列を作るのはengine(`engine/Camera.h`。`MakeOrthographicCamera`(中心、zoom)と、カメラが無いとき用の`MakeScreenCamera`(画面ちょうど、左下が原点、1単位 = 1ピクセル))。`Application`が毎フレーム`MakeSceneCamera`で作って渡す。
+- カメラのコンポーネント(CAM-2、2026-11-12): `engine::CameraComponent`(`zoom`)をふつうのアクターに付ける。アクターの位置が画面の真ん中に映る。シーンの一覧で最初のカメラを使い(`FindSceneCamera`)、無ければ`MakeScreenCamera`(カメラの無い古いシーンも今までどおり見える)。ゲームの最初の配置は、跳ね回るもの → カメラ("MainCamera") → プレイヤーの順。跳ね回るものとプレイヤーは`assets/prefabs/`のプレハブ(`bouncer.prefab`、`player.prefab`)から置き、1つずつ違う値(位置、速度、色)だけを置いた後に書く(PF-3b)。カメラは追う相手がプレハブの外にいるのでコードで作る。`game::SpawnInitialActors(app)`は先にアセットの表が要る。
 - カメラの追従(CAM-3、2026-11-13): `game::CameraFollowComponent`(ゲームのコード。「誰をどう追うか」はゲームごとの決め事なので、ユーザーの指摘でエンジンからゲームへ移した。`target`(ハンドル、強い参照で保存される)、`offset`)を付けたアクターは、`TickOrder::Late`で相手の位置 + offset へ動く(相手が動いた同じフレームで追う)。編集中は Tick が止まるので追わない。ゲームの世界は画面の3倍(`game::WorldWidth` / `WorldHeight`)で、跳ね回るものは世界の端で跳ね返り、プレイヤーは世界の外へ出られない。
 
 ## 禁止事項

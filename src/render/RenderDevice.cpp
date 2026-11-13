@@ -771,16 +771,13 @@ namespace husky::render
         }
 
         // スプライトの四隅を、ワールドの位置として頂点に書く(バッチ描画では、位置は CPU 側で決めてしまう)。
+        // 四隅は、ローカルの四角形にモデル行列(移動・回転・拡大縮小)を掛けたもの(ComputeSpriteCorners)。
         // 画面の位置にするのは GPU(頂点シェーダがカメラの行列を掛ける)。
-        // y は上が + なので、上の辺は y + height、下の辺は y。
         // UV は、スプライトが指定した範囲(既定は全体: u0 = v0 = 0、u1 = v1 = 1)。画像の上(v0)を上の辺に貼る。
         //   0 ---- 1      UV: (u0,v0) ---- (u1,v0)
         //   |      |          |                |
         //   3 ---- 2          (u0,v1) ---- (u1,v1)
-        const float left = sprite.x;
-        const float bottom = sprite.y;
-        const float right = sprite.x + sprite.width;
-        const float top = sprite.y + sprite.height;
+        const SpriteCorners corners = ComputeSpriteCorners(sprite);
         const Color& c = sprite.color;
 
         // どのテクスチャで描くかを、区間(バッチ)に記録する。ハンドルのまま覚えておき、EndFrame で中身を引く。
@@ -788,10 +785,30 @@ namespace husky::render
         AddSpriteToBatches(m_impl->batches, sprite.texture, spriteIndex);
 
         // push_back は vector の末尾に1つ足す(C# の List.Add)。
-        m_impl->vertices.push_back({left,  top,    sprite.u0, sprite.v0, c.r, c.g, c.b, c.a}); // 0: 左上
-        m_impl->vertices.push_back({right, top,    sprite.u1, sprite.v0, c.r, c.g, c.b, c.a}); // 1: 右上
-        m_impl->vertices.push_back({right, bottom, sprite.u1, sprite.v1, c.r, c.g, c.b, c.a}); // 2: 右下
-        m_impl->vertices.push_back({left,  bottom, sprite.u0, sprite.v1, c.r, c.g, c.b, c.a}); // 3: 左下
+        m_impl->vertices.push_back({corners.x[0], corners.y[0], sprite.u0, sprite.v0, c.r, c.g, c.b, c.a}); // 0: 左上
+        m_impl->vertices.push_back({corners.x[1], corners.y[1], sprite.u1, sprite.v0, c.r, c.g, c.b, c.a}); // 1: 右上
+        m_impl->vertices.push_back({corners.x[2], corners.y[2], sprite.u1, sprite.v1, c.r, c.g, c.b, c.a}); // 2: 右下
+        m_impl->vertices.push_back({corners.x[3], corners.y[3], sprite.u0, sprite.v1, c.r, c.g, c.b, c.a}); // 3: 左下
+    }
+
+    SpriteCorners ComputeSpriteCorners(const Sprite& sprite)
+    {
+        // ローカルの四角形: ピボットが原点。左の辺は「幅 × ピボットの割合」だけ左、右の辺は残りの分だけ右。
+        const float left = -sprite.width * sprite.pivotX;
+        const float right = sprite.width * (1.0f - sprite.pivotX);
+        const float bottom = -sprite.height * sprite.pivotY;
+        const float top = sprite.height * (1.0f - sprite.pivotY);
+        const float localX[4] = {left, right, right, left};
+        const float localY[4] = {top, top, bottom, bottom};
+        SpriteCorners corners{};
+        for (int i = 0; i < 4; ++i)
+        {
+            // 点は (x, y, 0, 1)。4 つ目の 1 は「位置」の印で、これがあると行列の移動の分も掛かる(向きなら 0 にする)。
+            const glm::vec4 world = sprite.model * glm::vec4(localX[i], localY[i], 0.0f, 1.0f);
+            corners.x[i] = world.x;
+            corners.y[i] = world.y;
+        }
+        return corners;
     }
 
 #if HUSKY_DEVELOPMENT

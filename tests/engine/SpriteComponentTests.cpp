@@ -73,12 +73,12 @@ TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコン
     const std::vector<Sprite> sprites = CollectSprites(*scene);
 
     REQUIRE(sprites.size() == 2);
-    CHECK(sprites[0].x == 10.0f);
-    CHECK(sprites[0].y == 20.0f);
+    CHECK(sprites[0].model[3][0] == 10.0f);
+    CHECK(sprites[0].model[3][1] == 20.0f);
     CHECK(sprites[0].width == 64.0f);
     CHECK(sprites[0].height == 48.0f);
     CHECK(sprites[0].color.g == 0.25f);
-    CHECK(sprites[1].x == 100.0f); // 一覧の順(奥から手前)
+    CHECK(sprites[1].model[3][0] == 100.0f); // 一覧の順(奥から手前)。model[3] は行列の4列目 = 移動の分
     CHECK(sprites[1].width == 32.0f);
 }
 
@@ -100,7 +100,7 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     const std::vector<Sprite> sprites = CollectSprites(*scene);
 
     REQUIRE(sprites.size() == 1);
-    CHECK(sprites[0].x == 5.0f);
+    CHECK(sprites[0].model[3][0] == 5.0f);
 }
 
 TEST_CASE("SpriteComponent: テクスチャは、テクスチャのアセットへの参照(AssetRef)のプロパティ")
@@ -172,4 +172,71 @@ TEST_CASE("SpriteComponent: 範囲(region)は構造体のプロパティで、�
     CHECK(copy->region.y == 32);
     CHECK(copy->region.width == 16);
     CHECK(copy->region.height == 8);
+}
+
+namespace
+{
+    // スプライトを1枚だけ持つシーンから、描く四隅を計算する(ForEachSprite → ComputeSpriteCorners)。
+    husky::render::SpriteCorners CornersOf(Scene& scene)
+    {
+        const std::vector<Sprite> sprites = CollectSprites(scene);
+        REQUIRE(sprites.size() == 1);
+        return husky::render::ComputeSpriteCorners(sprites[0]);
+    }
+}
+
+TEST_CASE("RS-1: ピボットは既定で真ん中。位置がスプライトの真ん中になり、四隅は大きさの半分ずつ離れる")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* actor = scene->Spawn<Actor>();
+    actor->transform.position = {100.0f, 50.0f, 0.0f};
+    SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
+    sprite->width = 40.0f;
+    sprite->height = 20.0f;
+    CHECK(sprite->pivot.x == 0.5f);
+    CHECK(sprite->pivot.y == 0.5f);
+
+    const husky::render::SpriteCorners corners = CornersOf(*scene);
+    // 0: 左上、1: 右上、2: 右下、3: 左下
+    CHECK(corners.x[0] == doctest::Approx(80.0f));
+    CHECK(corners.y[0] == doctest::Approx(60.0f));
+    CHECK(corners.x[2] == doctest::Approx(120.0f));
+    CHECK(corners.y[2] == doctest::Approx(40.0f));
+
+    // ピボットを左下にすると、位置が左下の角になる(RS-1 より前の描き方)
+    sprite->pivot = {0.0f, 0.0f};
+    const husky::render::SpriteCorners corner = CornersOf(*scene);
+    CHECK(corner.x[3] == doctest::Approx(100.0f));
+    CHECK(corner.y[3] == doctest::Approx(50.0f));
+    CHECK(corner.x[1] == doctest::Approx(140.0f));
+    CHECK(corner.y[1] == doctest::Approx(70.0f));
+}
+
+TEST_CASE("RS-1: 回転はピボットを中心に反時計回り、拡大縮小はピボットを中心に大きくなる")
+{
+    ObjectRegistry registry;
+    Scene* scene = CreateRootScene(registry);
+    Actor* actor = scene->Spawn<Actor>();
+    actor->transform.position = {100.0f, 50.0f, 0.0f};
+    SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
+    sprite->width = 40.0f;
+    sprite->height = 20.0f;
+
+    // 90 度回すと、右上の角(ローカル (20, 10))は (-10, 20) へ動く。真ん中は動かない
+    actor->transform.rotation = 90.0f;
+    husky::render::SpriteCorners corners = CornersOf(*scene);
+    CHECK(corners.x[1] == doctest::Approx(90.0f));
+    CHECK(corners.y[1] == doctest::Approx(70.0f));
+    CHECK((corners.x[0] + corners.x[2]) / 2.0f == doctest::Approx(100.0f));
+    CHECK((corners.y[0] + corners.y[2]) / 2.0f == doctest::Approx(50.0f));
+
+    // 回さずに x を 2 倍、y を 3 倍にすると、真ん中から x は 40、y は 30 離れる
+    actor->transform.rotation = 0.0f;
+    actor->transform.scale = {2.0f, 3.0f, 1.0f};
+    corners = CornersOf(*scene);
+    CHECK(corners.x[1] == doctest::Approx(140.0f));
+    CHECK(corners.y[1] == doctest::Approx(80.0f));
+    CHECK(corners.x[3] == doctest::Approx(60.0f));
+    CHECK(corners.y[3] == doctest::Approx(20.0f));
 }

@@ -172,7 +172,7 @@ TEST_CASE("ObjectSerializer: 構造体のプロパティは入れ子で書かれ
     auto* copy = registry.Create<husky::engine::SpriteComponent>();
     const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(loaded, *copy);
     CHECK(report.warnings.empty());
-    CHECK(report.readCount == 14); // prefabComponentId(Component から), width, height, color の r, g, b, a, texture(null), region の x, y, width, height, sheet(null), sprite
+    CHECK(report.readCount == 16); // prefabComponentId(Component から), width, height, pivot の x, y, color の r, g, b, a, texture(null), region の x, y, width, height, sheet(null), sprite
     CHECK(copy->color.r == 0.1f);
     CHECK(copy->color.a == 0.4f);
 }

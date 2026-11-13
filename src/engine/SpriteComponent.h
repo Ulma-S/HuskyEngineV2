@@ -19,7 +19,9 @@
 #include "engine/PixelRect.h"
 #include "engine/SpriteSheetAsset.h"
 #include "engine/Scene.h"
+#include "core/Vector2.h"
 #include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
+#include "engine/TransformMatrix.h"
 #include "render/RenderDevice.h"
 
 #include <cstdint>
@@ -31,10 +33,13 @@ namespace husky::engine
     {
         HUSKY_OBJECT(SpriteComponent, Component)
     public:
-        // 位置は持たない。描くときは、持ち主のアクターの位置(x, y)を使う。
+        // 位置は持たない。描くときは、持ち主のアクターの transform(位置・回転・拡大縮小)を使う。
         // Tick は使わない(見た目は描画のときに読まれるだけ)。
-        float width = 32.0f; // 描く大きさ(ピクセル)
+        float width = 32.0f; // 描く大きさ(ワールドの単位。拡大縮小の前)
         float height = 32.0f;
+        // ピボット: 絵の中のどこをアクターの位置に合わせるか、回転と拡大縮小の中心(割合。(0, 0) が左下、(1, 1) が右上)。
+        // 既定は真ん中(Unity と同じ。RS-1 でユーザーが決定)。
+        core::Vector2 pivot = {0.5f, 0.5f};
         render::Color color = {1.0f, 1.0f, 1.0f, 1.0f}; // テクスチャに掛ける色。白ならテクスチャのまま
 
         // 貼るテクスチャ(アセットの参照)。何も指さないか、読めなかったときは、
@@ -54,6 +59,7 @@ namespace husky::engine
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(width)
             HUSKY_PROPERTY(height)
+            HUSKY_PROPERTY(pivot)   // 構造体(core/Vector2.h)。保存すると {"x": .., "y": ..}
             HUSKY_PROPERTY(color)   // 構造体(RenderReflection.h で登録)。保存すると {"r": .., "g": .., "b": .., "a": ..} になる
             HUSKY_PROPERTY(texture) // アセットの参照。保存すると "3f2a9c1e-..." のような GUID の文字列になる
             HUSKY_PROPERTY(region)  // 構造体(PixelRect.h で登録)
@@ -78,10 +84,11 @@ namespace husky::engine
                 return;
             }
             render::Sprite sprite;
-            sprite.x = actor.transform.position.x;
-            sprite.y = actor.transform.position.y;
+            sprite.model = MakeModelMatrix(actor.transform); // 位置・回転・拡大縮小
             sprite.width = spriteComponent->width;
             sprite.height = spriteComponent->height;
+            sprite.pivotX = spriteComponent->pivot.x;
+            sprite.pivotY = spriteComponent->pivot.y;
             sprite.color = spriteComponent->color;
             function(sprite, *spriteComponent);
         });
