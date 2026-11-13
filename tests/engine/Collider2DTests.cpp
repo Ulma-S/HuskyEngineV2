@@ -5,6 +5,7 @@
 #include "engine/Actor.h"
 #include "engine/Application.h"
 #include "engine/Scene.h"
+#include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
 
@@ -236,4 +237,30 @@ TEST_CASE("宿題: 左右反転(拡大 x がマイナス)でも、エディタ�
     CHECK(hits.size() == 1);
     app.GetPhysics2D().GetWorld().OverlapPoint(130.0f, 0.0f, husky::engine::AllCollisionLayers, hits);
     CHECK(hits.empty());
+}
+
+TEST_CASE("使い勝手: FitColliderToSprite はコライダーを絵の大きさと位置に合わせる(四角はそのまま、円は大きいほうの辺)")
+{
+    Application app;
+    Actor* actor = app.GetScene().Spawn<Actor>();
+    husky::engine::SpriteComponent* sprite = actor->AddComponent<husky::engine::SpriteComponent>();
+    sprite->width = 128.0f;
+    sprite->height = 64.0f;
+    BoxCollider2D* box = actor->AddComponent<BoxCollider2D>();
+    REQUIRE(husky::engine::FitColliderToSprite(*box, *actor));
+    CHECK(box->size.x == 128.0f);
+    CHECK(box->size.y == 64.0f);
+    CHECK(box->offset.x == 0.0f); // ピボットが真ん中なら、ずらしは 0
+    // ピボットが左下なら、絵の真ん中は (64, 32) にある
+    sprite->pivot = {0.0f, 0.0f};
+    CircleCollider2D* circle = actor->AddComponent<CircleCollider2D>();
+    REQUIRE(husky::engine::FitColliderToSprite(*circle, *actor));
+    CHECK(circle->radius == 64.0f);
+    CHECK(circle->offset.x == 64.0f);
+    CHECK(circle->offset.y == 32.0f);
+    // スプライトが無ければ何もしない
+    Actor* bare = app.GetScene().Spawn<Actor>();
+    BoxCollider2D* untouched = bare->AddComponent<BoxCollider2D>();
+    CHECK_FALSE(husky::engine::FitColliderToSprite(*untouched, *bare));
+    CHECK(untouched->size.x == 32.0f);
 }

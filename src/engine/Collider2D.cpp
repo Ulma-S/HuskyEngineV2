@@ -1,7 +1,9 @@
 // Collider2D.h の実装。
 #include "engine/Collider2D.h"
 
+#include "engine/Actor.h"
 #include "engine/GlmConversion.h"
+#include "engine/SpriteComponent.h"
 #include "engine/TransformMatrix.h"
 
 #include <algorithm> // std::clamp、std::max
@@ -56,5 +58,30 @@ namespace husky::engine
         centerX = center.x;
         centerY = center.y;
         radius = circle.radius * std::max(std::fabs(transform.scale.x), std::fabs(transform.scale.y));
+    }
+
+    void BoxCollider2D::FitTo(const core::Vector2& newSize, const core::Vector2& center)
+    {
+        size = newSize;
+        offset = center;
+    }
+
+    void CircleCollider2D::FitTo(const core::Vector2& size, const core::Vector2& center)
+    {
+        radius = std::max(std::fabs(size.x), std::fabs(size.y)) * 0.5f; // 絵がちょうど収まる(大きいほうの辺に合わせる)
+        offset = center;
+    }
+
+    bool FitColliderToSprite(Collider2D& collider, const Actor& actor)
+    {
+        const SpriteComponent* sprite = actor.GetComponent<SpriteComponent>();
+        if (sprite == nullptr)
+        {
+            return false;
+        }
+        // 絵の四角は、ピボットを原点にして、左が -幅 x pivot.x、右が 幅 x (1 - pivot.x)。真ん中はその平均 = 幅 x (0.5 - pivot.x)
+        const core::Vector2 center = {sprite->width * (0.5f - sprite->pivot.x), sprite->height * (0.5f - sprite->pivot.y)};
+        collider.FitTo(core::Vector2{sprite->width, sprite->height}, center); // 仮想関数: 四角か円かで合わせ方が変わる
+        return true;
     }
 }

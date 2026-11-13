@@ -24,6 +24,8 @@
 
 namespace husky::engine
 {
+    class Actor;
+
     // 四角と円に共通の部分。これだけでは形が決まらないので、型の登録簿には入れない(インスペクタで足せるのは子だけ)。
     class Collider2D : public Component
     {
@@ -33,6 +35,10 @@ namespace husky::engine
         bool isTrigger = false;            // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。物理を足すときに効く)
         std::int32_t layer = 0;            // 属するグループの番号(0〜31)
         std::int32_t collisionMask = -1;   // 当たる相手のグループの印(ビット。-1 = すべてのビットが 1 = すべてと当たる)
+
+        // 形を、真ん中が center(アクターの位置からのずらし)、大きさ size の四角に合わせる(子クラスが決める。四角はそのまま、
+        // 円は大きいほうの辺に合わせた半径)。絵に合わせるとき(FitColliderToSprite)に使う。
+        virtual void FitTo(const core::Vector2& size, const core::Vector2& center) { (void)size; offset = center; }
 
         // 当たり判定の世界に置く形の決め事を作る(大きさなどは子クラスが決める)。持ち主は、このコンポーネント自身のハンドル。
         ShapeDesc2D MakeShapeDesc() const;
@@ -62,6 +68,9 @@ namespace husky::engine
 
     protected:
         void FillShape(ShapeDesc2D& desc) const override;
+
+    public:
+        void FitTo(const core::Vector2& size, const core::Vector2& center) override;
     };
 
     // 円のコライダー。
@@ -77,6 +86,9 @@ namespace husky::engine
 
     protected:
         void FillShape(ShapeDesc2D& desc) const override;
+
+    public:
+        void FitTo(const core::Vector2& size, const core::Vector2& center) override;
     };
 
     // 四角のコライダーの四隅のワールドの位置(エディタの枠を描くため)。描画と同じ道具(MakeModelMatrix と ComputeSpriteCorners)で求める。
@@ -86,4 +98,9 @@ namespace husky::engine
     // 円のコライダーのワールドでの真ん中と半径(エディタの枠を描くため)。半径は、縦横の大きいほうの拡大に合わせる。
     void ComputeCircleColliderWorld(const Transform& transform, const CircleCollider2D& circle, float& centerX, float& centerY,
                                     float& radius);
+
+    // コライダーを、同じアクターのスプライト(SpriteComponent)の絵の大きさと位置に合わせる(Unity でコライダーを足したときと同じ)。
+    // 絵の真ん中は、ピボットからのずれ((0.5 - pivot) x 大きさ)なので、それを offset にする。スプライトが無ければ何もせず false。
+    // エディタでコライダーを足したとき(component.add、インスペクタ)に呼ぶ。コードの AddComponent では呼ばない(作る側が決める)。
+    bool FitColliderToSprite(Collider2D& collider, const Actor& actor);
 }

@@ -6,6 +6,7 @@
 #include "core/MemoryTracker.h"
 #include "engine/Actor.h"
 #include "engine/CameraComponent.h"
+#include "engine/Collider2D.h"
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
 #include "engine/SceneSerializer.h"
@@ -1446,5 +1447,31 @@ TEST_CASE("PF-7e: prefab.applyComponent(removed)は外したものをプレハ�
     CHECK(placedC->components.empty());
     // もう外したものではないので、2回目は断る
     CHECK_FALSE(commands.Execute("prefab.applyComponent", app, Json(applyArgs.c_str())).succeeded);
+}
+
+TEST_CASE("使い勝手: component.add で足したコライダーは絵に合わせ、Undo で控えから戻すときは控えた値のまま")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    RegisterComponentCommands(commands);
+    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    hero->name = "Hero";
+    husky::engine::SpriteComponent* sprite = hero->AddComponent<husky::engine::SpriteComponent>();
+    sprite->width = 40.0f;
+    sprite->height = 20.0f;
+
+    const EditorCommandResult added = commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "BoxCollider2D"})"));
+    REQUIRE(added.succeeded);
+    REQUIRE(hero->GetComponent<husky::engine::BoxCollider2D>() != nullptr);
+    CHECK(hero->GetComponent<husky::engine::BoxCollider2D>()->size.x == 40.0f);
+    CHECK(hero->GetComponent<husky::engine::BoxCollider2D>()->size.y == 20.0f);
+    CHECK(std::find(added.details.begin(), added.details.end(), "Fitted to the sprite") != added.details.end());
+
+    // 手で小さくしてから外し、Undo で戻す: 絵に合わせ直さず、控えた 10 x 10 のまま
+    hero->GetComponent<husky::engine::BoxCollider2D>()->size = {10.0f, 10.0f};
+    REQUIRE(commands.Execute("component.remove", app, Json(R"({"actor": "Hero", "component": "BoxCollider2D"})")).succeeded);
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    REQUIRE(hero->GetComponent<husky::engine::BoxCollider2D>() != nullptr);
+    CHECK(hero->GetComponent<husky::engine::BoxCollider2D>()->size.x == 10.0f);
 }
 #endif

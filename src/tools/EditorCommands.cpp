@@ -5,6 +5,7 @@
 
 #include "core/TypeRegistry.h"      // actor.spawn: 型の名前から作る
 #include "engine/Actor.h"
+#include "engine/Collider2D.h"
 #include "engine/AssetLoader.h"     // actor.spawn: プレハブを読む
 #include "engine/Prefab.h"          // actor.spawn、prefab.create
 #include "platform/FileSystem.h"    // prefab.create: ファイルを書く
@@ -1418,6 +1419,15 @@ namespace husky::tools
             {
                 // 控えから戻す(Undo): 値も prefabComponentId も控えのとおり。プレハブとの組が元どおりになる。
                 LoadComponent(app, *data, *component, warnings);
+            }
+            else if (engine::Collider2D* collider = core::Cast<engine::Collider2D>(component))
+            {
+                // 新しく足したコライダーは、同じアクターの絵の大きさと位置に合わせる(Unity と同じ)。
+                // 控えから戻すとき(Undo / Redo)は、控えた値のままにする(上の分岐)。
+                if (engine::FitColliderToSprite(*collider, actor))
+                {
+                    warnings.push_back("Fitted to the sprite");
+                }
             }
             const std::size_t at = actor.InsertComponent(*component, index);
 

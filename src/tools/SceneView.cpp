@@ -260,11 +260,15 @@ namespace husky::tools
         {
             m_gridSprites.clear(); // 隠している(view.grid)
         }
-        // コライダーの緑の枠(編集中だけ。Unity と同じ色)。当たりの形を、描画と同じ道具で求めて描く(COL-3)
+        // コライダーの緑の枠(編集中だけ。Unity と同じ色)。当たりの形を、描画と同じ道具で求めて描く(COL-3)。
+        // 描くのは選んでいるアクターのコライダーだけ(Unity の既定と同じ)。全員分を描くと、コライダーが 1000 個あるとき
+        // 線が 3 万本を超えて、まとめ描きの上限(8192)からあふれ、FPS も大きく落ちた(COL-4 の後に見つかった)。
         m_colliderSprites.clear();
         constexpr render::Color ColliderColor = {0.4f, 0.95f, 0.45f, 0.9f};
         core::ObjectRegistry& registry = app.GetRegistry();
-        app.GetScene().ForEachActor([&](engine::Actor& actor) {
+        if (selected != nullptr)
+        {
+            const engine::Actor& actor = *selected;
             for (const core::ObjectHandle handle : actor.components)
             {
                 if (const engine::BoxCollider2D* box = registry.Resolve<engine::BoxCollider2D>(handle))
@@ -287,7 +291,7 @@ namespace husky::tools
                     }
                 }
             }
-        });
+        }
 
         // 選んでいるアクターの枠(スプライトを持っていれば、その四隅を結ぶ。描くときと同じ形を、同じ道具で作る)
         m_outlineSprites.clear();

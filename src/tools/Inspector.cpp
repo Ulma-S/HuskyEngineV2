@@ -5,6 +5,7 @@
 
 #include "core/Property.h"
 #include "engine/Actor.h"
+#include "engine/Collider2D.h"
 #include "engine/AssetLoader.h"
 #include "engine/Component.h"
 #include "engine/Prefab.h" // プレハブとの違い(印と、Revert / Apply のボタン)
@@ -688,6 +689,10 @@ namespace husky::tools
                             else if (engine::Component* added =
                                          core::Cast<engine::Component>(types.Create(type->GetName(), registry)))
                             {
+                                if (engine::Collider2D* collider = core::Cast<engine::Collider2D>(added))
+                                {
+                                    engine::FitColliderToSprite(*collider, *selected); // コマンドと同じく、絵に合わせる
+                                }
                                 selected->InsertComponent(*added, selected->components.size()); // 再生中: 履歴に残さない
                             }
                         }
