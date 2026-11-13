@@ -99,6 +99,7 @@ namespace husky::tools
             String,
             Color,    // render::Color(色の部品で、4つの値を一度に変える)
             AssetRef, // アセットの参照
+            Reference, // ほかのオブジェクトへの参照(ObjectHandle / ObjectRef。REF-1。ハンドルを控える)
         };
 
         // 値1つの写し。文字列は、入れ物を使い回して毎フレームの確保を避ける。
@@ -112,6 +113,7 @@ namespace husky::tools
             double doubleValue = 0.0;
             render::Color color;
             core::AssetReference assetRef;
+            core::ObjectHandle handle;
             std::string text;
         };
 
@@ -122,8 +124,9 @@ namespace husky::tools
         // 今描いている道筋が、編集の途中のものと同じか。
         bool IsEditingCurrentPath() const;
         // 持ち主の、道筋の値を、保存と同じ形の値(ArchiveValue)で読む。読めなければ Null。
-        static engine::ArchiveValue ReadValueAtPath(const core::Object& owner, const core::Property* const* path,
-                                                    std::size_t depth);
+        // 参照(REF-1)は、MakeReferenceArg の形(アクターの guid など)で読む(ハンドルは保存の形にならないため)。
+        engine::ArchiveValue ReadValueAtPath(const core::Object& owner, const core::Property* const* path,
+                                             std::size_t depth) const;
         // 編集を確定する: 前の値に戻し、property.set で今の値にする(履歴に1件積まれる)。
         void Commit();
 

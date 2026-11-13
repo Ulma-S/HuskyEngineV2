@@ -654,8 +654,12 @@ namespace husky::tools
             case core::PropertyType::AssetRef: // GUID の文字列か、null(何も指さない)
                 return true;
             case core::PropertyType::Array:
-                // 配列(SF-2b): JSON の配列で、まるごと入れ替える。参照の配列は番号が要るので、まだ書き換えない(REF-1)。
+                // 配列(SF-2b): JSON の配列で、まるごと入れ替える。参照の配列は、まだ書き換えない(表示だけ)。
                 return !property.IsReference();
+            case core::PropertyType::ObjectHandle:
+            case core::PropertyType::ObjectRef:
+                // 参照(REF-1): アクターの guid(か名前)、コンポーネントは {"actor", "component"}、null で外す
+                return true;
             default:
                 return false; // ハンドル、配列、guid は、今は書き換えない
             }
@@ -770,6 +774,100 @@ namespace husky::tools
             return std::string(typeName) + " at " + FormatPosition(actor.transform.position.x, actor.transform.position.y);
         }
         return actor.name + " (" + typeName + ")";
+    }
+
+    engine::ArchiveValue MakeReferenceArg(engine::Application& app, core::ObjectHandle handle)
+    {
+        const core::Object* object = app.GetRegistry().Resolve(handle);
+        if (object == nullptr || object->IsPendingDestroy())
+        {
+            return engine::ArchiveValue(); // 何も指さない・もう無い
+        }
+        if (const engine::Actor* actor = core::Cast<engine::Actor>(object))
+        {
+            // シーンにいるアクターだけ(guid で引き直せるもの)
+            return app.GetScene().FindActorByGuid(actor->guid) == actor ? engine::ArchiveValue(actor->guid.ToString())
+                                                                         : engine::ArchiveValue();
+        }
+        const engine::Component* component = core::Cast<engine::Component>(object);
+        const engine::Actor* owner = component != nullptr ? component->GetOwner() : nullptr;
+        if (owner == nullptr || app.GetScene().FindActorByGuid(owner->guid) != owner)
+        {
+            return engine::ArchiveValue(); // シーンのアクターのものではない
+        }
+        // 同じ型のコンポーネントの中で何個目か(ふつうは 0 で、そのときは書かない)
+        std::int64_t index = 0;
+        for (const core::ObjectHandle other : owner->components)
+        {
+            if (other == handle)
+            {
+                break;
+            }
+            const core::Object* earlier = app.GetRegistry().Resolve(other);
+            if (earlier != nullptr && !earlier->IsPendingDestroy() && &earlier->GetType() == &component->GetType())
+            {
+                ++index;
+            }
+        }
+        engine::ArchiveValue value = engine::ArchiveValue::MakeObject();
+        value.Set("actor", engine::ArchiveValue(owner->guid.ToString()));
+        value.Set("component", engine::ArchiveValue(component->GetType().GetName()));
+        if (index > 0)
+        {
+            value.Set("index", engine::ArchiveValue(index));
+        }
+        return value;
+    }
+
+    bool FindReferenceFromArg(engine::Application& app, const engine::ArchiveValue& value, core::ObjectHandle& out,
+                              std::string& error)
+    {
+        out = {};
+        if (value.IsNull())
+        {
+            return true; // どこも指さない
+        }
+        if (value.GetType() == engine::ArchiveValue::Type::String)
+        {
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), value.AsString(), error);
+            if (actor == nullptr)
+            {
+                return false;
+            }
+            out = actor->GetHandle();
+            return true;
+        }
+        const engine::ArchiveValue* actorValue = value.Find("actor");
+        const engine::ArchiveValue* componentValue = value.Find("component");
+        if (value.GetType() != engine::ArchiveValue::Type::Object || actorValue == nullptr || componentValue == nullptr)
+        {
+            error = "A reference must be null, an actor (name or guid), or {\"actor\": ..., \"component\": type}";
+            return false;
+        }
+        engine::Actor* actor = FindActorFromArg(app.GetScene(), actorValue->AsString(), error);
+        if (actor == nullptr)
+        {
+            return false;
+        }
+        const engine::ArchiveValue* indexValue = value.Find("index");
+        std::int64_t remaining = indexValue != nullptr ? indexValue->AsInt() : 0;
+        for (const core::ObjectHandle handle : actor->components)
+        {
+            const core::Object* component = app.GetRegistry().Resolve(handle);
+            if (component == nullptr || component->IsPendingDestroy() ||
+                componentValue->AsString() != component->GetType().GetName())
+            {
+                continue;
+            }
+            if (remaining-- == 0)
+            {
+                out = handle;
+                return true;
+            }
+        }
+        error = DescribeActor(*actor) + " has no component '" + componentValue->AsString() + "'" +
+                (indexValue != nullptr ? " #" + std::to_string(indexValue->AsInt()) : std::string());
+        return false;
     }
 
     engine::Actor* FindActorFromArg(engine::Scene& scene, const std::string& actorText, std::string& error)
@@ -897,6 +995,45 @@ namespace husky::tools
             return entry;
         }
 
+        // 参照のプロパティ(ObjectHandle / ObjectRef。REF-1)を、引数の値(MakeReferenceArg の形)で書き換える。
+        // 書き込みは、読み込みと同じ ObjectSerializer::ReadProperties を通す(番号 0 → 相手、の対応表を渡す)ので、
+        // ObjectRef<T> の型の確かめもファイルを読むときとそろう。old には前の値(MakeReferenceArg の形)を入れる。
+        bool SetReferenceProperty(engine::Application& app, core::Object& owner, const std::vector<std::string>& path,
+                                  const core::Property& property, const engine::ArchiveValue& value,
+                                  engine::ArchiveValue& old, std::string& error)
+        {
+            // 道筋の最後のプロパティの持ち主(構造体の中なら、その構造体)の先頭
+            void* container = &owner;
+            const core::TypeInfo* type = &owner.GetType();
+            for (std::size_t i = 0; i + 1 < path.size(); ++i)
+            {
+                const core::Property* step = type->FindProperty(path[i].c_str());
+                container = step->GetStructAddressAt(container);
+                type = step->GetStructType();
+            }
+            core::ObjectHandle& slot = property.GetType() == core::PropertyType::ObjectHandle
+                                           ? *property.GetValuePtrAt<core::ObjectHandle>(container)
+                                           : property.GetValuePtrAt<core::ObjectReference>(container)->handle;
+            const core::ObjectHandle previous = slot;
+            old = MakeReferenceArg(app, previous);
+
+            core::ObjectHandle target;
+            if (!FindReferenceFromArg(app, value, target, error))
+            {
+                return false;
+            }
+            const engine::ObjectSerializer::ReadReport report = engine::ObjectSerializer::ReadProperties(
+                MakeNestedEntry(path, target.IsNull() ? engine::ArchiveValue() : engine::ArchiveValue(std::int64_t{0})), owner,
+                [target](std::int64_t id) { return id == 0 ? target : core::ObjectHandle{}; });
+            if (!report.warnings.empty())
+            {
+                slot = previous; // 型が違うなど。前の相手に戻す
+                error = "Could not set " + path.back() + ": " + report.warnings[0];
+                return false;
+            }
+            return true;
+        }
+
         bool SetOneProperty(engine::Application& app, const engine::ArchiveValue& item, engine::Actor*& actorOut,
                             engine::ArchiveValue& old, std::string& who, std::string& error)
         {
@@ -927,6 +1064,11 @@ namespace husky::tools
             {
                 error = "'" + propertyName + "' cannot be changed with property.set";
                 return false;
+            }
+
+            if (property->GetType() == core::PropertyType::ObjectHandle || property->GetType() == core::PropertyType::ObjectRef)
+            {
+                return SetReferenceProperty(app, *owner, path, *property, *value, old, error);
             }
 
             // 前の値(Undo と、人に見せるため)。保存と同じ道具で、相手のプロパティを値の木にして、道筋のとおりに取り出す。

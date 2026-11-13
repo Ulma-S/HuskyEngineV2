@@ -219,6 +219,7 @@ namespace husky::tools
 
         // ハンドルが指している相手を、短い文字で表す(名前があるアクターなら名前、それ以外は型の名前)。
         // 文字列を作らずに、相手が持っている文字列をそのまま返す(毎フレームのメモリの確保を避けるため)。
+        // 返す文字は、次に呼ぶまでだけ有効(コンポーネントの「アクター / 型」は、使い回す文字の並びに書くため)。
         const char* DescribeHandle(core::ObjectHandle handle, core::ObjectRegistry& registry)
         {
             if (handle.IsNull())
@@ -226,15 +227,82 @@ namespace husky::tools
                 return "(none)";
             }
             const core::Object* object = registry.Resolve(handle);
-            if (object == nullptr)
+            if (object == nullptr || object->IsPendingDestroy())
             {
-                return "(destroyed)"; // もう無い(弱い参照の相手が消えた)
+                return "(missing)"; // もう無い(相手が消えた。保存すると null になる)
             }
             if (const engine::Actor* actor = core::Cast<engine::Actor>(object); actor != nullptr && !actor->name.empty())
             {
                 return actor->name.c_str();
             }
+            if (const engine::Component* component = core::Cast<engine::Component>(object))
+            {
+                // コンポーネントは「持ち主のアクター / 型」(決まった大きさの文字の並び。毎フレームの確保を避ける)
+                static char text[160];
+                const engine::Actor* owner = component->GetOwner();
+                std::snprintf(text, sizeof(text), "%s / %s",
+                              owner != nullptr && !owner->name.empty() ? owner->name.c_str() : "(actor)",
+                              component->GetType().GetName());
+                return text;
+            }
             return object->GetType().GetName();
+        }
+
+        // 参照の相手を選べるシーン(SceneInspector::Draw が描く間だけ設定する。無ければ、参照は表示だけ)。
+        engine::Scene* g_pickScene = nullptr;
+
+        // 参照(ObjectHandle / ObjectRef。REF-1)を、相手を選ぶ箱(コンボボックス)で描く。
+        // allowed: 選べる型(ObjectRef<T> の T。nullptr ならアクターなら何でも)。コンポーネントの型なら、各アクターのその型のものを並べる。
+        // 選んだら、ハンドルをその場で書き換えて true(記録係が property.set の1件にする)。
+        bool DrawReferencePicker(const char* name, core::ObjectHandle& handle, const core::TypeInfo* allowed,
+                                 core::ObjectRegistry& registry)
+        {
+            if (g_pickScene == nullptr)
+            {
+                ImGui::Text("%s: %s", name, DescribeHandle(handle, registry));
+                return false;
+            }
+            bool changed = false;
+            if (!ImGui::BeginCombo(name, DescribeHandle(handle, registry)))
+            {
+                return false;
+            }
+            if (ImGui::Selectable("(none)", handle.IsNull()) && !handle.IsNull())
+            {
+                handle = {};
+                changed = true;
+            }
+            const bool wantComponents = allowed != nullptr && allowed->IsA(engine::Component::StaticType());
+            // 候補を選んだときの書き換え(アクターでもコンポーネントでも同じ)
+            auto offer = [&](core::ObjectHandle candidate) {
+                ImGui::PushID(static_cast<int>(candidate.index));
+                if (ImGui::Selectable(DescribeHandle(candidate, registry), candidate == handle) && candidate != handle)
+                {
+                    handle = candidate;
+                    changed = true;
+                }
+                ImGui::PopID();
+            };
+            g_pickScene->ForEachActor([&](engine::Actor& actor) {
+                if (!wantComponents)
+                {
+                    if (allowed == nullptr || actor.GetType().IsA(*allowed))
+                    {
+                        offer(actor.GetHandle());
+                    }
+                    return;
+                }
+                for (const core::ObjectHandle componentHandle : actor.components)
+                {
+                    const core::Object* component = registry.Resolve(componentHandle);
+                    if (component != nullptr && !component->IsPendingDestroy() && component->GetType().IsA(*allowed))
+                    {
+                        offer(componentHandle);
+                    }
+                }
+            });
+            ImGui::EndCombo();
+            return changed;
         }
 
         // アセットの参照を、選択肢の箱(コンボボックス)で並べる。選べるのは、assetType として読めるアセットだけ。
@@ -350,14 +418,12 @@ namespace husky::tools
             case PropertyType::String:
                 return ImGui::InputText(name, property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
-                ImGui::Text("%s: %s", name, DescribeHandle(*property.GetValuePtrAt<core::ObjectHandle>(container), registry));
-                return false; // ハンドルは、今は表示だけ(付け替えの画面は REF-1 で作る)
+                // 型の無い参照: シーンのアクターから選ぶ(REF-1)
+                return DrawReferencePicker(name, *property.GetValuePtrAt<core::ObjectHandle>(container), nullptr, registry);
             case PropertyType::ObjectRef:
-                // 型の付いた参照: 相手と、指せる型を表示する(付け替えの画面は REF-1 で作る)
-                ImGui::Text("%s: %s (%s)", name,
-                            DescribeHandle(property.GetValuePtrAt<core::ObjectReference>(container)->handle, registry),
-                            property.GetObjectRefType() != nullptr ? property.GetObjectRefType()->GetName() : "Object");
-                return false;
+                // 型の付いた参照: ObjectRef<T> の T に合うものだけを候補にする(REF-1)
+                return DrawReferencePicker(name, property.GetValuePtrAt<core::ObjectReference>(container)->handle,
+                                           property.GetObjectRefType(), registry);
             case PropertyType::Array:
                 return DrawArray(property, container, registry, assets, recorder);
             case PropertyType::ObjectHandleArray:
@@ -582,6 +648,7 @@ namespace husky::tools
         engine::Scene& scene = app.GetScene();
         core::ObjectRegistry& registry = app.GetRegistry();
         m_recorder.BeginFrame(app, commands);
+        g_pickScene = &scene; // 参照の相手は、このシーンのアクター・コンポーネントから選ぶ(描き終わったら外す)
 
         // 最初は画面の右上に出す(左上のデバッグの窓は、コマンドが増えると下へ伸びるので、その下に置くと重なる)。
         const float width = 360.0f;
@@ -843,6 +910,7 @@ namespace husky::tools
         }
         ImGui::End();
         // 描き終わった: 編集の途中の部品が描かれなくなっていたら(選択を変えたなど)、ここで確定する。
+        g_pickScene = nullptr;
         m_recorder.EndFrame();
     }
 

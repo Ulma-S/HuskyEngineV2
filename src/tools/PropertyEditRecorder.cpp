@@ -12,6 +12,34 @@
 
 namespace husky::tools
 {
+    namespace
+    {
+        // 参照のプロパティ(ObjectHandle / ObjectRef)の中のハンドルの場所。参照でなければ nullptr。
+        core::ObjectHandle* ReferenceSlot(const core::Property& property, void* container)
+        {
+            if (property.GetType() == core::PropertyType::ObjectHandle)
+            {
+                return property.GetValuePtrAt<core::ObjectHandle>(container);
+            }
+            if (property.GetType() == core::PropertyType::ObjectRef)
+            {
+                return &property.GetValuePtrAt<core::ObjectReference>(container)->handle;
+            }
+            return nullptr;
+        }
+
+        // 道筋の最後のプロパティの持ち主(構造体の中なら、その構造体)の先頭。
+        void* ContainerAtPath(core::Object& owner, const core::Property* const* path, std::size_t depth)
+        {
+            void* container = &owner;
+            for (std::size_t i = 0; i + 1 < depth && container != nullptr; ++i)
+            {
+                container = path[i]->GetStructAddressAt(container);
+            }
+            return container;
+        }
+    }
+
     void PropertyEditRecorder::BeginFrame(engine::Application& app, EditorCommandRegistry* commands)
     {
         m_app = &app;
@@ -68,6 +96,8 @@ namespace husky::tools
         case core::PropertyType::Int64: return Kind::Int64;
         case core::PropertyType::Double: return Kind::Double;
         case core::PropertyType::Enum: return Kind::Enum;
+        case core::PropertyType::ObjectHandle: return Kind::Reference;
+        case core::PropertyType::ObjectRef: return Kind::Reference;
         case core::PropertyType::String: return Kind::String;
         case core::PropertyType::AssetRef: return Kind::AssetRef;
         case core::PropertyType::Struct:
@@ -89,6 +119,7 @@ namespace husky::tools
         case Kind::Int64: out.int64Value = *property.GetValuePtrAt<std::int64_t>(container); break;
         case Kind::Double: out.doubleValue = *property.GetValuePtrAt<double>(container); break;
         case Kind::Enum: out.int64Value = property.GetEnumInfo()->get(property.GetEnumAddressAt(container)); break;
+        case Kind::Reference: out.handle = *ReferenceSlot(property, container); break;
         // assign: 入れ物の容量を残したまま中身を入れ替える(短くなっても縮まないので、温まった後は確保しない)。
         case Kind::String: out.text.assign(*property.GetValuePtrAt<std::string>(container)); break;
         case Kind::Color: out.color = *static_cast<render::Color*>(property.GetStructAddressAt(container)); break;
@@ -107,6 +138,7 @@ namespace husky::tools
         case Kind::Int64: *property.GetValuePtrAt<std::int64_t>(container) = snapshot.int64Value; break;
         case Kind::Double: *property.GetValuePtrAt<double>(container) = snapshot.doubleValue; break;
         case Kind::Enum: property.GetEnumInfo()->set(property.GetEnumAddressAt(container), snapshot.int64Value); break;
+        case Kind::Reference: *ReferenceSlot(property, container) = snapshot.handle; break;
         case Kind::String: property.GetValuePtrAt<std::string>(container)->assign(snapshot.text); break;
         case Kind::Color: *static_cast<render::Color*>(property.GetStructAddressAt(container)) = snapshot.color; break;
         case Kind::AssetRef: *property.GetValuePtrAt<core::AssetReference>(container) = snapshot.assetRef; break;
@@ -219,8 +251,18 @@ namespace husky::tools
     }
 
     engine::ArchiveValue PropertyEditRecorder::ReadValueAtPath(const core::Object& owner,
-                                                               const core::Property* const* path, std::size_t depth)
+                                                               const core::Property* const* path, std::size_t depth) const
     {
+        // 参照(REF-1): 保存の形(番号)にはならないので、相手を guid などで表す(property.set に渡せる形)。
+        if (depth > 0 && m_app != nullptr)
+        {
+            // 読むだけなので const を外してよい(ContainerAtPath は書き換えない)
+            void* container = ContainerAtPath(const_cast<core::Object&>(owner), path, depth);
+            if (const core::ObjectHandle* slot = container != nullptr ? ReferenceSlot(*path[depth - 1], container) : nullptr)
+            {
+                return MakeReferenceArg(*m_app, *slot);
+            }
+        }
         // 保存と同じ道具で、持ち主のプロパティを値の木にして、道筋のとおりに下りる(確定のときだけなので、確保してよい)。
         const engine::ArchiveValue all = engine::ObjectSerializer::Write(owner);
         const engine::ArchiveValue* value = all.Find("properties");
@@ -282,14 +324,26 @@ namespace husky::tools
         }
 
         // 前の値に戻してから、コマンドで今の値にする(コマンドが前の値を正しく控え、Undo で戻せるように)。
-        engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
-        engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
-        for (std::size_t i = 0; i + 1 < m_editDepth; ++i)
+        void* container = ContainerAtPath(*owner, m_editPath, m_editDepth);
+        if (core::ObjectHandle* slot = container != nullptr ? ReferenceSlot(*m_editPath[m_editDepth - 1], container) : nullptr)
         {
-            parent = &parent->Set(m_editPath[i]->GetName(), engine::ArchiveValue::MakeObject());
+            // 参照(REF-1): 前の値は guid などの形なので、相手を引いてハンドルを直接戻す
+            std::string ignored;
+            core::ObjectHandle previous;
+            FindReferenceFromArg(*m_app, m_before, previous, ignored);
+            *slot = previous;
         }
-        parent->Set(m_editPath[m_editDepth - 1]->GetName(), m_before);
-        engine::ObjectSerializer::ReadProperties(entry, *owner);
+        else
+        {
+            engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
+            engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
+            for (std::size_t i = 0; i + 1 < m_editDepth; ++i)
+            {
+                parent = &parent->Set(m_editPath[i]->GetName(), engine::ArchiveValue::MakeObject());
+            }
+            parent->Set(m_editPath[m_editDepth - 1]->GetName(), m_before);
+            engine::ObjectSerializer::ReadProperties(entry, *owner);
+        }
 
         engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
         args.Set("actor", engine::ArchiveValue(actor->guid.ToString()));

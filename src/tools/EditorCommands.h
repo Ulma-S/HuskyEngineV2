@@ -277,6 +277,18 @@ namespace husky::tools
     // アクターを人に見せる文字("Player (PlayerActor)"。名前が無ければ "PlayerActor at (12, 34)")。
     std::string DescribeActor(const engine::Actor& actor);
 
+    // 参照の相手(ObjectHandle / ObjectRef の中身)を、コマンドの引数の形にする(REF-1)。
+    //   - シーンのアクター → guid の文字列
+    //   - シーンのアクターのコンポーネント → {"actor": guid, "component": 型の名前}(同じ型の2つ目からは "index": 何個目か)
+    //   - 何も指さない・もう無い・シーンの外のもの → null
+    // property.set の value と、Undo の前の値に使う(ハンドルはその時のメモリでしか意味が無いので、guid で指す)。
+    engine::ArchiveValue MakeReferenceArg(engine::Application& app, core::ObjectHandle handle);
+
+    // MakeReferenceArg の逆。アクターは名前でも指せる(FindActorFromArg)。null なら、どこも指さないハンドル。
+    // 見つからなければ false と、人が読める理由。
+    bool FindReferenceFromArg(engine::Application& app, const engine::ArchiveValue& value, core::ObjectHandle& out,
+                              std::string& error);
+
     // 「アクターの一覧」コマンド(actor.list)を作る。シーンのアクターを、名前、型、guid、位置で並べる(読むだけ)。
     // 引数: name、type(省略可。名前が同じもの、その型か子孫のものだけに絞る)。data に全件を入れる。
     EditorCommand MakeListActorsCommand();
