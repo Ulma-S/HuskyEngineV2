@@ -21,7 +21,8 @@
         },
         "components": [
           1,
-          2
+          2,
+          3
         ],
         "moveSpeed": 300.0
       }
@@ -59,6 +60,21 @@
         "playing": true,
         "speed": 1.0
       }
+    },
+    {
+      "type": "CircleCollider2D",
+      "properties": {
+        "prefabComponentId": "ae9d6e41-ba0e-4cbd-a685-75d7d42d35e8",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "isTrigger": false,
+        "layer": 0,
+        "collisionMask": 2,
+        "radius": 48.0
+      },
+      "id": 3
     }
   ],
   "actors": [

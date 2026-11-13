@@ -180,6 +180,23 @@ namespace husky::engine::SceneSerializer
         }
 
         // 2体のアクターの記録が、同じ形(アクターの型、コンポーネントの数と、並んだ順の型)か。
+        // whole のコンポーネントの先頭の部分が、part と同じ型の並びか(アクターの型も同じ)。part の方が長ければ false。
+        bool StartsWithShape(const ActorEntries& whole, const ActorEntries& part)
+        {
+            if (TypeNameOf(*whole.actor) != TypeNameOf(*part.actor) || part.components.size() > whole.components.size())
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < part.components.size(); ++i)
+            {
+                if (TypeNameOf(*whole.components[i]) != TypeNameOf(*part.components[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         bool SameShape(const ActorEntries& a, const ActorEntries& b)
         {
             if (TypeNameOf(*a.actor) != TypeNameOf(*b.actor) || a.components.size() != b.components.size())
@@ -536,7 +553,10 @@ namespace husky::engine::SceneSerializer
             }
             std::unordered_map<core::Guid, std::size_t> prefabIndex;
             const bool byId = fileUsesIds && IndexPrefabComponents(base, prefabIndex);
-            if (!byId && !SameShape(file, base))
+            // 並び順で組にするときは、ファイルのコンポーネントが、プレハブのコンポーネントの「先頭の部分」と型が同じならよい
+            // (ID の無い古いファイルを保存した後に、プレハブの末尾にコンポーネントを足した場合。COL-4 で、手元のシーンの
+            // 跳ね回るものとプレイヤーのプレハブにコライダーを足したときに起きた)。残りは、プレハブに後から足されたものとして足す。
+            if (!byId && !StartsWithShape(base, file))
             {
                 report.warnings.push_back(where + " とコンポーネントの並びが違うので、ファイルにある値だけで作ります");
                 continue;
@@ -567,6 +587,10 @@ namespace husky::engine::SceneSerializer
                 for (std::size_t c = 0; c < file.components.size(); ++c)
                 {
                     pair(c, c);
+                }
+                for (std::size_t k = file.components.size(); k < actor->components.size(); ++k)
+                {
+                    addedByPrefab.emplace_back(actor->GetHandle(), actor->components[k]); // プレハブの末尾に後から足されたもの
                 }
                 continue;
             }

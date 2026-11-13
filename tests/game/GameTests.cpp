@@ -3,6 +3,7 @@
 
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
+#include "engine/Collider2D.h"
 #include "game/CameraFollowComponent.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -142,4 +143,47 @@ TEST_CASE("Game: プレイヤーは世界の外へ出られない")
                       KeyEvent{Key::Up, true}});
     CHECK(player->transform.position.x == doctest::Approx(husky::game::WorldWidth - half));
     CHECK(player->transform.position.y == doctest::Approx(husky::game::WorldHeight - half));
+}
+
+TEST_CASE("COL-4: プレハブのコライダーで、跳ね回るものはプレイヤーに触れている間だけ赤くなる(跳ね回るもの同士では変わらない)")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    husky::game::SpawnInitialActors(app);
+    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
+    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    auto* other = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors[1]);
+    REQUIRE(player != nullptr);
+    REQUIRE(bouncer != nullptr);
+    REQUIRE(other != nullptr);
+    // プレハブにコライダーが入っている(プレイヤーは円 48、跳ね回るものは円 16。グループは GameActors.h の決め事)
+    REQUIRE(bouncer->GetComponent<husky::engine::CircleCollider2D>() != nullptr);
+    CHECK(bouncer->GetComponent<husky::engine::CircleCollider2D>()->layer == husky::game::BouncerLayer);
+    REQUIRE(player->GetComponent<husky::engine::CircleCollider2D>() != nullptr);
+    CHECK(player->GetComponent<husky::engine::CircleCollider2D>()->layer == husky::game::PlayerLayer);
+
+    // 2 つの跳ね回るものを、プレイヤーから離れた所で重ね、止める(跳ね回るもの同士は当たらない)
+    bouncer->vx = bouncer->vy = 0.0f;
+    other->vx = other->vy = 0.0f;
+    bouncer->transform.position = {100.0f, 100.0f, 0.0f};
+    other->transform.position = {105.0f, 100.0f, 0.0f};
+    const husky::render::Color original = bouncer->GetComponent<husky::engine::SpriteComponent>()->color;
+    app.StepFrame(0, {});
+    CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->color.r == original.r);
+    CHECK(bouncer->touching == 0);
+
+    // プレイヤーに重ねると赤くなる
+    bouncer->transform.position = player->transform.position;
+    app.StepFrame(0, {});
+    CHECK(bouncer->touching == 1);
+    CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->color.r == husky::game::TouchedColor.r);
+    CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->color.g == husky::game::TouchedColor.g);
+
+    // 離すと元の色に戻る
+    bouncer->transform.position = {100.0f, 100.0f, 0.0f};
+    app.StepFrame(0, {});
+    CHECK(bouncer->touching == 0);
+    CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->color.g == original.g);
 }

@@ -574,3 +574,34 @@ TEST_CASE("PF-7b: WriteChanges と FollowChanges は ID でコンポーネント
         {"SpriteComponent", "width", ArchiveValue(32.0), ArchiveValue(48.0), AnimatorId}};
     CHECK_FALSE(Prefab::WriteChanges(prefab->GetData(), wrong, written, error));
 }
+
+TEST_CASE("COL-4: コンポーネントの ID の無い古いシーンでも、プレハブの末尾に後から足したコンポーネントは、先頭を並び順で組にして足される")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_old_file_prefix");
+    WriteBoxPrefab(folder, "Box", 32.0f, false); // スプライトだけ
+
+    // 置いて幅を 48 に変え、保存する。ID を消して、PF-7a より前の古いファイルと同じ形にする
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        Actor* placed = PlaceBox(app, folder);
+        placed->GetComponent<SpriteComponent>()->width = 48.0f;
+        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+        saved = Rewrite(ThroughJson(written), "prefabComponentId", [](const ArchiveValue&) { return ArchiveValue(); });
+    }
+
+    // プレハブの末尾にアニメーターを足してから読む: 警告なしで、スプライトは違い(幅 48)のまま、アニメーターも付く
+    WriteBoxPrefab(folder, "Box", 32.0f, true);
+    husky::engine::Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    const husky::engine::SceneSerializer::ReadReport report =
+        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+    CHECK(report.warnings.empty());
+    REQUIRE(app.GetScene().actors.size() == 1);
+    Actor* actor = app.GetRegistry().Resolve<Actor>(app.GetScene().actors[0]);
+    REQUIRE(actor != nullptr);
+    CHECK(actor->components.size() == 2);
+    REQUIRE(actor->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(actor->GetComponent<SpriteComponent>()->width == 48.0f);
+    CHECK(actor->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+}

@@ -20,7 +20,8 @@
           }
         },
         "components": [
-          1
+          1,
+          2
         ],
         "vx": 0.0,
         "vy": 0.0
@@ -49,6 +50,21 @@
         "sheet": null,
         "sprite": 0
       }
+    },
+    {
+      "type": "CircleCollider2D",
+      "properties": {
+        "prefabComponentId": "eb607775-b10e-46a8-a2ce-4cb5d64bad8b",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "isTrigger": false,
+        "layer": 1,
+        "collisionMask": 1,
+        "radius": 16.0
+      },
+      "id": 2
     }
   ],
   "actors": [

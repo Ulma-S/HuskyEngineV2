@@ -114,6 +114,28 @@ namespace husky::game
         MoveAndBounce(transform.position.y, vy, step, half, WorldHeight - half);
     }
 
+    void BouncerActor::OnOverlap(const engine::OverlapEvent& event)
+    {
+        // 見た目は SpriteComponent の色で変える(無ければ何もしない)。重なりはプレイヤーとだけ起きる(グループの決め事)
+        engine::SpriteComponent* sprite = GetComponent<engine::SpriteComponent>();
+        if (sprite == nullptr)
+        {
+            return;
+        }
+        if (event.begin)
+        {
+            if (touching++ == 0) // 触れ始め(0 → 1): 元の色を控えてから赤くする
+            {
+                savedColor = sprite->color;
+                sprite->color = TouchedColor;
+            }
+        }
+        else if (touching > 0 && --touching == 0) // 最後の相手から離れた(1 → 0): 元の色に戻す
+        {
+            sprite->color = savedColor;
+        }
+    }
+
     void PlayerActor::Tick(double dt)
     {
         const engine::Scene* scene = GetScene();
