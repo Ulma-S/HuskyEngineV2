@@ -264,3 +264,67 @@ TEST_CASE("使い勝手: FitColliderToSprite はコライダーを絵の大き�
     CHECK_FALSE(husky::engine::FitColliderToSprite(*untouched, *bare));
     CHECK(untouched->size.x == 32.0f);
 }
+
+TEST_CASE("同期の軽量化: 止まっている間は伝えなくても重なりは続き、しばらく止まった後に動かしても正しく離れる")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    OverlapRecorder* a = SpawnBox(app, 0.0f, 0.0f);
+    OverlapRecorder* b = SpawnBox(app, 10.0f, 0.0f);
+    for (int i = 0; i < 10; ++i)
+    {
+        Step(app); // どちらも動かない(2 フレーム目からは SetPose を呼ばない)
+    }
+    REQUIRE(a->events.size() == 1);
+    CHECK(a->events[0].begin);
+    // 止まっていた B だけ動かす: 新しい場所が伝わり、離れたことが分かる
+    b->transform.position.x = 100.0f;
+    Step(app);
+    REQUIRE(a->events.size() == 2);
+    CHECK_FALSE(a->events[1].begin);
+    // 拡大縮小だけ変えても伝わる(場所は同じ)
+    b->transform.position.x = 40.0f; // 幅 32 なので、まだ離れている
+    Step(app);
+    CHECK(a->events.size() == 2);
+    b->transform.scale = {3.0f, 1.0f, 1.0f}; // 幅 96 になって A に届く
+    Step(app);
+    REQUIRE(a->events.size() == 3);
+    CHECK(a->events[2].begin);
+}
+
+TEST_CASE("同期の軽量化: 外したコライダーの場所が別のコライダーに貸し直されても、世代で見分けて置き直す")
+{
+    Application app;
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    OverlapRecorder* a = SpawnBox(app, 0.0f, 0.0f);
+    OverlapRecorder* b = SpawnBox(app, 10.0f, 0.0f);
+    Step(app);
+    REQUIRE(a->events.size() == 1);
+    // B のコライダーを外す(このフレームの終わりで消え、場所が空く)
+    BoxCollider2D* oldCollider = b->GetComponent<BoxCollider2D>();
+    const husky::core::ObjectHandle oldHandle = oldCollider->GetHandle();
+    b->RemoveComponent(*oldCollider);
+    Step(app);
+    CHECK(app.GetPhysics2D().GetColliderCount() == 1);
+    REQUIRE(a->events.size() == 2);
+    CHECK_FALSE(a->events[1].begin);
+    // 新しいコライダーを足す。空いた場所が使い回されれば、場所は同じで世代だけが違う
+    CircleCollider2D* newCollider = b->AddComponent<CircleCollider2D>();
+    const husky::core::ObjectHandle newHandle = newCollider->GetHandle();
+    CHECK(newHandle != oldHandle);
+    Step(app);
+    CHECK(app.GetPhysics2D().GetColliderCount() == 2);
+    REQUIRE(a->events.size() == 3);
+    CHECK(a->events[2].begin);
+    CHECK(a->events[2].otherCollider == newHandle);
+    // 古いハンドルで問い合わせても、新しいコライダーとは取り違えない(同じ場所でも世代が違う)
+    std::vector<husky::engine::QueryHit2D> hits;
+    app.GetPhysics2D().GetWorld().OverlapPoint(10.0f, 0.0f, husky::engine::AllCollisionLayers, hits);
+    bool foundOld = false;
+    for (const husky::engine::QueryHit2D& hit : hits)
+    {
+        foundOld = foundOld || hit.owner == oldHandle;
+    }
+    CHECK_FALSE(foundOld);
+    WARN(newHandle.index == oldHandle.index); // 使い回されていなければ、このテストは世代の見分けを確かめられていない(警告だけ)
+}

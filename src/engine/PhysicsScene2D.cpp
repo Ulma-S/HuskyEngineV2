@@ -11,10 +11,10 @@ namespace husky::engine
 {
     namespace
     {
-        // ハンドルを、表の鍵にする整数にする(場所と世代を 64 ビットに並べる)。
-        std::uint64_t KeyOf(core::ObjectHandle handle)
+        // 場所・回転・拡大縮小が前のフレームとまったく同じか(同じなら、当たり判定の世界に伝えなくてよい)。
+        bool SamePose(const Pose2D& a, const Pose2D& b)
         {
-            return (static_cast<std::uint64_t>(handle.index) << 32) | handle.generation;
+            return a.position == b.position && a.rotationDegrees == b.rotationDegrees && a.scale == b.scale;
         }
 
         // 置き直しが要るか(大きさ・ずらし・レイヤーなど、形の決め事が変わった)。
@@ -54,11 +54,14 @@ namespace husky::engine
 
     void PhysicsScene2D::Sync(Scene& scene)
     {
-        for (auto& [key, entry] : m_entries)
-        {
-            entry.seen = false;
-        }
+        // 前のフレームに置いていたものに「まだ見ていない」の印を付ける(表をまるごと回さず、置いていたものだけ)。
+        // swap: 2つの入れ物の中身を入れ替える(コピーしない。確保した領域も入れ替わるので、使い回せる)。
+        m_previousOrder.swap(m_order);
         m_order.clear();
+        for (const std::uint32_t index : m_previousOrder)
+        {
+            m_entries[index].seen = false;
+        }
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
         scene.ForEachActor([&](Actor& actor) {
             const Pose2D pose = MakePose2D(actor.transform);
@@ -69,13 +72,22 @@ namespace husky::engine
                 {
                     continue;
                 }
-                const std::uint64_t key = KeyOf(handle);
                 const ShapeDesc2D desc = collider->MakeShapeDesc();
-                // [] は、鍵が無ければ新しい控えを作って返す(C# の Dictionary の TryAdd と取り出しを一度にするもの)
-                Entry& entry = m_entries[key];
-                if (entry.shape.IsNull())
+                // ハンドルの場所の番号を、そのまま配列の添字にする。足りなければ配列を伸ばす(温まった後は伸びない)。
+                if (handle.index >= m_entries.size())
                 {
+                    m_entries.resize(static_cast<std::size_t>(handle.index) + 1);
+                }
+                Entry& entry = m_entries[handle.index];
+                if (entry.collider != handle)
+                {
+                    // 空いている場所、または同じ場所の前の代(消えたコライダー)の控えが残っている: 前の形を外して置き直す
+                    if (!entry.shape.IsNull())
+                    {
+                        m_world->RemoveShape(entry.shape);
+                    }
                     entry.collider = handle;
+                    entry.contacts.clear();
                     entry.shape = m_world->AddShape(desc, pose); // 新しいコライダー: 置く
                 }
                 else if (!SameShape(entry.desc, desc))
@@ -83,54 +95,64 @@ namespace husky::engine
                     m_world->RemoveShape(entry.shape); // 大きさなどが変わった: 置き直す
                     entry.shape = m_world->AddShape(desc, pose);
                 }
-                else
+                else if (!SamePose(entry.pose, pose))
                 {
-                    m_world->SetPose(entry.shape, pose); // 場所を伝える
+                    m_world->SetPose(entry.shape, pose); // 動いた: 場所を伝える(止まっているものは伝えない)
                 }
                 entry.actor = actor.GetHandle();
                 entry.desc = desc;
                 entry.pose = pose;
                 entry.seen = true;
-                m_order.push_back(key);
+                m_order.push_back(handle.index);
             }
         });
-        // シーンに見つからなかったもの(消えたコライダー、消えたアクターのもの)を世界から外す。
+        // シーンに見つからなかったもの(消えたコライダー、消えたアクターのもの)を世界から外し、場所を空ける。
         // 相手の側には、次の重なりの調べで「離れた」が届く。
-        for (auto it = m_entries.begin(); it != m_entries.end();)
+        for (const std::uint32_t index : m_previousOrder)
         {
-            if (!it->second.seen)
+            Entry& entry = m_entries[index];
+            if (!entry.seen && !entry.shape.IsNull())
             {
-                m_world->RemoveShape(it->second.shape);
-                it = m_entries.erase(it); // erase は、消した次の位置を返す
-            }
-            else
-            {
-                ++it;
+                m_world->RemoveShape(entry.shape);
+                entry.collider = core::ObjectHandle{};
+                entry.actor = core::ObjectHandle{};
+                entry.shape = PhysicsShapeHandle2D{};
+                entry.contacts.clear(); // 中身だけ消す(確保した領域は残り、次にこの場所を使うときに使い回す)
             }
         }
+    }
+
+    PhysicsScene2D::Entry* PhysicsScene2D::FindEntry(core::ObjectHandle collider)
+    {
+        if (collider.IsNull() || collider.index >= m_entries.size())
+        {
+            return nullptr;
+        }
+        Entry& entry = m_entries[collider.index];
+        return entry.collider == collider ? &entry : nullptr; // 世代まで同じときだけ(同じ場所の別の代は別物)
     }
 
     void PhysicsScene2D::DetectOverlaps()
     {
         m_events.clear();
-        for (const std::uint64_t key : m_order)
+        for (const std::uint32_t index : m_order)
         {
-            Entry& entry = m_entries[key];
+            Entry& entry = m_entries[index];
             // 自分の形に重なる形を探す(自分のマスクに当てはまるグループの形だけ)
             m_world->OverlapShape(entry.desc, entry.pose, entry.desc.filter.mask, m_hits);
             m_current.clear();
             for (const QueryHit2D& hit : m_hits)
             {
-                const auto other = m_entries.find(KeyOf(hit.owner));
-                if (hit.owner == entry.collider || other == m_entries.end() || other->second.actor == entry.actor)
+                const Entry* other = FindEntry(hit.owner);
+                if (hit.owner == entry.collider || other == nullptr || other->actor == entry.actor)
                 {
                     continue; // 自分自身、知らない形、同じアクターのほかのコライダーは数えない
                 }
-                if ((other->second.desc.filter.mask & entry.desc.filter.layer) == 0)
+                if ((other->desc.filter.mask & entry.desc.filter.layer) == 0)
                 {
                     continue; // 相手は自分のグループと当たらない(お互いに選んでいるときだけ当たる)
                 }
-                m_current.push_back(Contact{hit.owner, other->second.actor});
+                m_current.push_back(Contact{hit.owner, other->actor});
             }
 
             // 前のフレームと比べる: 今あって前に無い = 重なり始めた、前にあって今無い = 離れた
@@ -171,8 +193,8 @@ namespace husky::engine
         }
         for (const OverlapEvent& event : m_events)
         {
-            const auto self = m_entries.find(KeyOf(event.selfCollider));
-            Actor* actor = self != m_entries.end() ? registry->Resolve<Actor>(self->second.actor) : nullptr;
+            const Entry* self = FindEntry(event.selfCollider);
+            Actor* actor = self != nullptr ? registry->Resolve<Actor>(self->actor) : nullptr;
             if (actor == nullptr || actor->IsPendingDestroy())
             {
                 continue;
