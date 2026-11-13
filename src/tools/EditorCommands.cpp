@@ -654,8 +654,8 @@ namespace husky::tools
             case core::PropertyType::AssetRef: // GUID の文字列か、null(何も指さない)
                 return true;
             case core::PropertyType::Array:
-                // 配列(SF-2b): JSON の配列で、まるごと入れ替える。参照の配列は、まだ書き換えない(表示だけ)。
-                return !property.IsReference();
+                // 配列(SF-2b): JSON の配列で、まるごと入れ替える。参照の配列は、要素ごとに参照の形で(REF-1)。
+                return !property.IsReference() || IsReferenceArray(property);
             case core::PropertyType::ObjectHandle:
             case core::PropertyType::ObjectRef:
                 // 参照(REF-1): アクターの guid(か名前)、コンポーネントは {"actor", "component"}、null で外す
@@ -870,6 +870,72 @@ namespace husky::tools
         return false;
     }
 
+    bool IsReferenceArray(const core::Property& property)
+    {
+        return property.GetType() == core::PropertyType::Array && property.GetArrayInfo() != nullptr &&
+               property.GetArrayInfo()->element.GetType() == core::PropertyType::ObjectRef;
+    }
+
+    engine::ArchiveValue MakeReferenceArrayArg(engine::Application& app, const core::Property& property,
+                                               const void* container)
+    {
+        engine::ArchiveValue values = engine::ArchiveValue::MakeArray();
+        if (!IsReferenceArray(property))
+        {
+            return values;
+        }
+        const core::ArrayInfo& array = *property.GetArrayInfo();
+        const void* address = property.GetArrayAddressAt(container);
+        const std::size_t count = array.size(address);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const core::ObjectReference* element = array.element.GetValuePtrAt<core::ObjectReference>(array.atConst(address, i));
+            values.Append(MakeReferenceArg(app, element->handle));
+        }
+        return values;
+    }
+
+    bool AssignReferenceArray(engine::Application& app, const core::Property& property, void* container,
+                              const engine::ArchiveValue& value, std::string& error)
+    {
+        if (!IsReferenceArray(property))
+        {
+            error = std::string("'") + property.GetName() + "' is not an array of references";
+            return false;
+        }
+        if (value.GetType() != engine::ArchiveValue::Type::Array)
+        {
+            error = "An array of references is needed (each one an actor, a component, or null)";
+            return false;
+        }
+        // 先に全部の相手を引いて確かめる(途中で失敗しても、配列を半分だけ変えないため)
+        const core::ArrayInfo& array = *property.GetArrayInfo();
+        const core::TypeInfo* allowed = array.element.GetObjectRefType();
+        std::vector<core::ObjectHandle> handles(value.GetArraySize());
+        for (std::size_t i = 0; i < value.GetArraySize(); ++i)
+        {
+            if (!FindReferenceFromArg(app, value.At(i), handles[i], error))
+            {
+                error = "[" + std::to_string(i) + "] " + error;
+                return false;
+            }
+            const core::Object* target = app.GetRegistry().Resolve(handles[i]);
+            if (target != nullptr && allowed != nullptr && !target->GetType().IsA(*allowed))
+            {
+                error = "[" + std::to_string(i) + "] " + target->GetType().GetName() + " is not a " + allowed->GetName();
+                return false;
+            }
+        }
+        void* address = property.GetArrayAddressAt(container);
+        array.resize(address, 0);
+        array.resize(address, handles.size());
+        for (std::size_t i = 0; i < handles.size(); ++i)
+        {
+            array.element.GetValuePtrAt<core::ObjectReference>(array.at(address, i))->handle = handles[i];
+        }
+        return true;
+    }
+
     engine::Actor* FindActorFromArg(engine::Scene& scene, const std::string& actorText, std::string& error)
     {
         // 1. guid の形なら guid で探す(名前に guid の形の文字列を付けるアクターは無いものとする)。
@@ -1011,6 +1077,12 @@ namespace husky::tools
                 container = step->GetStructAddressAt(container);
                 type = step->GetStructType();
             }
+            if (IsReferenceArray(property))
+            {
+                // 参照の配列: 要素ごとに参照の形(guid など)の配列で、まるごと入れ替える
+                old = MakeReferenceArrayArg(app, property, container);
+                return AssignReferenceArray(app, property, container, value, error);
+            }
             core::ObjectHandle& slot = property.GetType() == core::PropertyType::ObjectHandle
                                            ? *property.GetValuePtrAt<core::ObjectHandle>(container)
                                            : property.GetValuePtrAt<core::ObjectReference>(container)->handle;
@@ -1066,7 +1138,8 @@ namespace husky::tools
                 return false;
             }
 
-            if (property->GetType() == core::PropertyType::ObjectHandle || property->GetType() == core::PropertyType::ObjectRef)
+            if (property->GetType() == core::PropertyType::ObjectHandle || property->GetType() == core::PropertyType::ObjectRef ||
+                IsReferenceArray(*property))
             {
                 return SetReferenceProperty(app, *owner, path, *property, *value, old, error);
             }

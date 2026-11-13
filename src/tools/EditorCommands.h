@@ -289,6 +289,18 @@ namespace husky::tools
     bool FindReferenceFromArg(engine::Application& app, const engine::ArchiveValue& value, core::ObjectHandle& out,
                               std::string& error);
 
+    // 参照の配列(std::vector<ObjectRef<T>>)のプロパティか。
+    bool IsReferenceArray(const core::Property& property);
+
+    // 参照の配列の中身を、MakeReferenceArg の形の配列にする(container はプロパティの持ち主の先頭)。
+    engine::ArchiveValue MakeReferenceArrayArg(engine::Application& app, const core::Property& property,
+                                               const void* container);
+
+    // MakeReferenceArrayArg の形の配列で、参照の配列をまるごと入れ替える。要素ごとに相手を引き、ObjectRef<T> の T で
+    // 型を確かめる。1つでも見つからない・型が違えば、何も変えずに false と理由。
+    bool AssignReferenceArray(engine::Application& app, const core::Property& property, void* container,
+                              const engine::ArchiveValue& value, std::string& error);
+
     // 「アクターの一覧」コマンド(actor.list)を作る。シーンのアクターを、名前、型、guid、位置で並べる(読むだけ)。
     // 引数: name、type(省略可。名前が同じもの、その型か子孫のものだけに絞る)。data に全件を入れる。
     EditorCommand MakeListActorsCommand();

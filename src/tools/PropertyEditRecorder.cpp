@@ -262,6 +262,10 @@ namespace husky::tools
             {
                 return MakeReferenceArg(*m_app, *slot);
             }
+            if (container != nullptr && IsReferenceArray(*path[depth - 1]))
+            {
+                return MakeReferenceArrayArg(*m_app, *path[depth - 1], container); // 参照の配列も、要素ごとに同じ形
+            }
         }
         // 保存と同じ道具で、持ち主のプロパティを値の木にして、道筋のとおりに下りる(確定のときだけなので、確保してよい)。
         const engine::ArchiveValue all = engine::ObjectSerializer::Write(owner);
@@ -332,6 +336,12 @@ namespace husky::tools
             core::ObjectHandle previous;
             FindReferenceFromArg(*m_app, m_before, previous, ignored);
             *slot = previous;
+        }
+        else if (container != nullptr && IsReferenceArray(*m_editPath[m_editDepth - 1]))
+        {
+            // 参照の配列: 前の値(要素ごとに guid などの形)で、配列まるごとを戻す
+            std::string ignored;
+            AssignReferenceArray(*m_app, *m_editPath[m_editDepth - 1], container, m_before, ignored);
         }
         else
         {

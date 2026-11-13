@@ -71,7 +71,7 @@ namespace
     }
 }
 
-TEST_CASE("SF-2b: property.set は配列まるごとを受け付ける。参照の配列は断る")
+TEST_CASE("SF-2b: property.set は配列まるごとを受け付ける(参照の配列は REF-1 の配列のテストで確かめる)")
 {
     Application app;
     Patrol* patrol = app.GetScene().Spawn<Patrol>();
@@ -86,8 +86,6 @@ TEST_CASE("SF-2b: property.set は配列まるごとを受け付ける。参照�
     REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Patrol", "property": "flags", "value": [true, false]})", args));
     REQUIRE(commands.Execute("property.set", app, args).succeeded);
     CHECK(patrol->flags == std::vector<bool>{true, false});
-    REQUIRE(husky::engine::JsonFormat::Read(R"({"actor": "Patrol", "property": "targets", "value": []})", args));
-    CHECK_FALSE(commands.Execute("property.set", app, args).succeeded); // 参照の配列は番号が要るので、まだ書き換えない
 
     REQUIRE(commands.Execute("editor.undo", app, ArchiveValue()).succeeded);
     CHECK(patrol->flags.empty());

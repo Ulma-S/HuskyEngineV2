@@ -14,6 +14,7 @@
 #include <doctest/doctest.h>
 
 #include <string>
+#include <vector>
 
 using husky::core::ObjectHandle;
 using husky::core::ObjectRef;
@@ -37,11 +38,13 @@ namespace
         ObjectRef<Prey> prey;
         ObjectRef<SpriteComponent> sprite;
         ObjectHandle anything;
+        std::vector<ObjectRef<Prey>> flock; // 参照の配列
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(prey)
             HUSKY_PROPERTY(sprite)
             HUSKY_PROPERTY(anything)
+            HUSKY_PROPERTY(flock)
         HUSKY_REFLECTION_END()
     };
 
@@ -165,5 +168,72 @@ TEST_CASE("REF-1: シーンのインスペクタは参照を選ぶ箱で描い�
     inspector.Select(hunter->GetHandle());
     imgui.Frame([&] { inspector.Draw(app, nullptr); });
     CHECK(hunter->prey.handle == prey->GetHandle()); // 描くだけでは変わらない
+}
+
+TEST_CASE("REF-1: 参照の配列も property.set で要素ごとに参照の形で書き換えられる。型の違う要素があれば何も変えない")
+{
+    Application app;
+    Hunter* hunter = app.GetScene().Spawn<Hunter>();
+    hunter->name = "Hunter";
+    Prey* a = app.GetScene().Spawn<Prey>();
+    a->name = "A";
+    Prey* b = app.GetScene().Spawn<Prey>();
+    b->name = "B";
+    EditorCommandRegistry commands;
+    RegisterCommands(commands);
+
+    REQUIRE(SetProperty(commands, app, R"({"actor": "Hunter", "property": "flock", "value": ["A", null, "B"]})").succeeded);
+    REQUIRE(hunter->flock.size() == 3);
+    CHECK(hunter->flock[0].Resolve(app.GetRegistry()) == a);
+    CHECK(hunter->flock[1].IsNull());
+    CHECK(hunter->flock[2].Resolve(app.GetRegistry()) == b);
+
+    // Hunter は Prey ではない → 何も変えずに断る
+    CHECK_FALSE(SetProperty(commands, app, R"({"actor": "Hunter", "property": "flock", "value": ["B", "Hunter"]})").succeeded);
+    CHECK(hunter->flock.size() == 3);
+
+    REQUIRE(commands.Execute("editor.undo", app, ArchiveValue()).succeeded);
+    CHECK(hunter->flock.empty());
+}
+
+TEST_CASE("REF-1: インスペクタで参照の配列の要素を選ぶ・足すと、配列まるごとの property.set の1件になり、Undo で戻る")
+{
+    Application app;
+    Hunter* hunter = app.GetScene().Spawn<Hunter>();
+    Prey* a = app.GetScene().Spawn<Prey>();
+    Prey* b = app.GetScene().Spawn<Prey>();
+    hunter->flock.resize(1);
+    hunter->flock[0].Set(a);
+    EditorCommandRegistry commands;
+    RegisterCommands(commands);
+    husky::tools::PropertyEditRecorder recorder;
+    const husky::core::Property& flock = *hunter->GetType().FindProperty("flock");
+    const husky::core::ArrayInfo& array = *flock.GetArrayInfo();
+
+    // 要素 0 を b に選び直す(インスペクタが配列の中で描くのと同じ順)
+    recorder.BeginFrame(app, &commands);
+    recorder.SetOwner(*hunter);
+    recorder.PushPath(flock);
+    recorder.EnterArray();
+    void* element = array.at(flock.GetArrayAddressAt(hunter), 0);
+    recorder.BeforeLeaf(array.element, element);
+    hunter->flock[0].Set(b);
+    recorder.AfterLeaf(array.element, element, true, false);
+    // 「+」で1つ足す
+    recorder.BeginWholeChange();
+    array.resize(flock.GetArrayAddressAt(hunter), 2);
+    recorder.CommitWholeChange();
+    recorder.LeaveArray();
+    recorder.PopPath();
+    recorder.EndFrame();
+    REQUIRE(hunter->flock.size() == 2);
+    CHECK(hunter->flock[0].Resolve(app.GetRegistry()) == b);
+    CHECK(commands.GetUndoCount() == 2);
+
+    REQUIRE(commands.Execute("editor.undo", app, ArchiveValue()).succeeded); // 足したのを戻す
+    CHECK(hunter->flock.size() == 1);
+    CHECK(hunter->flock[0].Resolve(app.GetRegistry()) == b);
+    REQUIRE(commands.Execute("editor.undo", app, ArchiveValue()).succeeded); // 選び直したのを戻す
+    CHECK(hunter->flock[0].Resolve(app.GetRegistry()) == a);
 }
 #endif
