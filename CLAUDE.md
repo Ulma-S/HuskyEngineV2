@@ -54,6 +54,7 @@
 - core: 型、メモリ、リフレクション、GC、世代付きハンドル、ジョブ。他のモジュールを一切参照しない。
 - engine: シーン、アクター、コンポーネント、アセット、シリアライズ、入力、描画抽象。core、platform、render(描画層)に依存する。
 - render(描画層): SDL_GPUで描く。`RenderDevice`と独自の型(`Color`、`Sprite`など)だけを公開する。platformに依存する。engineを参照しない(依存の向きは engine → render)。
+- audio(音の層。2026-11-14、設計メモ「音」): 効果音と BGM。platform に依存し、engine が使う(engine → audio)。SDL への依存は後から切り離せる形にする(ユーザーの希望): SDL を触るのは中身の1つのファイル(AUD-2 の`audio/SdlAudioOutput.cpp`、PRIVATE でリンク)だけ。混ぜるのは自前の`audio::Mixer`(AUD-1。SDL を知らない。float32・ステレオ・48kHz、ボイス 32 の配列で確保なし、いっぱいなら一番古い効果音を止める(BGM は止めない)、音量は全体 × 種類(`Bus::Effect` / `Music`)× 1回ごと、ループ、-1〜1 に切り詰め。番号`VoiceId`は呼ぶ側が振る(別のスレッドで動くため)。データ`SoundData`は借りるだけ)。1つのスレッドだけから使う。計画は AUD-1〜4。
 - platform: ウィンドウ、ファイル、スレッドなどOS依存のコード。SDL3はここだけが触る。coreに依存する。
 - tools: ImGuiのデバッグUIとインスペクタ、エディタの機能(シーンの保存など)。engineに依存する。リリースビルドには含めない。最初はゲームと同じプロセスに組み込み、いずれ別プロセスとプロセス間通信も検討する(設計メモ「UIとツール」)。シーンのファイルを保存するのはtools(開発ビルド)だけで、製品のゲームは読み込むだけ。
   - 開発ビルドの印: CMakeがDebugの構成(ASanも)にだけ`HUSKY_DEVELOPMENT=1`を付ける。エディタの機能は`#if HUSKY_DEVELOPMENT`で囲み、製品(Release)からコードごと外す。今は、開発ビルドの`F5`で今のシーンを`assets/scenes/main.json`(ソースの assets)に保存する(コマンド`scene.save`。中身は`Application::SaveSceneFile`)。乱数で大量に並べたこのファイルは`.gitignore`で管理しない。

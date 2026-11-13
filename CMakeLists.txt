@@ -253,6 +253,16 @@ target_include_directories(husky_platform PUBLIC src)
 # core: SDL のメモリの確保を MemoryTracker に通すため(MemoryHooks.cpp)。ヘッダには出さないので PRIVATE。
 target_link_libraries(husky_platform PRIVATE SDL3::SDL3 husky_core)
 
+# --- audio モジュール(静的ライブラリ) ---
+# 音を混ぜて鳴らす層(設計メモ「音」)。render と同じく platform の上に置き、engine が使う(engine → audio)。
+# SDL を触るのは中身の1つのファイルだけにする(AUD-2。替えるときはそのファイルだけを書き直す)。
+# 今はミキサー(SDL を知らないただのコード)だけ。
+add_library(husky_audio STATIC
+    src/audio/Mixer.cpp
+)
+husky_set_compile_options(husky_audio)
+target_include_directories(husky_audio PUBLIC src)
+
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
 add_library(husky_engine STATIC
@@ -502,6 +512,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
+        tests/audio/MixerTests.cpp
         tests/core/GuidTests.cpp
         tests/core/JsonLinesLogSinkTests.cpp
         tests/core/LogTests.cpp
@@ -520,7 +531,7 @@ if(HUSKY_BUILD_TESTS)
     )
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
-    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine husky_game doctest::doctest)
+    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine husky_game husky_audio doctest::doctest)
     # Box2D はふつう engine の中だけで使うが、組み込みのスモークテスト(Box2DSmokeTests.cpp)だけは直接読む。
     target_link_libraries(HuskyTests PRIVATE box2d)
     # テストで共通に使うヘッダ(TestFolder.h など)を、#include "TestFolder.h" で読めるようにする。
