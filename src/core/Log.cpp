@@ -23,9 +23,10 @@ namespace husky::core
         BadMessage = 4,
         UnknownChannel = 5,
         TooManyChannels = 6,
+        BadChannelName = 7,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(LogLog, "Log")
+    HUSKY_LOG_CHANNEL_BEGIN(LogLog, "Engine.Log")
         HUSKY_LOG_MESSAGE(BadArguments, Error, "{channel} の {message} に渡した値の数か種類が、定義と違います",
                           HUSKY_LOG_ARG(channel, String), HUSKY_LOG_ARG(message, String))
         HUSKY_LOG_MESSAGE(UnknownMessage, Error, "{channel} に番号 {id} のメッセージがありません",
@@ -36,6 +37,8 @@ namespace husky::core
                           HUSKY_LOG_ARG(channel, String), HUSKY_LOG_ARG(name, String))
         HUSKY_LOG_MESSAGE(UnknownChannel, Error, "番号 {channel} のチャンネルはありません", HUSKY_LOG_ARG(channel, Int))
         HUSKY_LOG_MESSAGE(TooManyChannels, Error, "チャンネルが多すぎて {name} を登録できません",
+                          HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(BadChannelName, Error, "チャンネルの名前 \"{name}\" は使えません(. で区切った1つ1つが、空でない英数字と _)",
                           HUSKY_LOG_ARG(name, String))
     HUSKY_LOG_CHANNEL_END()
 
@@ -226,11 +229,12 @@ namespace husky::core
     {
     }
 
-    int Log::FindChannelLocked(const char* name) const
+    int Log::FindChannelLocked(const char* name, std::size_t length) const
     {
         for (std::size_t i = 0; i < m_channels.size(); ++i)
         {
-            if (m_channels[i].name == name)
+            const std::string& channel = m_channels[i].name;
+            if (channel.size() == length && std::memcmp(channel.data(), name, length) == 0)
                 return static_cast<int>(i);
         }
         return -1;
@@ -239,7 +243,7 @@ namespace husky::core
     int Log::FindChannel(const char* name)
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
-        return FindChannelLocked(name);
+        return name != nullptr ? FindChannelLocked(name, std::strlen(name)) : -1;
     }
 
     const char* Log::GetChannelName(int channel)
@@ -252,22 +256,128 @@ namespace husky::core
 
     int Log::RegisterChannel(const char* name)
     {
+        if (name == nullptr)
+            name = "";
+        // 名前を確かめる: . で区切った1つ1つが空でなく、英数字と _ だけ。
+        bool valid = name[0] != '\0';
+        std::size_t segmentLength = 0;
+        for (const char* p = name; valid && *p != '\0'; ++p)
+        {
+            const char c = *p;
+            if (c == '.')
+            {
+                valid = segmentLength > 0;
+                segmentLength = 0;
+            }
+            else
+            {
+                valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+                ++segmentLength;
+            }
+        }
+        valid = valid && segmentLength > 0; // 最後が . で終わらない
+        if (!valid)
+        {
+            HUSKY_LOG(LogLog::BadChannelName, name);
+            return -1;
+        }
+
         {
             std::lock_guard<std::recursive_mutex> lock(m_mutex);
-            const int found = FindChannelLocked(name);
+            const std::size_t length = std::strlen(name);
+            const int found = FindChannelLocked(name, length);
             if (found >= 0)
                 return found;
-            if (static_cast<int>(m_channels.size()) < MaxChannels)
+
+            // 上の段から順に、無ければ作る("App" → "App.Enemy" → "App.Enemy.System")。
+            int parent = -1;
+            bool full = false;
+            for (std::size_t end = 0; end <= length && !full; ++end)
             {
-                ChannelInfo channel;
-                channel.name = name;
-                m_channels.push_back(std::move(channel));
-                return static_cast<int>(m_channels.size()) - 1;
+                if (end != length && name[end] != '.')
+                    continue;
+                int index = FindChannelLocked(name, end);
+                if (index < 0)
+                {
+                    if (static_cast<int>(m_channels.size()) >= MaxChannels)
+                    {
+                        full = true;
+                        break;
+                    }
+                    ChannelInfo channel;
+                    channel.name.assign(name, end);
+                    channel.parent = parent;
+                    m_channels.push_back(std::move(channel));
+                    index = static_cast<int>(m_channels.size()) - 1;
+                }
+                parent = index;
             }
+            if (!full)
+                return parent; // いちばん下の段
         }
         // エラーは mutex を放してから出す(出す側も同じ mutex を取るため)。
         HUSKY_LOG(LogLog::TooManyChannels, name);
         return -1;
+    }
+
+    int Log::GetParentChannel(int channel)
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        if (channel < 0 || channel >= static_cast<int>(m_channels.size()))
+            return -1;
+        return m_channels[channel].parent;
+    }
+
+    bool Log::IsUnder(int channel, int ancestor)
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        if (ancestor < 0)
+            return false;
+        // 親をたどって ancestor に着けば、その下にある。
+        while (channel >= 0 && channel < static_cast<int>(m_channels.size()))
+        {
+            if (channel == ancestor)
+                return true;
+            channel = m_channels[channel].parent;
+        }
+        return false;
+    }
+
+    LogChannelFilter::LogChannelFilter(LogLevel defaultMinimum)
+        : m_default(defaultMinimum)
+    {
+        for (std::int8_t& level : m_levels)
+            level = Unset;
+    }
+
+    bool LogChannelFilter::SetLevel(const char* channelPath, LogLevel minimum)
+    {
+        const int channel = Log::Get().RegisterChannel(channelPath);
+        if (channel < 0)
+            return false;
+        m_levels[channel] = static_cast<std::int8_t>(minimum);
+        return true;
+    }
+
+    void LogChannelFilter::ClearLevel(const char* channelPath)
+    {
+        const int channel = Log::Get().FindChannel(channelPath);
+        if (channel >= 0)
+            m_levels[channel] = Unset;
+    }
+
+    bool LogChannelFilter::Passes(const LogRecord& record) const
+    {
+        // 自分から親へたどり、最初に見つかった決めごとを使う(子の決めごとが親より優先)。
+        Log& log = Log::Get();
+        int channel = record.channel;
+        while (channel >= 0 && channel < Log::MaxChannels)
+        {
+            if (m_levels[channel] != Unset)
+                return static_cast<int>(record.level) >= m_levels[channel];
+            channel = log.GetParentChannel(channel);
+        }
+        return record.level >= m_default;
     }
 
     bool Log::RegisterMessage(int channel, const LogMessageDef& message)
@@ -503,7 +613,7 @@ namespace husky::core
 
     void ConsoleLogSink::Receive(const LogRecord& record)
     {
-        if (record.level < m_minimum)
+        if (!m_filter.Passes(record))
             return;
         char line[1024];
         Log::Get().FormatRecord(record, line, sizeof(line));

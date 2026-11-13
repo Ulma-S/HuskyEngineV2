@@ -25,7 +25,7 @@ namespace husky::engine
         DefaultTextureMissing = 16,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Asset")
+    HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Engine.Asset")
         HUSKY_LOG_MESSAGE(OrphanMeta, Warning, "対になるファイルが無い .meta があります({path})",
                           HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(MetaUnreadable, Warning, ".meta から GUID を読めません({path})", HUSKY_LOG_ARG(path, String))
@@ -70,7 +70,7 @@ namespace husky::engine
         Saved = 6,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Scene")
+    HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Engine.Scene")
         HUSKY_LOG_MESSAGE(ReadFailed, Error, "シーンのファイルを読めません({path}): {error}", HUSKY_LOG_ARG(path, String),
                           HUSKY_LOG_ARG(error, String))
         HUSKY_LOG_MESSAGE(ReadWarning, Warning, "シーンの読み込みの警告({path}): {warning}", HUSKY_LOG_ARG(path, String),
@@ -93,7 +93,7 @@ namespace husky::engine
         Profile = 3,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(StatsLog, "Stats")
+    HUSKY_LOG_CHANNEL_BEGIN(StatsLog, "Engine.Stats")
         HUSKY_LOG_MESSAGE(Frame, Info,
                           "FPS: {fps}  平均 dt: {dtMs} ms  スプライト: {sprites}  描画命令: {drawCalls} 回  描けなかった数: {dropped}"
                           "  オブジェクト: {objects}  直前の GC で回収: {collected}",

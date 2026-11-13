@@ -8,7 +8,8 @@
 //       MetaMissing = 1, // 番号は必ず手で書く。一度振ったら変えず、使わなくなっても使い回さない(過去のログと合わなくなる)
 //       OrphanMeta = 2,
 //   };
-//   HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Asset")   // "Asset" がチャンネルの名前(正体はこの文字列。スクリプトも同じ名前で同じチャンネル)
+//   HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Engine.Asset")   // チャンネルの名前(正体はこの文字列。スクリプトも同じ名前で同じチャンネル)。
+//                                                       // . でつなぐと入れ子("Engine" の下の "Asset")。絞り込みは親から子へ受け継ぐ
 //       HUSKY_LOG_MESSAGE(MetaMissing, Warning, ".meta がありません({path})", HUSKY_LOG_ARG(path, String))
 //       HUSKY_LOG_MESSAGE(OrphanMeta, Warning, "対になるファイルが無い .meta があります({path})", HUSKY_LOG_ARG(path, String))
 //   HUSKY_LOG_CHANNEL_END()
@@ -147,12 +148,13 @@ namespace husky::core
     class Log
     {
     public:
-        static constexpr int MaxChannels = 64;
+        static constexpr int MaxChannels = 256; // 親だけのチャンネル(App.Enemy.System の App と App.Enemy)も数える
 
         static Log& Get();
 
         // チャンネルを名前で登録し、番号を返す。同じ名前ならすでにある番号(C++ とスクリプトが同じチャンネルを使える)。
-        // いっぱいなら -1。名前は写して持つ。
+        // 名前は . でつないだ道筋(例 "App.Enemy.System")で、親(App、App.Enemy)も親子のつながりで登録する。
+        // 区切りは英数字と _ だけ、空の区切りは不可。使えない名前・いっぱいなら -1(Log チャンネルのエラー)。名前は写して持つ。
         int RegisterChannel(const char* name);
 
         // メッセージを1つ登録する(文字列は写して持つ)。番号 0、同じチャンネルで番号が重なる、値が多すぎるときは
@@ -184,6 +186,9 @@ namespace husky::core
         // 定義を引く(無ければ nullptr)。返したポインタは、次の登録まで有効。
         const char* GetChannelName(int channel);
         int FindChannel(const char* name); // 無ければ -1
+        int GetParentChannel(int channel); // 親の番号(いちばん上の段なら -1)
+        // channel が ancestor そのものか、その下(子・孫…)にあるか。
+        bool IsUnder(int channel, int ancestor);
 
         // HUSKY_ASSERT が外れたときに、デバッガで止めるか(テストは false にする。既定は true)。
         void SetBreakOnAssert(bool enabled) { m_breakOnAssert = enabled; }
@@ -207,13 +212,14 @@ namespace husky::core
         };
         struct ChannelInfo
         {
-            std::string name;
+            std::string name; // 道筋の全体("App.Enemy.System")
+            int parent = -1;
             std::vector<MessageInfo> messages; // 番号を添字にする(番号は小さな数を手で振るので、すき間は少ない)
         };
 
         void Deliver(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount); // mutex を持って呼ぶ
         std::size_t FormatLocked(const LogRecord& record, char* buffer, std::size_t size) const;
-        int FindChannelLocked(const char* name) const;
+        int FindChannelLocked(const char* name, std::size_t length) const;
 
         std::recursive_mutex m_mutex; // FormatRecord を受け手の中からも呼べるように、同じスレッドなら二重に取れる mutex
         std::vector<ChannelInfo> m_channels;
@@ -224,18 +230,43 @@ namespace husky::core
         bool m_breakOnAssert = true;
     };
 
-    // 画面(標準出力)に1行ずつ出す受け手。minimum より低いレベルは出さない(既定は Info。Verbose は毎秒の処理時間など、量が多いもの)。
+    // 受け手が「このチャンネルから下は、このレベル以上だけ」を決める道具(入れ子のチャンネルの絞り込み)。
+    // 決めていないチャンネルは、いちばん近い親の決めごとを使い、どこにも無ければ既定(SetDefault)。
+    //   filter.SetLevel("Engine.Stats", LogLevel::Warning); // 毎秒の統計(Engine.Stats とその下)は Warning 以上だけ
+    //   filter.SetLevel("App.Enemy", LogLevel::Verbose);    // App.Enemy の下は全部
+    // 確保しない(チャンネルの番号を添字にした、決まった大きさの配列)。
+    class LogChannelFilter
+    {
+    public:
+        explicit LogChannelFilter(LogLevel defaultMinimum = LogLevel::Info);
+
+        void SetDefault(LogLevel minimum) { m_default = minimum; }
+        // チャンネルを登録してから決める(まだメッセージを出していないチャンネルにも決められる)。名前が使えなければ false。
+        bool SetLevel(const char* channelPath, LogLevel minimum);
+        void ClearLevel(const char* channelPath);
+        // 記録を通すか。
+        bool Passes(const LogRecord& record) const;
+
+    private:
+        static constexpr std::int8_t Unset = -1;
+        std::int8_t m_levels[Log::MaxChannels]; // チャンネルごとの決めごと(LogLevel の数)。Unset は決めていない
+        LogLevel m_default;
+    };
+
+    // 画面(標準出力)に1行ずつ出す受け手。既定は Info 以上(Verbose は毎秒の処理時間など、量が多いもの)。
+    // チャンネルごとのレベルは GetFilter で決める。
     class ConsoleLogSink : public LogSink
     {
     public:
         explicit ConsoleLogSink(LogLevel minimum = LogLevel::Info)
-            : m_minimum(minimum)
+            : m_filter(minimum)
         {
         }
         void Receive(const LogRecord& record) override;
+        LogChannelFilter& GetFilter() { return m_filter; }
 
     private:
-        LogLevel m_minimum;
+        LogChannelFilter m_filter;
     };
 
     // HUSKY_LOG_TEXT の中身(printf の形で文を作り、WriteText に渡す。文は MaxLogTextBytes - 1 バイトまで)。

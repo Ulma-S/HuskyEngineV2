@@ -69,7 +69,7 @@ namespace husky::platform
                 level = core::LogLevel::Warning;
             else if (priority <= SDL_LOG_PRIORITY_DEBUG)
                 level = core::LogLevel::Verbose;
-            static const int channel = core::Log::Get().RegisterChannel("SDL");
+            static const int channel = core::Log::Get().RegisterChannel("Engine.Platform.SDL");
             core::Log::Get().WriteText(channel, level, message);
         }
     }

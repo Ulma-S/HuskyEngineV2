@@ -18,7 +18,7 @@ namespace husky::render
         SpriteBufferFailed = 10,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(RenderLog, "Render")
+    HUSKY_LOG_CHANNEL_BEGIN(RenderLog, "Engine.Render")
         HUSKY_LOG_MESSAGE(SdlCallFailed, Error, "{function} に失敗しました: {error}", HUSKY_LOG_ARG(function, String),
                           HUSKY_LOG_ARG(error, String))
         HUSKY_LOG_MESSAGE(NoShaderFormat, Error, "使えるシェーダの形式がありません")

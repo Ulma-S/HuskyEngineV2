@@ -17,7 +17,7 @@ namespace husky::platform
         WindowAlreadyOpen = 9,
     };
 
-    HUSKY_LOG_CHANNEL_BEGIN(PlatformLog, "Platform")
+    HUSKY_LOG_CHANNEL_BEGIN(PlatformLog, "Engine.Platform")
         HUSKY_LOG_MESSAGE(SdlCallFailed, Error, "{function} に失敗しました: {error}", HUSKY_LOG_ARG(function, String),
                           HUSKY_LOG_ARG(error, String))
         HUSKY_LOG_MESSAGE(FileReadFailed, Error, "ファイルを読めませんでした({path}): {error}",

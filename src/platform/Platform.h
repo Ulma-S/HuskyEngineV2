@@ -25,7 +25,7 @@ namespace husky::platform
     // 動作スレッド: メインスレッド
     void EnableUtf8ConsoleOutput();
 
-    // SDL 自身のログ(SDL の中の警告など)を、エンジンのログ(core/Log.h)の "SDL" チャンネルへ流す(ID の無いログ)。
+    // SDL 自身のログ(SDL の中の警告など)を、エンジンのログ(core/Log.h)の "Engine.Platform.SDL" チャンネルへ流す(ID の無いログ)。
     // Initialize が呼ぶ。Initialize を呼ばない exe(エディタの CLI)は自分で呼ぶ。何回呼んでもよい。
     // 動作スレッド: どこでも(SDL はどのスレッドからでもログを出すことがあり、受けたスレッドで流す)
     void ForwardSdlLogToEngine();

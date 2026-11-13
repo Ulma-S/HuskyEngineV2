@@ -120,7 +120,7 @@ TEST_CASE("番号が重なる・番号 0 の登録と、値の違う Write は�
 {
     Log& log = Log::Get();
     const int channel = log.RegisterChannel("Test");
-    const int logChannel = log.FindChannel("Log");
+    const int logChannel = log.FindChannel("Engine.Log");
     REQUIRE(logChannel >= 0);
 
     CaptureSink sink;
@@ -147,8 +147,8 @@ TEST_CASE("番号が重なる・番号 0 の登録と、値の違う Write は�
         CHECK(record.channel == logChannel);
         CHECK(record.level == LogLevel::Error);
     }
-    CHECK(Format(sink.records[0]) == "[Error][Log] Test の番号 1 はもう登録されています(Other)");
-    CHECK(Format(sink.records[4]) == "[Error][Log] Test に番号 99 のメッセージがありません");
+    CHECK(Format(sink.records[0]) == "[Error][Engine.Log] Test の番号 1 はもう登録されています(Other)");
+    CHECK(Format(sink.records[4]) == "[Error][Engine.Log] Test に番号 99 のメッセージがありません");
 
     // 断った後も、元の定義はそのまま。
     sink.records.clear();
@@ -228,4 +228,73 @@ TEST_CASE("HUSKY_ASSERT は外れたときだけ記録する(製品ではコー�
 #endif
 
     log.SetBreakOnAssert(previous);
+}
+
+TEST_CASE("チャンネルは . でつなぐと入れ子になり、親も登録される")
+{
+    Log& log = Log::Get();
+    const int system = log.RegisterChannel("NestTest.Enemy.System");
+    REQUIRE(system >= 0);
+    const int enemy = log.FindChannel("NestTest.Enemy");
+    const int root = log.FindChannel("NestTest");
+    REQUIRE(enemy >= 0);
+    REQUIRE(root >= 0);
+
+    CHECK(log.GetParentChannel(system) == enemy);
+    CHECK(log.GetParentChannel(enemy) == root);
+    CHECK(log.GetParentChannel(root) == -1);
+    CHECK(log.IsUnder(system, root));
+    CHECK(log.IsUnder(system, system));
+    CHECK_FALSE(log.IsUnder(root, system));
+    CHECK(std::string(log.GetChannelName(system)) == "NestTest.Enemy.System");
+
+    // 同じ名前は同じ番号。兄弟は同じ親につながる。
+    CHECK(log.RegisterChannel("NestTest.Enemy.System") == system);
+    const int ai = log.RegisterChannel("NestTest.Enemy.AI");
+    CHECK(log.GetParentChannel(ai) == enemy);
+    CHECK_FALSE(log.IsUnder(ai, system));
+}
+
+TEST_CASE("使えないチャンネルの名前は登録せず、エラーを出す")
+{
+    CaptureSink sink;
+    ScopedLogSink attach(sink);
+    Log& log = Log::Get();
+    CHECK(log.RegisterChannel("") == -1);
+    CHECK(log.RegisterChannel("Bad..Name") == -1);
+    CHECK(log.RegisterChannel(".Bad") == -1);
+    CHECK(log.RegisterChannel("Bad.") == -1);
+    CHECK(log.RegisterChannel("Bad Name") == -1);
+    CHECK(log.FindChannel("Bad") == -1); // 途中まで作ったりしない
+    REQUIRE(sink.records.size() == 5);
+    CHECK(Format(sink.records[1]).find("[Error][Engine.Log] チャンネルの名前 \"Bad..Name\" は使えません") == 0);
+}
+
+TEST_CASE("LogChannelFilter は、決めていないチャンネルに、いちばん近い親の決めごとを使う")
+{
+    using husky::core::LogChannelFilter;
+    Log& log = Log::Get();
+    const int system = log.RegisterChannel("FilterTest.Enemy.System");
+    const int other = log.RegisterChannel("FilterTest.Other");
+
+    LogChannelFilter filter(LogLevel::Info);
+    filter.SetLevel("FilterTest", LogLevel::Error);
+    filter.SetLevel("FilterTest.Enemy", LogLevel::Verbose);
+
+    LogRecord record;
+    record.channel = static_cast<std::uint16_t>(system);
+    record.level = LogLevel::Verbose;
+    CHECK(filter.Passes(record)); // 親の FilterTest.Enemy(Verbose)を受け継ぐ
+
+    record.channel = static_cast<std::uint16_t>(other);
+    record.level = LogLevel::Warning;
+    CHECK_FALSE(filter.Passes(record)); // FilterTest(Error)を受け継ぐ
+    record.level = LogLevel::Error;
+    CHECK(filter.Passes(record));
+
+    filter.ClearLevel("FilterTest");
+    record.level = LogLevel::Info;
+    CHECK(filter.Passes(record)); // どこにも決めごとが無ければ既定(Info)
+    record.level = LogLevel::Verbose;
+    CHECK_FALSE(filter.Passes(record));
 }
