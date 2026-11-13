@@ -14,7 +14,7 @@ namespace husky::audio
         }
     }
 
-    bool Mixer::Play(VoiceId id, const SoundData& sound, const PlayParams& params)
+    bool Mixer::Play(PlaybackId id, const SoundData& sound, const PlayParams& params)
     {
         if (id.IsNull() || sound.samples == nullptr || sound.frameCount <= 0)
         {
@@ -47,7 +47,7 @@ namespace husky::audio
         return true;
     }
 
-    void Mixer::Stop(VoiceId id)
+    void Mixer::Stop(PlaybackId id)
     {
         if (Voice* voice = FindVoice(id))
         {
@@ -63,7 +63,7 @@ namespace husky::audio
         }
     }
 
-    bool Mixer::IsPlaying(VoiceId id) const
+    bool Mixer::IsPlaying(PlaybackId id) const
     {
         return FindVoice(id) != nullptr;
     }
@@ -81,7 +81,20 @@ namespace husky::audio
         return count;
     }
 
-    void Mixer::SetVoiceVolume(VoiceId id, float volume)
+    int Mixer::GetPlayingIds(PlaybackId* out, int capacity) const
+    {
+        int count = 0;
+        for (const Voice& voice : m_voices)
+        {
+            if (!voice.id.IsNull() && count < capacity)
+            {
+                out[count++] = voice.id;
+            }
+        }
+        return count;
+    }
+
+    void Mixer::SetPlaybackVolume(PlaybackId id, float volume)
     {
         if (Voice* voice = FindVoice(id))
         {
@@ -155,7 +168,7 @@ namespace husky::audio
         }
     }
 
-    Mixer::Voice* Mixer::FindVoice(VoiceId id)
+    Mixer::Voice* Mixer::FindVoice(PlaybackId id)
     {
         if (id.IsNull())
         {
@@ -171,7 +184,7 @@ namespace husky::audio
         return nullptr;
     }
 
-    const Mixer::Voice* Mixer::FindVoice(VoiceId id) const
+    const Mixer::Voice* Mixer::FindVoice(PlaybackId id) const
     {
         return const_cast<Mixer*>(this)->FindVoice(id);
     }

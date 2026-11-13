@@ -38,13 +38,14 @@ namespace husky::audio
     // 鳴らした1回を指す番号。0 は「何も指さない」。
     // 番号を振るのは呼ぶ側(AUD-2 ではゲームスレッド)。ミキサーは別のスレッドで動くので、
     // ミキサーが番号を返す形だと、ゲームスレッドはすぐに番号を受け取れないため。
-    struct VoiceId
+    // 指すのは「鳴らした1回」で、ミキサーの席(Voice)ではない。古い効果音を止めて席を使い回しても、番号は新しくなる。
+    struct PlaybackId
     {
         std::uint32_t value = 0;
 
         bool IsNull() const { return value == 0; }
-        bool operator==(const VoiceId& other) const { return value == other.value; }
-        bool operator!=(const VoiceId& other) const { return value != other.value; }
+        bool operator==(const PlaybackId& other) const { return value == other.value; }
+        bool operator!=(const PlaybackId& other) const { return value != other.value; }
     };
 
     // 鳴らすときの決め事。
@@ -64,17 +65,19 @@ namespace husky::audio
         // 鳴らし始める。id は呼ぶ側が振った 0 以外の番号(鳴っているものと重ねない)。
         // ボイスがいっぱいなら、一番古い効果音(Bus::Effect)を止めて場所を空ける。
         // 戻り値: 鳴らせたら true(データが空、id が 0、効果音のボイスが1つも無くて空けられないときは false)。
-        bool Play(VoiceId id, const SoundData& sound, const PlayParams& params);
+        bool Play(PlaybackId id, const SoundData& sound, const PlayParams& params);
 
         // 止める。もう止まっている・知らない番号なら何もしない。
-        void Stop(VoiceId id);
+        void Stop(PlaybackId id);
         void StopAll();
 
         // 鳴っているか(最後まで行って止まったものは false)。
-        bool IsPlaying(VoiceId id) const;
+        bool IsPlaying(PlaybackId id) const;
         int GetPlayingCount() const;
+        // 鳴っているものの番号を out に書く(最大 MaxVoices 個)。戻り値は書いた数。
+        int GetPlayingIds(PlaybackId* out, int capacity) const;
 
-        void SetVoiceVolume(VoiceId id, float volume);
+        void SetPlaybackVolume(PlaybackId id, float volume);
         void SetBusVolume(Bus bus, float volume);
         void SetMasterVolume(float volume);
 
@@ -84,17 +87,18 @@ namespace husky::audio
         void Mix(float* out, int frameCount);
 
     private:
+        // ボイス: 同時に鳴らせる音の1本ぶんの席。鳴らした1回(PlaybackId)が、鳴っている間だけ1つの席を使う。
         struct Voice
         {
-            VoiceId id;           // null なら空き
+            PlaybackId id;           // null なら空き
             SoundData sound;
             PlayParams params;
             int position = 0;     // 次に読むフレーム
             std::uint64_t order = 0; // 鳴らし始めた順(大きいほど新しい。古いものを止めるときに使う)
         };
 
-        Voice* FindVoice(VoiceId id);
-        const Voice* FindVoice(VoiceId id) const;
+        Voice* FindVoice(PlaybackId id);
+        const Voice* FindVoice(PlaybackId id) const;
         Voice* FindFreeVoice();
 
         Voice m_voices[MaxVoices];

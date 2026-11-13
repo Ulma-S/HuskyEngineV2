@@ -10,7 +10,7 @@ using husky::audio::Mixer;
 using husky::audio::OutputChannels;
 using husky::audio::PlayParams;
 using husky::audio::SoundData;
-using husky::audio::VoiceId;
+using husky::audio::PlaybackId;
 
 namespace
 {
@@ -54,11 +54,11 @@ TEST_CASE("Mixer: 2つの音は足し合わされ、音量(1回・種類・全�
     Mixer mixer;
     const std::vector<float> a = MakeConstant(4, 0.25f);
     const std::vector<float> b = MakeConstant(4, 0.25f);
-    REQUIRE(mixer.Play(VoiceId{1}, MakeSound(a), PlayParams{}));
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(a), PlayParams{}));
     PlayParams half;
     half.volume = 0.5f;
     half.bus = Bus::Music;
-    REQUIRE(mixer.Play(VoiceId{2}, MakeSound(b), half));
+    REQUIRE(mixer.Play(PlaybackId{2}, MakeSound(b), half));
 
     std::vector<float> out(2 * OutputChannels);
     mixer.Mix(out.data(), 2);
@@ -75,14 +75,14 @@ TEST_CASE("Mixer: 最後まで鳴ると止まり、残りは 0")
 {
     Mixer mixer;
     const std::vector<float> ramp = MakeRamp(3);
-    REQUIRE(mixer.Play(VoiceId{7}, MakeSound(ramp), PlayParams{}));
+    REQUIRE(mixer.Play(PlaybackId{7}, MakeSound(ramp), PlayParams{}));
 
     std::vector<float> out(5 * OutputChannels);
     mixer.Mix(out.data(), 5);
     CHECK(out[0] == doctest::Approx(0.1f));
     CHECK(out[2 * OutputChannels] == doctest::Approx(0.3f));
     CHECK(out[3 * OutputChannels] == 0.0f);
-    CHECK_FALSE(mixer.IsPlaying(VoiceId{7}));
+    CHECK_FALSE(mixer.IsPlaying(PlaybackId{7}));
     CHECK(mixer.GetPlayingCount() == 0);
 }
 
@@ -92,7 +92,7 @@ TEST_CASE("Mixer: ループする音は最初に戻り、1回の Mix の中で�
     const std::vector<float> ramp = MakeRamp(2);
     PlayParams loop;
     loop.loop = true;
-    REQUIRE(mixer.Play(VoiceId{1}, MakeSound(ramp), loop));
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(ramp), loop));
 
     std::vector<float> out(5 * OutputChannels);
     mixer.Mix(out.data(), 5); // 0.1, 0.2, 0.1, 0.2, 0.1
@@ -100,15 +100,15 @@ TEST_CASE("Mixer: ループする音は最初に戻り、1回の Mix の中で�
     CHECK(out[4 * OutputChannels] == doctest::Approx(0.1f));
     mixer.Mix(out.data(), 1); // 続きから: 0.2
     CHECK(out[0] == doctest::Approx(0.2f));
-    CHECK(mixer.IsPlaying(VoiceId{1}));
+    CHECK(mixer.IsPlaying(PlaybackId{1}));
 }
 
 TEST_CASE("Mixer: 範囲を超えた所は -1〜1 に切り詰める")
 {
     Mixer mixer;
     const std::vector<float> loud = MakeConstant(1, 0.8f);
-    REQUIRE(mixer.Play(VoiceId{1}, MakeSound(loud), PlayParams{}));
-    REQUIRE(mixer.Play(VoiceId{2}, MakeSound(loud), PlayParams{}));
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(loud), PlayParams{}));
+    REQUIRE(mixer.Play(PlaybackId{2}, MakeSound(loud), PlayParams{}));
     std::vector<float> out(OutputChannels);
     mixer.Mix(out.data(), 1);
     CHECK(out[0] == 1.0f);
@@ -118,16 +118,16 @@ TEST_CASE("Mixer: Stop と StopAll で止まる。知らない番号や 0 は何
 {
     Mixer mixer;
     const std::vector<float> sound = MakeConstant(100, 0.1f);
-    CHECK_FALSE(mixer.Play(VoiceId{}, MakeSound(sound), PlayParams{})); // 0 は使えない
-    CHECK_FALSE(mixer.Play(VoiceId{1}, SoundData{}, PlayParams{}));     // 空のデータ
-    REQUIRE(mixer.Play(VoiceId{1}, MakeSound(sound), PlayParams{}));
-    REQUIRE(mixer.Play(VoiceId{2}, MakeSound(sound), PlayParams{}));
+    CHECK_FALSE(mixer.Play(PlaybackId{}, MakeSound(sound), PlayParams{})); // 0 は使えない
+    CHECK_FALSE(mixer.Play(PlaybackId{1}, SoundData{}, PlayParams{}));     // 空のデータ
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(sound), PlayParams{}));
+    REQUIRE(mixer.Play(PlaybackId{2}, MakeSound(sound), PlayParams{}));
 
-    mixer.Stop(VoiceId{99});
+    mixer.Stop(PlaybackId{99});
     CHECK(mixer.GetPlayingCount() == 2);
-    mixer.Stop(VoiceId{1});
-    CHECK_FALSE(mixer.IsPlaying(VoiceId{1}));
-    CHECK(mixer.IsPlaying(VoiceId{2}));
+    mixer.Stop(PlaybackId{1});
+    CHECK_FALSE(mixer.IsPlaying(PlaybackId{1}));
+    CHECK(mixer.IsPlaying(PlaybackId{2}));
     mixer.StopAll();
     CHECK(mixer.GetPlayingCount() == 0);
 }
@@ -138,17 +138,17 @@ TEST_CASE("Mixer: いっぱいのときは一番古い効果音を止める。BG
     const std::vector<float> sound = MakeConstant(100, 0.0f);
     PlayParams music;
     music.bus = Bus::Music;
-    REQUIRE(mixer.Play(VoiceId{1}, MakeSound(sound), music)); // 一番古いが BGM
+    REQUIRE(mixer.Play(PlaybackId{1}, MakeSound(sound), music)); // 一番古いが BGM
     for (std::uint32_t i = 2; i <= static_cast<std::uint32_t>(Mixer::MaxVoices); ++i)
     {
-        REQUIRE(mixer.Play(VoiceId{i}, MakeSound(sound), PlayParams{}));
+        REQUIRE(mixer.Play(PlaybackId{i}, MakeSound(sound), PlayParams{}));
     }
     CHECK(mixer.GetPlayingCount() == Mixer::MaxVoices);
 
-    REQUIRE(mixer.Play(VoiceId{100}, MakeSound(sound), PlayParams{}));
-    CHECK(mixer.IsPlaying(VoiceId{1}));       // BGM は残る
-    CHECK_FALSE(mixer.IsPlaying(VoiceId{2})); // 一番古い効果音が止まった
-    CHECK(mixer.IsPlaying(VoiceId{100}));
+    REQUIRE(mixer.Play(PlaybackId{100}, MakeSound(sound), PlayParams{}));
+    CHECK(mixer.IsPlaying(PlaybackId{1}));       // BGM は残る
+    CHECK_FALSE(mixer.IsPlaying(PlaybackId{2})); // 一番古い効果音が止まった
+    CHECK(mixer.IsPlaying(PlaybackId{100}));
     CHECK(mixer.GetPlayingCount() == Mixer::MaxVoices);
 }
 
@@ -160,7 +160,7 @@ TEST_CASE("Mixer: すべて BGM で埋まっていれば、新しい音は鳴ら
     music.bus = Bus::Music;
     for (std::uint32_t i = 1; i <= static_cast<std::uint32_t>(Mixer::MaxVoices); ++i)
     {
-        REQUIRE(mixer.Play(VoiceId{i}, MakeSound(sound), music));
+        REQUIRE(mixer.Play(PlaybackId{i}, MakeSound(sound), music));
     }
-    CHECK_FALSE(mixer.Play(VoiceId{100}, MakeSound(sound), PlayParams{}));
+    CHECK_FALSE(mixer.Play(PlaybackId{100}, MakeSound(sound), PlayParams{}));
 }

@@ -256,12 +256,15 @@ target_link_libraries(husky_platform PRIVATE SDL3::SDL3 husky_core)
 # --- audio モジュール(静的ライブラリ) ---
 # 音を混ぜて鳴らす層(設計メモ「音」)。render と同じく platform の上に置き、engine が使う(engine → audio)。
 # SDL を触るのは中身の1つのファイルだけにする(AUD-2。替えるときはそのファイルだけを書き直す)。
-# 今はミキサー(SDL を知らないただのコード)だけ。
 add_library(husky_audio STATIC
+    src/audio/AudioDevice.cpp
     src/audio/Mixer.cpp
+    src/audio/SdlAudioOutput.cpp # SDL を触るのはこのファイルだけ
 )
 husky_set_compile_options(husky_audio)
 target_include_directories(husky_audio PUBLIC src)
+# SDL3 は外に出さないので PRIVATE(render と同じ)。core はログ(.cpp の中だけ)に使う。
+target_link_libraries(husky_audio PRIVATE SDL3::SDL3 husky_core)
 
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
@@ -306,7 +309,7 @@ target_include_directories(husky_engine PUBLIC src)
 # render の中の SDL3 は PRIVATE なので、ここを PUBLIC にしても SDL3 は外に漏れない。
 # husky_render は、このファイルの下のほうで定義している。CMake はターゲットの名前を最後にまとめて解決するので、
 # 定義より前に名前を書いてもよい。
-target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render husky_glm) # husky_glm: カメラの行列などの計算に使う
+target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render husky_audio husky_glm) # husky_glm: カメラの行列などの計算に使う
 # yyjson は JsonFormat.cpp の中だけで使うので PRIVATE。engine を使う側(exe やテスト)には yyjson のヘッダが見えない。
 target_link_libraries(husky_engine PRIVATE yyjson)
 # Box2D も物理の中身の .cpp の中だけで使うので PRIVATE(設計メモ「当たり判定と物理」)。
@@ -410,6 +413,7 @@ add_library(husky_tools STATIC
     src/tools/PropertyEditRecorder.cpp
     src/tools/TransformGizmo.cpp
     src/tools/SceneGrid.cpp
+    src/tools/AudioCommands.cpp
     src/tools/SceneView.cpp
 )
 husky_set_compile_options(husky_tools)
@@ -512,6 +516,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
+        tests/audio/AudioDeviceTests.cpp
         tests/audio/MixerTests.cpp
         tests/core/GuidTests.cpp
         tests/core/JsonLinesLogSinkTests.cpp

@@ -17,6 +17,7 @@
 #include "render/RenderDevice.h"
 
 #if HUSKY_DEVELOPMENT
+#include "tools/AudioCommands.h" // audio.testTone(開発ビルドだけ)
 #include "tools/AssetBrowser.h" // アセットの一覧とデータの窓(同じく開発ビルドだけ)
 #include "tools/LogWindow.h" // ログの窓(開発ビルドだけ)
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
@@ -98,6 +99,8 @@ int main()
     playMode.RegisterCommands(commands);
     // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
+    // 試しの音を鳴らす(audio.testTone)。音の出す先が動いているかを耳で確かめる。
+    commands.Register(tools::MakeAudioTestToneCommand());
     commands.Register(tools::MakeLogCatalogCommand());
     // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
     // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。

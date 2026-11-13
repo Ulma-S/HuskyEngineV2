@@ -205,7 +205,10 @@ namespace husky::engine
                     // ローダに GPU を付ける。Run より前に読んだテクスチャも、ここで GPU に送られる。
                     m_loader.SetRenderDevice(&renderDevice);
                     LoadDefaultSpriteTexture(desc.defaultSpriteTexture);
+                    // 音の出す先を開く。開けなくても(装置が無いなど)、音なしで続ける。
+                    m_audio.StartOutput(audio::CreateSdlAudioOutput());
                     RunLoop(renderDevice);
+                    m_audio.StopOutput(); // SDL を終える(platform::Shutdown)前に閉じる
                     // RenderDevice を壊す前に、ローダから外す(すべての GPU のテクスチャを手放す)。
                     m_loader.SetRenderDevice(nullptr);
                 }

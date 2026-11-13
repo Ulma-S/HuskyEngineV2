@@ -14,6 +14,7 @@
 // テストでは Run を呼ばず、StepFrame で1フレームずつ進める(ウィンドウも GPU も使わない)。
 #pragma once
 
+#include "audio/AudioDevice.h"
 #include "core/JobSystem.h"
 #include "core/ObjectRegistry.h"
 #include "core/TypeRegistry.h"
@@ -88,6 +89,9 @@ namespace husky::engine
         AssetLoader& GetAssetLoader() { return m_loader; }
         // ジョブシステム(ワーカーの数は、コンストラクタで決める)。ジョブの中では GC 管理のオブジェクトを触らないこと。
         core::JobSystem& GetJobSystem() { return m_jobs; }
+
+        // 音を鳴らす窓口。出す先(スピーカー)を開くのは Run の中だけ。テストと CLI では出す先が無く、Play は何もしない。
+        audio::AudioDevice& GetAudio() { return m_audio; }
         const Input& GetInput() const { return m_input; }
         // テストで dt を固定する(FrameClock::SetFixedDelta)ときなどに使う。
         FrameClock& GetClock() { return m_clock; }
@@ -181,6 +185,7 @@ namespace husky::engine
         AssetDatabase m_assets;
         // ジョブシステムは、ローダより先に宣言する(ローダは壊れるときに、読み込み中のジョブを待つため)。
         core::JobSystem m_jobs;
+        audio::AudioDevice m_audio;
         // ローダは、作ったアセット(レジストリの中)より長く生きる必要がある(アセットが回収されるときにローダを呼ぶ)ので、
         // レジストリより先に宣言する(先に作られ、後に壊される)。
         AssetLoader m_loader;
