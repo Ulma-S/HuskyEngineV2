@@ -31,7 +31,26 @@ namespace husky::core
         AssetRef,          // AssetRef<T>(アセットへの参照。保存すると GUID になる。AssetRef.h)
         Guid,              // core::Guid(変わらない ID。保存すると GUID の文字列になる。アクターの ID など)
         ObjectRef,         // ObjectRef<T>(型の付いた、ほかのオブジェクトへの参照。ObjectRef.h。保存は ObjectHandle と同じく番号)
+        Array,             // std::vector<E>(E は配列以外のプロパティにできる型。bool は除く。中身は ArrayInfo。SF-2)
     };
+
+    class Property;
+    struct ArrayInfo;
+
+    // T が std::vector<E> か(E を取り出すのにも使う)。
+    template <typename T>
+    struct IsStdVector : std::false_type
+    {
+    };
+    template <typename E, typename Allocator>
+    struct IsStdVector<std::vector<E, Allocator>> : std::true_type
+    {
+        using Element = E;
+    };
+
+    // 配列のプロパティの中身の扱い方(ArrayInfo)。配列でなければ nullptr。下で定義する。
+    template <typename T>
+    const ArrayInfo* ArrayInfoOf();
 
     // --- 構造体のリフレクション(登録は StructReflection.h の HUSKY_STRUCT_BEGIN で行う) ---
     //
@@ -121,6 +140,11 @@ namespace husky::core
         {
             return PropertyType::ObjectHandleArray;
         }
+        else if constexpr (IsStdVector<T>::value)
+        {
+            // ほかの型の配列(SF-2)。要素の型が使えるかは、ArrayInfoOf の中で確かめる。
+            return PropertyType::Array;
+        }
         else if constexpr (IsReflectedStruct<T>::value)
         {
             return PropertyType::Struct;
@@ -153,13 +177,19 @@ namespace husky::core
     {
     public:
         // detailType: type が Struct ならその構造体の型情報、AssetRef ならアセットの型の型情報(それ以外は nullptr)。
-        Property(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr)
+        // arrayInfo: type が Array のとき、配列の中身の扱い方(ArrayInfoOf)。それ以外は nullptr。
+        Property(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr,
+                 const ArrayInfo* arrayInfo = nullptr)
             : m_name(name)
             , m_type(type)
             , m_offset(offset)
             , m_detailType(detailType)
+            , m_arrayInfo(arrayInfo)
         {
         }
+
+        // type が Array のとき、配列の中身の扱い方(要素の型と、大きさ・要素の場所を扱う関数)。それ以外は nullptr。
+        const ArrayInfo* GetArrayInfo() const { return m_arrayInfo; }
 
         const char* GetName() const { return m_name; }
         PropertyType GetType() const { return m_type; }
@@ -177,11 +207,8 @@ namespace husky::core
         // シーンの中のほかのオブジェクトを直接参照するプロパティなら true(構造体の中のハンドルは、構造体のメンバーの側で true になる)。
         // シリアライザが「番号の対応表が要るか」を見分けるのに使う。AssetRef は GUID で保存するので含めない
         // (GC がたどるかどうかは ForEachReferenceAt が決める。AssetRef の中のハンドルも、そちらでたどる)。
-        bool IsReference() const
-        {
-            return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray ||
-                   m_type == PropertyType::ObjectRef;
-        }
+        // 配列なら、要素が参照のとき true(ObjectRef の配列など。中身は下の ArrayInfo の後で定義する)。
+        bool IsReference() const;
 
         // type が ObjectRef のとき、指せるオブジェクトの型(PlayerActor など)の型情報。それ以外は nullptr。
         // 読み込みでの型の確かめと、インスペクタが選べる相手を絞るのに使う。
@@ -256,6 +283,18 @@ namespace husky::core
             return m_type == PropertyType::Struct ? static_cast<const unsigned char*>(container) + m_offset : nullptr;
         }
 
+        // 配列のプロパティのとき、その配列(std::vector)のアドレスを返す。中身は GetArrayInfo の関数で扱う。
+        // 配列でなければ nullptr。
+        void* GetArrayAddressAt(void* container) const
+        {
+            return m_type == PropertyType::Array ? static_cast<unsigned char*>(container) + m_offset : nullptr;
+        }
+
+        const void* GetArrayAddressAt(const void* container) const
+        {
+            return m_type == PropertyType::Array ? static_cast<const unsigned char*>(container) + m_offset : nullptr;
+        }
+
     private:
         // T が、このプロパティの型と合うか。構造体なら同じ構造体か(Color と Vector2 を取り違えないため)、
         // AssetRef なら同じアセットの型かも確かめる。
@@ -273,7 +312,8 @@ namespace husky::core
             else
             {
                 // AssetRef<TextureAsset> を AssetRef<SoundAsset> として読むような取り違えを防ぐ。
-                return DetailTypeOf<T>() == m_detailType;
+                // 配列なら、同じ要素の型の配列か(ArrayInfoOf は要素の型ごとに1つなので、ポインタで比べられる)。
+                return DetailTypeOf<T>() == m_detailType && ArrayInfoOf<T>() == m_arrayInfo;
             }
         }
 
@@ -281,5 +321,60 @@ namespace husky::core
         PropertyType m_type;
         std::size_t m_offset;
         const TypeInfo* m_detailType; // 構造体の型か、アセットの型(GetStructType / GetAssetType)
+        const ArrayInfo* m_arrayInfo; // 配列の中身の扱い方(GetArrayInfo。配列でなければ nullptr)
     };
+
+    // 配列のプロパティ(std::vector<E>)の中身の扱い方(SF-2)。要素の型ごとに1つだけ作られる(ArrayInfoOf)。
+    // シリアライザ・GC・インスペクタは、要素の型(E)を知らずに、この関数と element を通して配列を扱う。
+    // (C++ のテンプレートの型は実行中にまとめて扱えないので、「大きさ」「大きさを変える」「i 番目の場所」を
+    //  関数のポインタとして値で持つ。スクリプトの配列も、同じ関数を用意すれば同じ形で扱える)
+    struct ArrayInfo
+    {
+        // 要素1つのプロパティ。要素の先頭のアドレスを持ち主として使う(オフセットは 0)。
+        // 値の読み書き・構造体の中・参照のたどり方は、ふつうのプロパティと同じ道具がそのまま使える。
+        Property element;
+        std::size_t (*size)(const void* array);                 // 要素の数
+        void (*resize)(void* array, std::size_t count);          // 要素の数を変える(増えた分は既定の値)
+        void* (*at)(void* array, std::size_t index);             // index 番目の要素の先頭
+        const void* (*atConst)(const void* array, std::size_t index);
+        void (*erase)(void* array, std::size_t index);           // index 番目の要素を消して詰める
+    };
+
+    template <typename T>
+    const ArrayInfo* ArrayInfoOf()
+    {
+        if constexpr (PropertyTypeOf<T>() == PropertyType::Array)
+        {
+            using E = typename IsStdVector<T>::Element;
+            static_assert(!std::is_same_v<E, bool>,
+                          "std::vector<bool> は要素の場所(アドレス)が取れないので配列のプロパティにできません");
+            static_assert(!IsStdVector<E>::value, "配列の配列は、まだプロパティにできません(構造体に包んでください)");
+            static_assert(!std::is_same_v<E, ObjectHandle>, "ここには来ない(ObjectHandleArray になる)");
+            // 関数の中の static: 最初に通ったときに1回だけ作られる。要素の型ごとに別のもの(テンプレートの実体ごと)。
+            // 取り込みの無いラムダ式は、関数のポインタに変換できる。
+            static const ArrayInfo info{
+                Property("element", PropertyTypeOf<E>(), 0, DetailTypeOf<E>(), ArrayInfoOf<E>()),
+                [](const void* array) { return static_cast<const T*>(array)->size(); },
+                [](void* array, std::size_t count) { static_cast<T*>(array)->resize(count); },
+                [](void* array, std::size_t index) -> void* { return &(*static_cast<T*>(array))[index]; },
+                [](const void* array, std::size_t index) -> const void* { return &(*static_cast<const T*>(array))[index]; },
+                [](void* array, std::size_t index) {
+                    T& vector = *static_cast<T*>(array);
+                    vector.erase(vector.begin() + static_cast<std::ptrdiff_t>(index));
+                },
+            };
+            return &info;
+        }
+        else
+        {
+            return nullptr;
+        }
+    }
+
+    inline bool Property::IsReference() const
+    {
+        return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray ||
+               m_type == PropertyType::ObjectRef ||
+               (m_type == PropertyType::Array && m_arrayInfo != nullptr && m_arrayInfo->element.IsReference());
+    }
 }

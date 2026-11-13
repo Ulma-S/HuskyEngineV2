@@ -55,9 +55,10 @@ namespace husky::core
 
         // プロパティを1つ登録する。HUSKY_PROPERTY マクロから呼ばれる。
         // detailType: 構造体なら構造体の型情報、AssetRef ならアセットの型の型情報(それ以外は nullptr。DetailTypeOf)。
-        void AddProperty(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr)
+        void AddProperty(const char* name, PropertyType type, std::size_t offset, const TypeInfo* detailType = nullptr,
+                         const ArrayInfo* arrayInfo = nullptr)
         {
-            m_properties.emplace_back(name, type, offset, detailType); // emplace_back: 引数から、その場で要素を作って末尾に足す
+            m_properties.emplace_back(name, type, offset, detailType, arrayInfo); // emplace_back: 引数から、その場で要素を作って末尾に足す
         }
 
         // この型で登録したプロパティだけを返す(親の型のものは含まない)。
@@ -142,6 +143,16 @@ namespace husky::core
             for (const ObjectHandle handle : *array)
             {
                 function(handle);
+            }
+        }
+        else if (const void* arrayAddress = GetArrayAddressAt(container))
+        {
+            // 配列(SF-2): 要素を1つずつ、要素のプロパティでたどる(ObjectRef や AssetRef、中にハンドルのある構造体の配列)。
+            const ArrayInfo& info = *GetArrayInfo();
+            const std::size_t count = info.size(arrayAddress);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                info.element.ForEachReferenceAt(info.atConst(arrayAddress, i), function);
             }
         }
         else if (const void* structAddress = GetStructAddressAt(container))

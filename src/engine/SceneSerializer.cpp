@@ -142,7 +142,8 @@ namespace husky::engine::SceneSerializer
                 }
                 const bool isHandle = property != nullptr && (property->GetType() == core::PropertyType::ObjectHandle ||
                                                               property->GetType() == core::PropertyType::ObjectRef ||
-                                                              property->GetType() == core::PropertyType::ObjectHandleArray);
+                                                              property->GetType() == core::PropertyType::ObjectHandleArray ||
+                                                              property->IsReference()); // 参照の配列(SF-2)も
                 if (keep || isHandle || baseValue == nullptr || !value.Equals(*baseValue))
                 {
                     diff.Set(name, value);

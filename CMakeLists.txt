@@ -459,6 +459,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/JsonFormatTests.cpp
         tests/engine/ObjectSerializerTests.cpp
         tests/engine/SceneSerializerTests.cpp
+        tests/engine/ArrayPropertyTests.cpp
         tests/engine/ObjectRefTests.cpp
         tests/engine/PrefabTests.cpp
         tests/engine/ScriptableDataTests.cpp

@@ -321,6 +321,10 @@ namespace husky::tools
                             DescribeHandle(property.GetValuePtrAt<core::ObjectReference>(container)->handle, registry),
                             property.GetObjectRefType() != nullptr ? property.GetObjectRefType()->GetName() : "Object");
                 return false;
+            case PropertyType::Array:
+                // 配列(SF-2a): 今は要素の数だけを表示する(要素を見る・足す・消す画面は SF-2b で作る)
+                ImGui::Text("%s: %zu items", name, property.GetArrayInfo()->size(property.GetArrayAddressAt(container)));
+                return false;
             case PropertyType::ObjectHandleArray:
             {
                 const auto& handles = *property.GetValuePtrAt<std::vector<core::ObjectHandle>>(container);

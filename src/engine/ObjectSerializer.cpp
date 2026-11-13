@@ -69,6 +69,21 @@ namespace husky::engine::ObjectSerializer
             case PropertyType::Struct:
                 // 構造体: 中のメンバーを、入れ子のオブジェクトとして書く(オブジェクトのプロパティと同じ書き方を繰り返す)。
                 return PropertiesToValue(*property.GetStructType(), property.GetStructAddressAt(container), toId);
+            case PropertyType::Array:
+            {
+                // 配列(SF-2): 要素を1つずつ、要素のプロパティで書く(構造体の要素は入れ子のオブジェクトになる)。
+                // 書けない要素(番号の無い相手を指す参照など)は null にして、並びの位置は変えない。
+                const core::ArrayInfo& array = *property.GetArrayInfo();
+                const void* address = property.GetArrayAddressAt(container);
+                ArchiveValue values = ArchiveValue::MakeArray();
+                const std::size_t count = array.size(address);
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    bool elementOk = true;
+                    values.Append(PropertyToValue(array.element, array.atConst(address, i), toId, elementOk));
+                }
+                return values;
+            }
             case PropertyType::AssetRef:
             {
                 // アセットの参照: GUID の文字列だけを書く(ハンドルは実行中だけの値なので書かない)。何も指さなければ null。
@@ -120,6 +135,11 @@ namespace husky::engine::ObjectSerializer
             }
             return {};
         }
+
+        // 下で定義する(配列の構造体の要素を読むのに、ValueToProperty からも呼ぶため)。
+        void ReadMembers(const ArchiveValue& members, const core::TypeInfo& type, void* container,
+                         const IdToHandle& toHandle, const core::ObjectRegistry* registry, const std::string& prefix,
+                         ReadReport& report);
 
         // ArchiveValue の値を、プロパティ(構造体以外)に書き込む。型が合わなければ書き込まず、理由を返す(空なら成功)。
         // registry: 型の付いた参照(ObjectRef)の相手の型を確かめるのに使う(nullptr なら確かめない)。
@@ -205,6 +225,52 @@ namespace husky::engine::ObjectSerializer
             }
             case PropertyType::Struct:
                 break; // 構造体は ReadMembers が中に入って読む
+            case PropertyType::Array:
+            {
+                // 配列(SF-2): 配列まるごとを入れ替える(前の要素は消し、要素は既定の値から読む)。
+                // 読めない要素があっても、ほかの要素は読む(その要素は既定の値のまま)。最初の理由を返す。
+                if (value.GetType() != ArchiveValue::Type::Array)
+                {
+                    return "配列ではありません";
+                }
+                const core::ArrayInfo& array = *property.GetArrayInfo();
+                void* address = property.GetArrayAddressAt(container);
+                array.resize(address, 0);
+                array.resize(address, value.GetArraySize());
+                std::string firstError;
+                for (std::size_t i = 0; i < value.GetArraySize(); ++i)
+                {
+                    void* element = array.at(address, i);
+                    std::string error;
+                    if (array.element.GetType() == PropertyType::Struct)
+                    {
+                        // 構造体の要素: 中のメンバーを、構造体のプロパティと同じく ReadMembers で読む
+                        if (value.At(i).GetType() != ArchiveValue::Type::Object)
+                        {
+                            error = "構造体(オブジェクト)ではありません";
+                        }
+                        else
+                        {
+                            ReadReport elementReport;
+                            ReadMembers(value.At(i), *array.element.GetStructType(), element, toHandle, registry, "",
+                                        elementReport);
+                            if (!elementReport.warnings.empty())
+                            {
+                                error = elementReport.warnings[0];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        error = ValueToProperty(value.At(i), array.element, element, toHandle, registry);
+                    }
+                    if (!error.empty() && firstError.empty())
+                    {
+                        firstError = "[" + std::to_string(i) + "] " + error;
+                    }
+                }
+                return firstError;
+            }
             case PropertyType::AssetRef:
             {
                 // GUID の文字列(null なら何も指さない)。アセットを読むのは、使うとき(AssetLoader::Resolve)。

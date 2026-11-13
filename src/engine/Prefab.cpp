@@ -134,7 +134,7 @@ namespace husky::engine::Prefab
                 const core::Property* property = type.FindProperty(name.c_str());
                 if (baseValue == nullptr || property == nullptr || property->GetType() == core::PropertyType::ObjectHandle ||
                     property->GetType() == core::PropertyType::ObjectHandleArray ||
-                    property->GetType() == core::PropertyType::ObjectRef ||
+                    property->GetType() == core::PropertyType::ObjectRef || property->IsReference() || // 参照の配列も比べない
                     property->GetType() == core::PropertyType::Guid)
                 {
                     continue;
