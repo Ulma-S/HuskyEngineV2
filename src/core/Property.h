@@ -2,6 +2,7 @@
 #pragma once
 
 #include "core/AssetRef.h"
+#include "core/ObjectRef.h"
 #include "core/Guid.h"
 #include "core/Handle.h"
 
@@ -29,6 +30,7 @@ namespace husky::core
         Struct,            // HUSKY_STRUCT_BEGIN で登録した構造体(中のメンバーも、それぞれプロパティとして持つ)
         AssetRef,          // AssetRef<T>(アセットへの参照。保存すると GUID になる。AssetRef.h)
         Guid,              // core::Guid(変わらない ID。保存すると GUID の文字列になる。アクターの ID など)
+        ObjectRef,         // ObjectRef<T>(型の付いた、ほかのオブジェクトへの参照。ObjectRef.h。保存は ObjectHandle と同じく番号)
     };
 
     // --- 構造体のリフレクション(登録は StructReflection.h の HUSKY_STRUCT_BEGIN で行う) ---
@@ -67,13 +69,18 @@ namespace husky::core
     // プロパティの「詳しい型」の型情報。HUSKY_PROPERTY が Property に渡す。
     //   - 登録された構造体なら、その構造体の型情報(メンバーの一覧)
     //   - AssetRef<T> なら、アセットの型 T の型情報(T::StaticType())
-    //   - それ以外(と、型を問わない AssetReference)は nullptr
+    //   - ObjectRef<T> なら、指せるオブジェクトの型 T の型情報
+    //   - それ以外(と、型を問わない AssetReference / ObjectReference)は nullptr
     template <typename T>
     const TypeInfo* DetailTypeOf()
     {
         if constexpr (std::is_base_of_v<AssetReference, T> && !std::is_same_v<T, AssetReference>)
         {
             return &T::AssetType::StaticType();
+        }
+        else if constexpr (std::is_base_of_v<ObjectReference, T> && !std::is_same_v<T, ObjectReference>)
+        {
+            return &T::ObjectType::StaticType();
         }
         else
         {
@@ -117,6 +124,11 @@ namespace husky::core
         else if constexpr (IsReflectedStruct<T>::value)
         {
             return PropertyType::Struct;
+        }
+        else if constexpr (std::is_base_of_v<ObjectReference, T>)
+        {
+            // ObjectRef<PlayerActor> など(ObjectReference の子)。型を問わない ObjectReference そのものも、ここに入る。
+            return PropertyType::ObjectRef;
         }
         else if constexpr (std::is_base_of_v<AssetReference, T>)
         {
@@ -167,8 +179,13 @@ namespace husky::core
         // (GC がたどるかどうかは ForEachReferenceAt が決める。AssetRef の中のハンドルも、そちらでたどる)。
         bool IsReference() const
         {
-            return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray;
+            return m_type == PropertyType::ObjectHandle || m_type == PropertyType::ObjectHandleArray ||
+                   m_type == PropertyType::ObjectRef;
         }
+
+        // type が ObjectRef のとき、指せるオブジェクトの型(PlayerActor など)の型情報。それ以外は nullptr。
+        // 読み込みでの型の確かめと、インスペクタが選べる相手を絞るのに使う。
+        const TypeInfo* GetObjectRefType() const { return m_type == PropertyType::ObjectRef ? m_detailType : nullptr; }
 
         // このプロパティが参照しているオブジェクトのハンドルを、すべて function(handle) に渡す。
         // ObjectHandle なら1つ、ObjectHandleArray なら中の要素を順に、構造体なら中のメンバーをたどって渡す。
@@ -249,9 +266,9 @@ namespace husky::core
             {
                 return false;
             }
-            if constexpr (std::is_same_v<T, AssetReference>)
+            if constexpr (std::is_same_v<T, AssetReference> || std::is_same_v<T, ObjectReference>)
             {
-                return true; // 型を問わないアセットの参照として読むときは、どのアセットの型でもよい(保存と GC が使う)
+                return true; // 型を問わない参照として読むときは、どの型でもよい(保存と GC が使う)
             }
             else
             {

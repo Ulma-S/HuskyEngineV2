@@ -154,5 +154,10 @@ namespace husky::core
             // アセットの参照: 読み込んだアセットのハンドルをたどる。これで、参照している間はアセットが回収されない。
             function(assetRef->asset);
         }
+        else if (const ObjectReference* objectRef = GetValuePtrAt<ObjectReference>(container))
+        {
+            // 型の付いた参照(ObjectRef<T>): 中のハンドルをたどる(ObjectHandle と同じく強い参照)。
+            function(objectRef->handle);
+        }
     }
 }

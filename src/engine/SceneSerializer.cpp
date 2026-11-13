@@ -141,6 +141,7 @@ namespace husky::engine::SceneSerializer
                     continue;
                 }
                 const bool isHandle = property != nullptr && (property->GetType() == core::PropertyType::ObjectHandle ||
+                                                              property->GetType() == core::PropertyType::ObjectRef ||
                                                               property->GetType() == core::PropertyType::ObjectHandleArray);
                 if (keep || isHandle || baseValue == nullptr || !value.Equals(*baseValue))
                 {

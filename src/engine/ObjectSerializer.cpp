@@ -3,6 +3,7 @@
 // container は「プロパティの持ち主(オブジェクトか構造体)の先頭のアドレス」。構造体の中に入るときは、構造体のアドレスに替える。
 #include "engine/ObjectSerializer.h"
 
+#include "core/ObjectRegistry.h" // ObjectRef の相手の型を確かめる
 #include "core/Property.h"
 #include "core/TypeInfo.h"
 
@@ -49,6 +50,8 @@ namespace husky::engine::ObjectSerializer
                 return ArchiveValue(*property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
                 return HandleToValue(*property.GetValuePtrAt<core::ObjectHandle>(container), toId);
+            case PropertyType::ObjectRef: // 型の付いた参照も、中のハンドルを同じ番号で書く
+                return HandleToValue(property.GetValuePtrAt<core::ObjectReference>(container)->handle, toId);
             case PropertyType::ObjectHandleArray:
             {
                 // 番号の配列にする。番号の無い相手(保存しないもの、もう無いもの)は書かない。
@@ -119,8 +122,9 @@ namespace husky::engine::ObjectSerializer
         }
 
         // ArchiveValue の値を、プロパティ(構造体以外)に書き込む。型が合わなければ書き込まず、理由を返す(空なら成功)。
+        // registry: 型の付いた参照(ObjectRef)の相手の型を確かめるのに使う(nullptr なら確かめない)。
         std::string ValueToProperty(const ArchiveValue& value, const Property& property, void* container,
-                                    const IdToHandle& toHandle)
+                                    const IdToHandle& toHandle, const core::ObjectRegistry* registry)
         {
             if (property.IsReference() && !toHandle)
             {
@@ -215,6 +219,27 @@ namespace husky::engine::ObjectSerializer
                 assetRef.asset = {}; // 前に読んでいたアセットは、指す先が変わったので手放す
                 return {};
             }
+            case PropertyType::ObjectRef:
+            {
+                // 番号は ObjectHandle と同じ。読めた相手が、指せる型(ObjectRef<T> の T)でなければ、つながずに null にする。
+                core::ObjectHandle handle;
+                std::string error = ValueToHandle(value, toHandle, handle);
+                core::ObjectReference& reference = *property.GetValuePtrAt<core::ObjectReference>(container);
+                if (!error.empty())
+                {
+                    return error;
+                }
+                const core::TypeInfo* expected = property.GetObjectRefType();
+                const core::Object* target = registry != nullptr && !handle.IsNull() ? registry->Resolve(handle) : nullptr;
+                if (target != nullptr && expected != nullptr && !target->GetType().IsA(*expected))
+                {
+                    reference.handle = {};
+                    return std::string("型が違うのでつなぎません(") + target->GetType().GetName() + " は " +
+                           expected->GetName() + " ではありません)";
+                }
+                reference.handle = handle;
+                return {};
+            }
             case PropertyType::Guid:
             {
                 core::Guid guid; // null なら、振られていない(0)
@@ -233,7 +258,8 @@ namespace husky::engine::ObjectSerializer
         // 「名前 → 値」のオブジェクト(members)を、型 type の持ち主(container)のプロパティに書き込む。
         // 構造体のプロパティは、中に入って同じことを繰り返す。warnings の名前には「color.r」のように道筋を付ける。
         void ReadMembers(const ArchiveValue& members, const core::TypeInfo& type, void* container,
-                         const IdToHandle& toHandle, const std::string& prefix, ReadReport& report)
+                         const IdToHandle& toHandle, const core::ObjectRegistry* registry, const std::string& prefix,
+                         ReadReport& report)
         {
             for (std::size_t i = 0; i < members.GetMemberCount(); ++i)
             {
@@ -252,11 +278,11 @@ namespace husky::engine::ObjectSerializer
                         report.warnings.push_back(name + ": 構造体(オブジェクト)ではありません");
                         continue;
                     }
-                    ReadMembers(value, *property->GetStructType(), property->GetStructAddressAt(container), toHandle,
+                    ReadMembers(value, *property->GetStructType(), property->GetStructAddressAt(container), toHandle, registry,
                                 name + ".", report);
                     continue;
                 }
-                const std::string error = ValueToProperty(value, *property, container, toHandle);
+                const std::string error = ValueToProperty(value, *property, container, toHandle, registry);
                 if (error.empty())
                 {
                     ++report.readCount;
@@ -304,7 +330,7 @@ namespace husky::engine::ObjectSerializer
             return report;
         }
 
-        ReadMembers(*properties, type, &object, toHandle, "", report);
+        ReadMembers(*properties, type, &object, toHandle, object.GetOwnerRegistry(), "", report);
         return report;
     }
 }

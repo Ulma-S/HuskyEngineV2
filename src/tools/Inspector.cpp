@@ -314,7 +314,13 @@ namespace husky::tools
                 return ImGui::InputText(name, property.GetValuePtrAt<std::string>(container));
             case PropertyType::ObjectHandle:
                 ImGui::Text("%s: %s", name, DescribeHandle(*property.GetValuePtrAt<core::ObjectHandle>(container), registry));
-                return false; // ハンドルは、今は表示だけ(付け替えの画面は、必要になったら作る)
+                return false; // ハンドルは、今は表示だけ(付け替えの画面は REF-1 で作る)
+            case PropertyType::ObjectRef:
+                // 型の付いた参照: 相手と、指せる型を表示する(付け替えの画面は REF-1 で作る)
+                ImGui::Text("%s: %s (%s)", name,
+                            DescribeHandle(property.GetValuePtrAt<core::ObjectReference>(container)->handle, registry),
+                            property.GetObjectRefType() != nullptr ? property.GetObjectRefType()->GetName() : "Object");
+                return false;
             case PropertyType::ObjectHandleArray:
             {
                 const auto& handles = *property.GetValuePtrAt<std::vector<core::ObjectHandle>>(container);

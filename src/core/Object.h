@@ -162,6 +162,10 @@ namespace husky::core
         void MarkReadOnly() { m_readOnly = true; }
         bool IsReadOnly() const { return m_readOnly; }
 
+        // 作ったレジストリ(持ち主)。作っていなければ nullptr。シリアライザが、型の付いた参照(ObjectRef)の相手を引いて
+        // 型を確かめるのに使う(子クラス向けの GetRegistry は protected のまま)。
+        ObjectRegistry* GetOwnerRegistry() const { return m_registry; }
+
     protected:
         // このオブジェクトを作ったレジストリ。レジストリで作っていなければ nullptr。
         // 子クラス(Scene など)が、ほかのオブジェクトを作ったり引いたりするのに使う。

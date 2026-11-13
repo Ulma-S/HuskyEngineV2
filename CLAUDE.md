@@ -93,7 +93,8 @@
 
 ## リフレクション
 
-- プロパティ(名前、型、オフセット、参照フラグ)とメソッドを、マクロで登録する。プロパティにできる型は`PropertyType`(bool、int32、float、string、ハンドルとその配列、構造体、`AssetRef`、`core::Guid`。GUIDは保存すると文字列)。
+- プロパティ(名前、型、オフセット、参照フラグ)とメソッドを、マクロで登録する。プロパティにできる型は`PropertyType`(bool、int32、float、string、ハンドルとその配列、構造体、`AssetRef`、`core::Guid`、`ObjectRef`。GUIDは保存すると文字列)。`HUSKY_PROPERTY`は Unity の SerializeField にあたり、クラスの中に書くので private のメンバーにも付けられる(書かないメンバーは保存しない)。
+- 型の付いたオブジェクトの参照(SF-1、2026-11-13。ユーザーの希望「SerializeField のように Actor / Component も」): `core::ObjectRef<T>`(`core/ObjectRef.h`。T はアクターかコンポーネント)。`AssetRef<T>`と同じく、中身は型を問わない`ObjectReference`(ハンドル1つ)で、T は型の印(`Property::GetObjectRefType`)。保存はシーンの中の番号(`ObjectHandle`と同じ。`IsReference`が true)、GC は強い参照。読み込みで番号の相手が T でなければ null にして警告する(`ObjectSerializer`が`Object::GetOwnerRegistry`で相手を引いて確かめる)。使うときは`ref.Resolve(registry)`(型が違う・消えたら nullptr)、`ref.Set(object)`。プレハブとの違いには数えない(ハンドルと同じ)。インスペクタは相手と型の名前を表示するだけ(選ぶのは REF-1)。計画: SF-2 配列(`std::vector<T>`)→ SF-3 enum など → REF-1。
 - 構造体(`Object`ではない値)は、`core/StructReflection.h`の`HUSKY_STRUCT_BEGIN` / `HUSKY_PROPERTY` / `HUSKY_STRUCT_END`で、型の外から登録する。登録は構造体と同じ名前空間に書く(ADLで見つけるため)。入れ子の構造体は中のものを先に登録する。外から触るので、登録するメンバーは public にする。登録した構造体は`HUSKY_PROPERTY`でそのままプロパティにでき、保存は入れ子になり、中のハンドルはGCがたどる。
 - プロパティの値は、必ず`Property`(`GetValuePtr` / `GetValuePtrAt` / `GetStructAddressAt`)を通して読み書きする。シリアライザやGCがオフセットを直接触らない(将来、スクリプトの型など「関数で読み書きするプロパティ」を足すときに、変える場所を`Property`に閉じ込めるため)。
 - メソッドの引数と戻り値は、数値、文字列、ハンドル、GC管理オブジェクトへの参照、リフレクション対応の構造体に限る。オーバーロードは非対応。
