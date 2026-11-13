@@ -18,6 +18,7 @@
 
 #if HUSKY_DEVELOPMENT
 #include "tools/AssetBrowser.h" // アセットの一覧とデータの窓(同じく開発ビルドだけ)
+#include "tools/LogWindow.h" // ログの窓(開発ビルドだけ)
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
@@ -58,6 +59,11 @@ int main()
     const bool logFileOpened = logFile.Open((logDirectory + "/husky.log").c_str());
     husky::core::JsonLinesLogSink fileLog(logFile);
     husky::core::ScopedLogSink attachFileLog(fileLog);
+#if HUSKY_DEVELOPMENT
+    // 【開発ビルドだけ】エディタのログの窓(LOG-4)。起動のときのログも入るように、最初の方で付ける。
+    tools::LogWindow logWindow;
+    husky::core::ScopedLogSink attachLogWindow(logWindow);
+#endif
     if (!logFileOpened)
         HUSKY_LOG_TEXT(Warning, "Game", "ログのファイルを開けませんでした(%s/husky.log)", logDirectory.c_str());
 
@@ -192,12 +198,13 @@ int main()
     app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     // 移動のギズモは、シーンのスプライトより手前に描く(ImGui の窓よりは奥)
     app.SetAfterSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGizmo(renderDevice); });
-    app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
+    app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く
         debugWindow.Draw(application, &commands, &playMode);
         inspector.Draw(application, &commands); // 値の書き換えは property.set を通す(Undo できる)
         assetBrowser.Draw(application, &commands); // データの値の書き換えは data.set を通す(Undo できる)
+        logWindow.Draw(); // ログの窓(レベル・チャンネル・番号・文字で絞り込む)
     });
 #endif
 

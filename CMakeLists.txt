@@ -393,6 +393,7 @@ add_library(husky_tools STATIC
     src/tools/DebugWindow.cpp
     src/tools/EditorCli.cpp
     src/tools/LogCatalog.cpp
+    src/tools/LogWindow.cpp
     src/tools/EditorCommands.cpp
     src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
@@ -495,6 +496,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/AssetBrowserTests.cpp
         tests/tools/LogCatalogTests.cpp
         tests/tools/DevUiFontTests.cpp
+        tests/tools/LogWindowTests.cpp
         tests/tools/ArrayEditTests.cpp
         tests/tools/ReferenceEditTests.cpp
         tests/tools/EditorPlayModeTests.cpp
