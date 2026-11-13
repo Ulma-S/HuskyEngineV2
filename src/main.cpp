@@ -9,6 +9,7 @@
 #include "engine/Input.h"
 #include "game/Game.h"
 #include "platform/FileSystem.h"
+#include "core/Log.h"
 #include "platform/MemoryHooks.h"
 #include "render/RenderDevice.h"
 
@@ -40,6 +41,10 @@ int main()
     // 一番最初に: SDL のメモリの確保を、エンジンの入口(MemoryTracker)に通す。
     // SDL が何かを確保するより前でないといけない(platform/MemoryHooks.h)。
     platform::InstallMemoryHooks();
+
+    // ログを画面(標準出力)に出す。main を抜けるときに外れる(core/Log.h)。
+    husky::core::ConsoleLogSink consoleLog;
+    husky::core::ScopedLogSink attachConsoleLog(consoleLog);
 
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
     // ジョブシステムのワーカーは「コア数 - 1」本(1 本はゲームスレッドの分)。テクスチャの読み込みなどに使う。

@@ -1,5 +1,6 @@
 // エディタの CLI(HuskyEditorCli.exe)のエントリポイント。中身は tools::RunEditorCli(EditorCli.h)を呼ぶだけ。
 // 開発ビルドだけで使える。製品(Release)のビルドでは、使えないことを伝えて終わる。
+#include "core/Log.h"
 #include "platform/MemoryHooks.h"
 #include "platform/Platform.h"
 
@@ -18,6 +19,9 @@ int main(int argc, char** argv)
     husky::platform::InstallMemoryHooks();
     // ログの日本語を、コンソールで文字化けさせない。
     husky::platform::EnableUtf8ConsoleOutput();
+    // ログを画面に出す(main を抜けるときに外れる。core/Log.h)。
+    husky::core::ConsoleLogSink consoleLog;
+    husky::core::ScopedLogSink attachConsoleLog(consoleLog);
 
 #if HUSKY_DEVELOPMENT
     // argv[0] は exe の名前なので飛ばす。char* の並びを、扱いやすい std::string の並びに直す。

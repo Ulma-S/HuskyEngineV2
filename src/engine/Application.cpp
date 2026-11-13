@@ -1,6 +1,7 @@
 // Application.h の実装。
 #include "engine/Application.h"
 
+#include "core/Log.h"
 #include "core/Profiler.h"
 
 #include "core/MemoryTracker.h"
@@ -38,6 +39,7 @@ namespace husky::engine
     {
         // 0. プロファイラーのフレームの区切り: 前のフレーム(その描画まで)に測った時間をまとめる
         core::Profiler::Get().EndFrame();
+        core::Log::Get().AdvanceFrame(); // ログの記録のフレームの番号を進める
 
         // 1. このフレームの dt を決める(dt を決めるのは FrameClock だけ)
         const double dt = m_clock.Tick(nowNanoseconds);
