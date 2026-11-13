@@ -159,7 +159,17 @@ namespace husky::engine::Prefab
             prefabComponents.push_back(FindPrefabEntry(data, componentIds->At(i).AsInt(-1)));
         }
 
-        // 置いたものの、生きているコンポーネント。数と型(並んだ順)がプレハブと同じでなければ比べられない
+        // プレハブのコンポーネントの記録は、型と properties がそろっていること
+        for (const ArchiveValue* entry : prefabComponents)
+        {
+            if (entry == nullptr || entry->Find("type") == nullptr || entry->Find("properties") == nullptr)
+            {
+                result.error = "the prefab " + prefab->GetGuid().ToString() + " has a broken component";
+                return result;
+            }
+        }
+
+        // 置いたものの、生きているコンポーネント
         std::vector<const Component*> components;
         for (const core::ObjectHandle handle : actor.components)
         {
@@ -169,27 +179,84 @@ namespace husky::engine::Prefab
                 components.push_back(component);
             }
         }
-        bool sameShape = components.size() == prefabComponents.size();
-        for (std::size_t i = 0; sameShape && i < components.size(); ++i)
+
+        // 組を作る(PF-7b。保存と同じ決め方): pairOf[置いたものの位置] = プレハブの位置(組が無ければ prefabComponents.size())。
+        //   - プレハブのコンポーネントに ID(prefabComponentId)があれば、ID と型が同じもの
+        //   - ID の無い古いプレハブなら、並び順(数と型が同じときだけ。違えば比べられない)
+        const std::size_t none = prefabComponents.size();
+        std::vector<std::size_t> pairOf(components.size(), none);
+        std::vector<bool> used(prefabComponents.size(), false);
+        const auto prefabIdOf = [&prefabComponents](std::size_t i) {
+            const ArchiveValue* id = prefabComponents[i]->Find("properties")->Find("prefabComponentId");
+            core::Guid guid;
+            return id != nullptr && core::Guid::Parse(id->AsString(), guid) ? guid : core::Guid{};
+        };
+        bool prefabHasIds = true;
+        for (std::size_t i = 0; i < prefabComponents.size(); ++i)
         {
-            const ArchiveValue* type = prefabComponents[i] != nullptr ? prefabComponents[i]->Find("type") : nullptr;
-            sameShape = type != nullptr && prefabComponents[i]->Find("properties") != nullptr &&
-                        type->AsString() == components[i]->GetType().GetName();
+            prefabHasIds = prefabHasIds && !prefabIdOf(i).IsNull();
         }
-        if (!sameShape)
+        const auto typeOf = [&prefabComponents](std::size_t i) { return prefabComponents[i]->Find("type")->AsString(); };
+        if (prefabHasIds)
         {
-            result.error = "the components differ from the prefab (added or removed components are not supported yet)";
-            return result;
+            for (std::size_t c = 0; c < components.size(); ++c)
+            {
+                for (std::size_t i = 0; i < prefabComponents.size() && pairOf[c] == none; ++i)
+                {
+                    if (!used[i] && !components[c]->prefabComponentId.IsNull() &&
+                        prefabIdOf(i) == components[c]->prefabComponentId && typeOf(i) == components[c]->GetType().GetName())
+                    {
+                        pairOf[c] = i;
+                        used[i] = true;
+                    }
+                }
+            }
+        }
+        else
+        {
+            bool sameShape = components.size() == prefabComponents.size();
+            for (std::size_t i = 0; sameShape && i < components.size(); ++i)
+            {
+                sameShape = typeOf(i) == components[i]->GetType().GetName();
+            }
+            if (!sameShape)
+            {
+                result.error = "the components differ from the prefab, and the prefab has no component ids "
+                               "(make the prefab again to give them ids)";
+                return result;
+            }
+            for (std::size_t i = 0; i < components.size(); ++i)
+            {
+                pairOf[i] = i;
+                used[i] = true;
+            }
         }
 
         result.prefab = prefab;
         CompareMembers(*ObjectSerializer::Write(actor).Find("properties"), *actorProperties, actor.GetType(), std::string(),
                        std::string(), result.overrides);
-        for (std::size_t i = 0; i < components.size(); ++i)
+        for (std::size_t c = 0; c < components.size(); ++c)
         {
-            CompareMembers(*ObjectSerializer::Write(*components[i]).Find("properties"),
-                           *prefabComponents[i]->Find("properties"), components[i]->GetType(),
-                           components[i]->GetType().GetName(), std::string(), result.overrides);
+            if (pairOf[c] == none)
+            {
+                result.addedComponents.push_back(components[c]->GetType().GetName()); // 置いた後に足したもの
+                continue;
+            }
+            const std::size_t first = result.overrides.size();
+            CompareMembers(*ObjectSerializer::Write(*components[c]).Find("properties"),
+                           *prefabComponents[pairOf[c]]->Find("properties"), components[c]->GetType(),
+                           components[c]->GetType().GetName(), std::string(), result.overrides);
+            for (std::size_t k = first; k < result.overrides.size(); ++k)
+            {
+                result.overrides[k].componentId = components[c]->prefabComponentId;
+            }
+        }
+        for (std::size_t i = 0; i < prefabComponents.size(); ++i)
+        {
+            if (!used[i])
+            {
+                result.removedComponents.push_back(typeOf(i)); // 置いた後に外したもの
+            }
         }
         return result;
     }
@@ -275,7 +342,7 @@ namespace husky::engine::Prefab
                                                                                          : ArchiveValue::MakeArray();
         for (const ValueChange& change : changes)
         {
-            // 書き込む記録: アクター自身か、型の名前が合う最初のコンポーネント
+            // 書き込む記録: アクター自身か、ID が合うコンポーネント(ID が空なら、型の名前が合う最初のもの)
             std::size_t target = actorIndex;
             if (!change.component.empty())
             {
@@ -284,7 +351,11 @@ namespace husky::engine::Prefab
                 {
                     const std::size_t index = indexOf(componentIds.At(i).AsInt(-1));
                     const ArchiveValue* type = index < entries.size() ? entries[index].Find("type") : nullptr;
-                    if (type != nullptr && type->AsString() == change.component)
+                    const ArchiveValue* properties = index < entries.size() ? entries[index].Find("properties") : nullptr;
+                    const ArchiveValue* id = properties != nullptr ? properties->Find("prefabComponentId") : nullptr;
+                    const bool idMatches = change.componentId.IsNull() ||
+                                           (id != nullptr && id->AsString() == change.componentId.ToString());
+                    if (type != nullptr && type->AsString() == change.component && idMatches)
                     {
                         target = index;
                     }
@@ -316,12 +387,14 @@ namespace husky::engine::Prefab
         std::size_t changed = 0;
         for (const ValueChange& change : changes)
         {
-            // 書き換える相手: アクター自身か、型の名前が合う最初の(生きている)コンポーネント
+            // 書き換える相手: アクター自身か、ID が合う(生きている)コンポーネント(ID が空なら、型の名前が合う最初のもの)。
+            // ID で指すので、置いた後に外したものには伝わらず、足した同じ型のものを取り違えることもない。
             core::Object* owner = change.component.empty() ? static_cast<core::Object*>(&actor) : nullptr;
             for (std::size_t i = 0; owner == nullptr && registry != nullptr && i < actor.components.size(); ++i)
             {
                 Component* component = registry->Resolve<Component>(actor.components[i]);
-                if (component != nullptr && !component->IsPendingDestroy() && component->GetType().GetName() == change.component)
+                if (component != nullptr && !component->IsPendingDestroy() && component->GetType().GetName() == change.component &&
+                    (change.componentId.IsNull() || component->prefabComponentId == change.componentId))
                 {
                     owner = component;
                 }

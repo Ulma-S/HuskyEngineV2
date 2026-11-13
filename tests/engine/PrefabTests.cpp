@@ -19,6 +19,8 @@
 #include <functional>
 #include <string_view>
 #include <string>
+#include <utility> // std::swap
+#include <vector>
 
 using husky::core::ObjectHandle;
 using husky::core::ObjectRegistry;
@@ -509,4 +511,66 @@ TEST_CASE("PF-7a: コンポーネントに ID の無い古いシーンのファ�
     REQUIRE(sprite != nullptr);
     CHECK(sprite->height == 20.0f);
     CHECK(sprite->prefabComponentId == SpriteId); // プレハブから作ったので、ID はプレハブのもの(次に保存すると ID の形になる)
+}
+
+TEST_CASE("PF-7b: FindOverrides はコンポーネントを ID で組にし、足した・外したものを並べる。値の違いは組になったものだけ")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_overrides_ids");
+    WriteBoxPrefab(folder, "Box", 32.0f, true); // スプライト + アニメーター
+
+    husky::engine::Application app;
+    Actor* placed = PlaceBox(app, folder);
+    placed->GetComponent<SpriteComponent>()->height = 20.0f;
+    placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+    REQUIRE(placed->AddComponent<husky::engine::CameraComponent>() != nullptr);
+
+    const Prefab::OverridesResult found = Prefab::FindOverrides(*placed);
+    REQUIRE(found.prefab != nullptr);
+    CHECK(found.error.empty());
+    REQUIRE(found.overrides.size() == 1);
+    CHECK(found.overrides[0].component == "SpriteComponent");
+    CHECK(found.overrides[0].path == "height");
+    CHECK(found.overrides[0].componentId == SpriteId);
+    REQUIRE(found.addedComponents.size() == 1);
+    CHECK(found.addedComponents[0] == "CameraComponent");
+    REQUIRE(found.removedComponents.size() == 1);
+    CHECK(found.removedComponents[0] == "SpriteAnimatorComponent");
+}
+
+TEST_CASE("PF-7b: WriteChanges と FollowChanges は ID でコンポーネントを指す(同じ型を足したものと取り違えない)")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_follow_ids");
+    WriteBoxPrefab(folder, "Box", 32.0f);
+
+    husky::engine::Application app;
+    Actor* placed = PlaceBox(app, folder);
+    // 同じ型のスプライトを足し、プレハブのものより前に並べる(型の名前で「最初のもの」を探すと、こちらを取り違える)
+    SpriteComponent* added = placed->AddComponent<SpriteComponent>();
+    REQUIRE(added != nullptr);
+    added->width = 32.0f;
+    REQUIRE(placed->components.size() == 2);
+    std::swap(placed->components[0], placed->components[1]);
+    SpriteComponent* fromPrefab = app.GetRegistry().Resolve<SpriteComponent>(placed->components[1]);
+    REQUIRE(fromPrefab != nullptr);
+    REQUIRE(fromPrefab->prefabComponentId == SpriteId);
+
+    // プレハブの幅を 32 → 48 にしたことを伝える: プレハブから来たものだけが 48 になる
+    const std::vector<Prefab::ValueChange> changes = {
+        {"SpriteComponent", "width", ArchiveValue(32.0), ArchiveValue(48.0), SpriteId}};
+    CHECK(Prefab::FollowChanges(*placed, changes) == 1);
+    CHECK(fromPrefab->width == 48.0f);
+    CHECK(added->width == 32.0f);
+
+    // プレハブの値の木にも、ID の合うコンポーネントに書く
+    const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(BoxGuid);
+    REQUIRE(prefab != nullptr);
+    ArchiveValue written;
+    std::string error;
+    REQUIRE(Prefab::WriteChanges(prefab->GetData(), changes, written, error));
+    CHECK(PropertiesAt(written, 1).Find("width")->AsFloat() == 48.0);
+    // 無い ID を指すと断る
+    const std::vector<Prefab::ValueChange> wrong = {
+        {"SpriteComponent", "width", ArchiveValue(32.0), ArchiveValue(48.0), AnimatorId}};
+    CHECK_FALSE(Prefab::WriteChanges(prefab->GetData(), wrong, written, error));
 }

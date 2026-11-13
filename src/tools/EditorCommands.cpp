@@ -1439,6 +1439,15 @@ namespace husky::tools
                 entry.Set("prefabValue", item.prefabValue);
                 entry.Set("perInstance", engine::ArchiveValue(item.perInstance));
             }
+            // 足した・外したコンポーネントは、人向けの行にだけ出す(data は値の違いの配列のまま)
+            for (const std::string& type : found.addedComponents)
+            {
+                result.details.push_back("+ " + type + " (added, not in the prefab)");
+            }
+            for (const std::string& type : found.removedComponents)
+            {
+                result.details.push_back("- " + type + " (removed, still in the prefab)");
+            }
             return result;
         };
         return command;
@@ -1550,7 +1559,7 @@ namespace husky::tools
             std::vector<engine::Prefab::ValueChange> changes;
             for (const engine::Prefab::Override* item : selected)
             {
-                changes.push_back({item->component, item->path, item->prefabValue, item->value});
+                changes.push_back({item->component, item->path, item->prefabValue, item->value, item->componentId});
             }
             engine::ArchiveValue newData;
             std::string text;

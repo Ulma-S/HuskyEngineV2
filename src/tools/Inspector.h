@@ -69,6 +69,8 @@ namespace husky::tools
         std::vector<std::pair<std::string, std::string>> m_overrides;
         core::ObjectHandle m_overridesFor; // m_overrides を作ったアクター
         int m_overridesAge = 0;            // 作ってから経ったフレームの数(30 で作り直す)
+        std::size_t m_addedComponentCount = 0;   // 置いた後に足したコンポーネントの数(PF-7b)
+        std::size_t m_removedComponentCount = 0; // 置いた後に外したコンポーネントの数
     };
 }
 

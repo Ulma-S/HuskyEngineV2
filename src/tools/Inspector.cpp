@@ -497,6 +497,11 @@ namespace husky::tools
                     const std::string* prefabPath = app.GetAssetDatabase().FindPath(selected->prefab.guid);
                     ImGui::Text("Prefab: %s (%zu overrides)", prefabPath != nullptr ? prefabPath->c_str() : "(missing)",
                                 m_overrides.size());
+                    // 足した・外したコンポーネントは、値の違いとは別に数だけ出す(Revert / Apply の対象ではない)
+                    if (m_addedComponentCount > 0 || m_removedComponentCount > 0)
+                    {
+                        ImGui::Text("Components: +%zu added, -%zu removed", m_addedComponentCount, m_removedComponentCount);
+                    }
                     // ボタンは名前でコマンドを呼ぶだけ(全部: 名前・位置・回転は除く)。押したら、すぐに印を作り直す。
                     if (commands != nullptr)
                     {
@@ -576,10 +581,13 @@ namespace husky::tools
     void SceneInspector::RefreshOverrides(const engine::Actor& actor)
     {
         m_overrides.clear(); // 入れ物は使い回す(中の文字列は作り直す)
-        for (const engine::Prefab::Override& item : engine::Prefab::FindOverrides(actor).overrides)
+        const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(actor);
+        for (const engine::Prefab::Override& item : found.overrides)
         {
             m_overrides.emplace_back(item.component, item.path);
         }
+        m_addedComponentCount = found.addedComponents.size();
+        m_removedComponentCount = found.removedComponents.size();
         m_overridesFor = actor.GetHandle();
         m_overridesAge = 0;
     }

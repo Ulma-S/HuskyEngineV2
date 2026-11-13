@@ -63,7 +63,8 @@ namespace husky::engine::Prefab
     struct Override
     {
         std::string component;   // コンポーネントの型の名前。アクター自身の値なら空
-        std::string path;        // プロパティの道筋("transform.position.x"、"color.r" など。構造体の中は点でつなぐ)
+        core::Guid componentId;  // コンポーネントのプレハブの中の ID(Component::prefabComponentId)。アクター自身や、ID の無い古いプレハブなら空
+        std::string path;       // プロパティの道筋("transform.position.x"、"color.r" など。構造体の中は点でつなぐ)
         ArchiveValue value;      // 置いたものの値
         ArchiveValue prefabValue; // プレハブの値
         // 1体ずつ違うのが当たり前の値(アクターの name、transform.position、transform.rotation)。
@@ -75,12 +76,17 @@ namespace husky::engine::Prefab
     {
         const PrefabAsset* prefab = nullptr; // 比べたプレハブ。比べられなければ nullptr(理由は error)
         std::vector<Override> overrides;     // アクター、コンポーネント(並んだ順)の順。それぞれの中はプロパティの順
+        std::vector<std::string> addedComponents;   // 置いた後に足したコンポーネント(プレハブに組が無い)の型の名前
+        std::vector<std::string> removedComponents; // 置いた後に外したコンポーネント(プレハブにあって組が無い)の型の名前
         std::string error;
     };
 
     // プレハブから置いたアクターの、プレハブと違う値を集める(シーンに保存される「違い」と同じ比べ方)。
+    // コンポーネントは、保存と同じく ID(Component::prefabComponentId)でプレハブのものと組にし、組になったものだけを比べる
+    // (PF-7b)。組にならないものは、addedComponents / removedComponents に並べる。
     // 比べないもの: ハンドル(シーンとプレハブで指す相手が違う)、guid、プレハブのファイルに無い値。
-    // アクターがプレハブから置いたものでない、プレハブが読み込まれていない、コンポーネントの並びが違うときは、error に理由。
+    // アクターがプレハブから置いたものでない、プレハブが読み込まれていない、ID の無い古いプレハブとコンポーネントの並びが違うときは、
+    // error に理由。
     OverridesResult FindOverrides(const Actor& actor);
 
     // プレハブの値を1つ変える(prefab.apply で、置いたものの違いをプレハブへ書き戻すとき)。
@@ -90,6 +96,9 @@ namespace husky::engine::Prefab
         std::string path;      // プロパティの道筋("color.r" など)
         ArchiveValue oldValue; // 今のプレハブの値
         ArchiveValue newValue; // 新しいプレハブの値
+        // コンポーネントのプレハブの中の ID。空でなければ、型の名前ではなくこの ID で指す(PF-7b)。
+        // 空なら(ID の無い古いプレハブ)、型の名前の最初のもの。
+        core::Guid componentId;
     };
 
     // プレハブの値の木 data に changes を書き込んだ、新しい値の木を out に作る(data は変えない)。
