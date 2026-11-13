@@ -480,6 +480,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/SceneViewTests.cpp
         tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
+        tests/tools/DataCommandsTests.cpp
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp

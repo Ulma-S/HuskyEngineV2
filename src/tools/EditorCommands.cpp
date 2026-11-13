@@ -876,6 +876,21 @@ namespace husky::tools
         // property.set の1件分(引数 actor、component(省略可)、property、value)を書き換える。property.set と property.setMany の中身。
         // 成功なら true と、actorOut(書き換えたアクター)、old(前の値)、who(人に見せる相手の説明。書き換える前のもの)。
         // 失敗なら false と error(構造体の一部だけが書けたときも、前の値に戻してある)。
+        // 値1つを、ファイルと同じ入れ子の形にする。構造体の読み込みは書いてある値だけを書き換えるので、
+        //   "transform.position.x" → {"properties": {"transform": {"position": {"x": 値}}}}(ほかの値はそのまま)
+        // property.set と data.set が、この形を ObjectSerializer::ReadProperties に渡して1つだけ書き換える。
+        engine::ArchiveValue MakeNestedEntry(const std::vector<std::string>& path, const engine::ArchiveValue& entryValue)
+        {
+            engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
+            engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
+            for (std::size_t i = 0; i + 1 < path.size(); ++i)
+            {
+                parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
+            }
+            parent->Set(path.back(), entryValue);
+            return entry;
+        }
+
         bool SetOneProperty(engine::Application& app, const engine::ArchiveValue& item, engine::Actor*& actorOut,
                             engine::ArchiveValue& old, std::string& who, std::string& error)
         {
@@ -922,18 +937,8 @@ namespace husky::tools
             }
             old = *found;
 
-            // 値1つを、ファイルと同じ入れ子の形にする。構造体の読み込みは書いてある値だけを書き換えるので、
-            //   "transform.position.x" → {"properties": {"transform": {"position": {"x": 値}}}}(ほかの値はそのまま)
-            auto makeEntry = [&path](const engine::ArchiveValue& entryValue) {
-                engine::ArchiveValue entry = engine::ArchiveValue::MakeObject();
-                engine::ArchiveValue* parent = &entry.Set("properties", engine::ArchiveValue::MakeObject());
-                for (std::size_t i = 0; i + 1 < path.size(); ++i)
-                {
-                    parent = &parent->Set(path[i], engine::ArchiveValue::MakeObject());
-                }
-                parent->Set(path.back(), entryValue);
-                return entry;
-            };
+            // 値1つを、ファイルと同じ入れ子の形にする(MakeNestedEntry)。
+            auto makeEntry = [&path](const engine::ArchiveValue& entryValue) { return MakeNestedEntry(path, entryValue); };
 
             // 新しい値を書く: シーンの読み込みと同じ道具(ObjectSerializer::ReadProperties)を通すので、
             // 種類の確かめ(「数ではありません」など)も、ファイルを読むときとそろう。
@@ -2287,6 +2292,283 @@ namespace husky::tools
             result.data = engine::ArchiveValue::MakeObject();
             result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
             result.data.Set("path", engine::ArchiveValue(path));
+            return result;
+        };
+        return command;
+    }
+
+    // ================= ScriptableData(SD-3a) =================
+
+    namespace
+    {
+        // 引数で書かれた ScriptableData(GUID の文字列か、assets の中のパス)を読み、読み終わった中身を返す。
+        // 読み込み中なら待つ(エディタの操作なので、少し止まってもよい)。見つからない・読めないときは nullptr と理由。
+        const engine::ScriptableData* LoadDataFromArg(engine::Application& app, const std::string& text, core::Guid& guidOut,
+                                                      std::string& pathOut, std::string& error)
+        {
+            if (!core::Guid::Parse(text, guidOut))
+            {
+                const core::Guid* found = app.GetAssetDatabase().FindGuid(text);
+                if (found == nullptr)
+                {
+                    error = "No data asset: " + text +
+                            " (give its GUID or its path in the assets folder, like \"data/bouncer.sdata\")";
+                    return nullptr;
+                }
+                guidOut = *found;
+            }
+            const std::string* path = app.GetAssetDatabase().FindPath(guidOut);
+            if (path == nullptr || !engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), *path))
+            {
+                error = "Not a data asset (.sdata): " + text +
+                        (path != nullptr ? " (" + *path + ")" : std::string(" (not in the asset table)"));
+                return nullptr;
+            }
+            pathOut = *path;
+
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            const engine::ScriptableDataAsset* asset = loader.ResolveScriptableDataAsset(loader.LoadScriptableData(guidOut));
+            if (asset != nullptr && asset->GetState() == engine::AssetState::Loading)
+            {
+                loader.WaitForAllLoads();
+            }
+            const engine::ScriptableData* data = asset != nullptr ? loader.GetScriptableData(*asset) : nullptr;
+            if (data == nullptr)
+            {
+                error = "Could not load the data asset: " + *path + " (see log)";
+            }
+            return data;
+        }
+
+        // 型の登録簿にある ScriptableData の子の型(data.create の type の選択肢)。
+        std::vector<EditorArgChoice> CollectDataTypeChoices(engine::Application& app, const engine::ArchiveValue&)
+        {
+            std::vector<EditorArgChoice> choices;
+            const core::TypeRegistry& types = app.GetTypeRegistry();
+            for (std::size_t i = 0; i < types.GetCount(); ++i)
+            {
+                const core::TypeInfo* type = types.GetType(i);
+                if (type != nullptr && type->IsA(engine::ScriptableData::StaticType()))
+                {
+                    choices.push_back({type->GetName(), type->GetName()});
+                }
+            }
+            return choices;
+        }
+
+        // 値の木を JSON(読みやすい形)にしてファイルに書く。書けなければ false。
+        bool WriteDataFile(const engine::ArchiveValue& value, const std::string& fullPath)
+        {
+            std::string text;
+            return engine::JsonFormat::Write(value, text, true) && platform::WriteTextFile(fullPath.c_str(), text);
+        }
+    }
+
+    EditorCommand MakeCreateDataCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "data.create";
+        command.label = "Create data asset";
+        command.description = "Create a new data asset (.sdata, a ScriptableData) of a type, with the type's default values, "
+                              "in the assets folder, and give it a GUID (.meta). Does not overwrite existing files.";
+        EditorCommandArg typeArg{"type", EditorArgType::String, "ScriptableData type to create (registered by the game)", true};
+        typeArg.choices = CollectDataTypeChoices;
+        command.args = {
+            typeArg,
+            {"path", EditorArgType::String,
+             "Where to write, relative to the assets folder. Must end with .sdata, like \"data/bouncer.sdata\"", true},
+        };
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            const std::string& typeName = context.args.Find("type")->AsString();
+            const core::TypeInfo* type = context.app.GetTypeRegistry().Find(typeName);
+            if (type == nullptr || !type->IsA(engine::ScriptableData::StaticType()))
+            {
+                return EditorCommandResult::Failure("Not a ScriptableData type: " + typeName +
+                                                    (type == nullptr ? " (not registered)" : ""));
+            }
+
+            // 書く先を確かめる(prefab.create と同じ: 拡張子、assets の外へ出ないこと、まだ無いこと)。
+            const std::string& path = context.args.Find("path")->AsString();
+            if (!engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), path))
+            {
+                return EditorCommandResult::Failure("The path must end with .sdata: " + path);
+            }
+            if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos || path.find(':') != std::string::npos)
+            {
+                return EditorCommandResult::Failure("The path must be inside the assets folder: " + path);
+            }
+            const std::string fullPath = directory + "/" + path;
+            const std::string metaPath = fullPath + std::string(engine::AssetDatabase::MetaSuffix);
+            if (platform::FileExists(fullPath.c_str()) || platform::FileExists(metaPath.c_str()))
+            {
+                return EditorCommandResult::Failure("Already exists: " + path + " (choose another path)");
+            }
+
+            // 既定の値を知るために、型から1つ作って書き出し、すぐに捨てる(フレームの終わりに破棄される)。
+            core::Object* temporary = context.app.GetTypeRegistry().Create(typeName, context.app.GetRegistry());
+            if (temporary == nullptr)
+            {
+                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+            }
+            std::vector<std::string> warnings;
+            const engine::ArchiveValue value =
+                engine::WriteScriptableData(*static_cast<engine::ScriptableData*>(temporary), &warnings);
+            temporary->Destroy();
+
+            const core::Guid guid = core::Guid::Generate();
+            platform::MakeDirectory(fullPath.substr(0, fullPath.rfind('/')).c_str()); // "data" などのフォルダが無ければ作る
+            if (!WriteDataFile(value, fullPath) ||
+                !platform::WriteTextFile(metaPath.c_str(), engine::AssetDatabase::MakeMetaText(guid)))
+            {
+                return EditorCommandResult::Failure("Could not write " + fullPath);
+            }
+            context.app.GetAssetDatabase().Scan(directory); // すぐに GUID やパスで指せるようにする
+
+            EditorCommandResult result = EditorCommandResult::Success("Created " + typeName + " data " + path);
+            result.details.push_back("guid: " + guid.ToString());
+            for (std::string& warning : warnings) // ハンドルのプロパティは書かない、など
+            {
+                result.details.push_back(std::move(warning));
+            }
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
+            result.data.Set("path", engine::ArchiveValue(path));
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeSetDataCommand()
+    {
+        EditorCommand command;
+        command.name = "data.set";
+        command.label = "Set data value";
+        command.description = "Change one value of a data asset (.sdata): writes the file and loads it again as a new asset "
+                              "(loaded data is never changed in place). Things that use it switch to the new values.";
+        EditorCommandArg assetArg{"asset", EditorArgType::String,
+                                  "Data asset: its GUID or its path in the assets folder, like \"data/bouncer.sdata\"", true};
+        assetArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
+            std::vector<EditorArgChoice> choices;
+            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
+                if (engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), path))
+                {
+                    choices.push_back({guid.ToString(), path});
+                }
+            });
+            std::sort(choices.begin(), choices.end(),
+                      [](const EditorArgChoice& a, const EditorArgChoice& b) { return a.label < b.label; });
+            return choices;
+        };
+        EditorCommandArg propertyArg{"property", EditorArgType::String,
+                                     "Name of the property. Use dots to go inside a struct, like \"color.r\"", true};
+        propertyArg.choices = [](engine::Application& app, const engine::ArchiveValue& args) {
+            std::vector<EditorArgChoice> choices;
+            const engine::ArchiveValue* asset = args.Find("asset");
+            core::Guid guid;
+            std::string path;
+            std::string ignored;
+            if (asset != nullptr && asset->GetType() == engine::ArchiveValue::Type::String)
+            {
+                if (const engine::ScriptableData* data = LoadDataFromArg(app, asset->AsString(), guid, path, ignored))
+                {
+                    CollectSettablePaths(data->GetType(), std::string(), choices);
+                }
+            }
+            return choices;
+        };
+        command.args = {
+            assetArg,
+            propertyArg,
+            {"value", EditorArgType::Any,
+             "New value (a number, true/false, a string, {\"name\": value} for a struct, or a guid string / null for an asset), matching the property", true},
+        };
+
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            core::Guid guid;
+            std::string path;
+            std::string error;
+            const engine::ScriptableData* data = LoadDataFromArg(app, context.args.Find("asset")->AsString(), guid, path, error);
+            if (data == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+
+            const std::string& propertyName = context.args.Find("property")->AsString();
+            const std::vector<std::string> propertyPath = SplitPropertyPath(propertyName);
+            const core::Property* property = FindPropertyByPath(data->GetType(), propertyPath);
+            if (property == nullptr)
+            {
+                return EditorCommandResult::Failure(path + " (" + data->GetType().GetName() + ") has no property '" +
+                                                    propertyName + "'");
+            }
+            if (!IsSettableProperty(*property))
+            {
+                return EditorCommandResult::Failure("'" + propertyName + "' cannot be changed with data.set");
+            }
+
+            // 前の値(Undo と、人に見せるため)。
+            const engine::ArchiveValue before = engine::WriteScriptableData(*data);
+            const engine::ArchiveValue* found = before.Find("properties");
+            for (std::size_t i = 0; i < propertyPath.size() && found != nullptr; ++i)
+            {
+                found = found->Find(propertyPath[i]);
+            }
+            if (found == nullptr)
+            {
+                return EditorCommandResult::Failure("Could not read the current value of " + propertyName);
+            }
+            const engine::ArchiveValue old = *found;
+
+            // 読み込んだ中身は読むだけなので、書き換えない。同じ型の書き換えられる写しを作り、今の値を入れてから、
+            // 新しい値を1つだけ書く(種類の確かめは、property.set と同じく ObjectSerializer::ReadProperties)。
+            core::Object* copy = app.GetTypeRegistry().Create(data->GetType().GetName(), app.GetRegistry());
+            if (copy == nullptr)
+            {
+                return EditorCommandResult::Failure("Could not create a working copy of " + path);
+            }
+            engine::ObjectSerializer::ReadProperties(before, *copy);
+            const engine::ArchiveValue& value = *context.args.Find("value");
+            const engine::ObjectSerializer::ReadReport report =
+                engine::ObjectSerializer::ReadProperties(MakeNestedEntry(propertyPath, value), *copy);
+            if (!report.warnings.empty())
+            {
+                copy->Destroy();
+                return EditorCommandResult::Failure("Could not set " + propertyName + ": " + report.warnings[0]);
+            }
+            const engine::ArchiveValue after = engine::WriteScriptableData(*static_cast<engine::ScriptableData*>(copy));
+            copy->Destroy();
+
+            // ファイルを書き、新しいアセットとして読み直す(使っている AssetRef は、次の Resolve で新しい中身に乗り換える)。
+            const std::string fullPath = app.GetAssetDatabase().GetFullPath(guid);
+            if (!WriteDataFile(after, fullPath))
+            {
+                return EditorCommandResult::Failure("Could not write " + fullPath);
+            }
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            loader.ReloadScriptableData(guid);
+            loader.WaitForAllLoads();
+
+            std::string oldText;
+            std::string newText;
+            engine::JsonFormat::Write(old, oldText, false);
+            engine::JsonFormat::Write(value, newText, false);
+            EditorCommandResult result = EditorCommandResult::Success("Set " + path + "." + propertyName + " = " + newText);
+            result.details.push_back("was " + oldText);
+            result.details.push_back("guid: " + guid.ToString());
+
+            // 戻す・やり直す: 同じ data.set を、前の値・新しい値で呼ぶ(アセットは GUID で指す)。
+            auto makeCall = [&](const engine::ArchiveValue& callValue) {
+                EditorCommandCall call;
+                call.name = "data.set";
+                call.args = engine::ArchiveValue::MakeObject();
+                call.args.Set("asset", engine::ArchiveValue(guid.ToString()));
+                call.args.Set("property", engine::ArchiveValue(propertyName));
+                call.args.Set("value", callValue);
+                return call;
+            };
+            result.undo = makeCall(old);
+            result.redo = makeCall(value);
             return result;
         };
         return command;

@@ -342,6 +342,17 @@ namespace husky::tools
     // (AssetLoader::ReloadPrefab)、同じプレハブから置いた全員に伝える(Prefab::FollowChanges。自分で値を変えたものはそのまま)。
     // プレハブのファイルを書き換えるので、Undo はできない。
     EditorCommand MakeApplyPrefabCommand(std::string assetsDirectory);
+
+    // 「データのアセットを作る」コマンド(data.create。SD-3a)を作る。引数は type(ScriptableData の子の型の名前)と
+    // path(assets の中、.sdata で終わる)。型の既定の値で .sdata と .meta を assetsDirectory の下に書き、表を作り直す。
+    // 上書きしない。Undo はできない(ファイルを消す操作はまだ作らない)。結果の data に guid と path。
+    EditorCommand MakeCreateDataCommand(std::string assetsDirectory);
+
+    // 「データの値を1つ変える」コマンド(data.set。SD-3a)を作る。引数は asset(GUID かパス)、property(点でつないだ道筋)、value。
+    // 読み込んだ中身は読むだけなので書き換えず、写しに値を入れてファイルに書き、新しいアセットとして読み直す
+    // (AssetLoader::ReloadScriptableData。使っている AssetRef は次の Resolve で乗り換える)。
+    // Undo は前の値での data.set。
+    EditorCommand MakeSetDataCommand();
 }
 
 #endif

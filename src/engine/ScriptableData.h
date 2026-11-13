@@ -84,6 +84,9 @@ namespace husky::engine
         core::ObjectHandle m_data;                 // 中身(プロパティとして登録するので、GC がたどる強い参照)
         AssetLoader* m_loader = nullptr;           // 作ったローダ(借りているだけ)
         const core::TypeInfo* m_warnedType = nullptr; // 「期待する型と違う」をもう出した型(毎フレーム同じ警告を出さないため)
+        // ファイルを書き直して読み直した(ReloadScriptableData)後の古い箱なら true。
+        // 指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは、古い中身を返す)。
+        bool m_superseded = false;
         // 読み込んだときの中身の値の控え(SD-2。開発ビルドだけ書く。製品では空のまま)。
         // メンバーそのものは #if で外さない(定義が構成で違うと、ターゲットごとにクラスの形が食い違うおそれがあるため)。
         ArchiveValue m_snapshot;

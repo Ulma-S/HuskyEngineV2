@@ -644,6 +644,18 @@ namespace husky::engine
                 return nullptr;
             }
         }
+        else if (asset->m_superseded)
+        {
+            // ファイルが書き直された(ReloadScriptableData)。新しい箱を引き(誰も指していなくて回収されていたら、読み直す)、
+            // 読み終わってから乗り換える。読み込み中は古い中身を返すので、使う側から見て途中で消えない。
+            const core::ObjectHandle newer = LoadScriptableData(reference.guid);
+            const ScriptableDataAsset* newerAsset = ResolveScriptableDataAsset(newer);
+            if (newerAsset != nullptr && newerAsset->GetState() != AssetState::Loading)
+            {
+                reference.asset = newer;
+                asset = ResolveScriptableDataAsset(newer);
+            }
+        }
 
         const ScriptableData* data = GetScriptableData(*asset);
         if (data == nullptr)
@@ -747,6 +759,21 @@ namespace husky::engine
 #endif
         asset->m_data = data->GetHandle(); // 箱のプロパティ(強い参照)で持つので、箱が生きている間は回収されない
         asset->m_state = AssetState::Loaded;
+    }
+
+    core::ObjectHandle AssetLoader::ReloadScriptableData(const core::Guid& guid)
+    {
+        // 古い箱には印を付け、キャッシュから外す(古い箱と中身は、指している AssetRef が乗り換えるまで残る)。
+        const auto found = m_scriptableData.find(guid);
+        if (found != m_scriptableData.end())
+        {
+            if (ScriptableDataAsset* old = ResolveScriptableDataAsset(found->second))
+            {
+                old->m_superseded = true;
+            }
+            m_scriptableData.erase(found);
+        }
+        return LoadScriptableData(guid);
     }
 
     std::size_t AssetLoader::CheckScriptableDataUnchanged()

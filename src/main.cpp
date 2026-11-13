@@ -126,6 +126,14 @@ int main()
     tools::EditorCommand applyComponent = tools::MakeApplyComponentCommand(assetsDirectory);
     applyComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(applyComponent));
+    // データのアセット(.sdata)を作る(data.create)・値を変える(data.set)。ソースの assets に書く。
+    // 再生中に変えると、Stop で戻らない(ファイルが変わる)ので、編集中だけ。
+    tools::EditorCommand createData = tools::MakeCreateDataCommand(assetsDirectory);
+    createData.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(createData));
+    tools::EditorCommand setData = tools::MakeSetDataCommand();
+    setData.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(setData));
     // 元に戻す・やり直す(editor.undo / editor.redo)。履歴は commands が持つ。戻すコマンドが使えないとき(再生中など)は灰色。
     commands.Register(tools::MakeUndoCommand(commands));
     commands.Register(tools::MakeRedoCommand(commands));

@@ -141,6 +141,10 @@ namespace husky::engine
         // 型が違うときは、箱ごとに1回だけ警告を出す。テンプレートを使わない入口(スクリプトからも同じ形で呼べる)。
         const ScriptableData* ResolveScriptableData(core::AssetReference& reference, const core::TypeInfo& expected);
 
+        // ファイルを書き直した .sdata を、新しい箱として読み直す(読み込んだデータは変わらないので、その場では書き換えない)。
+        // 古い箱を指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは古い中身のまま)。
+        core::ObjectHandle ReloadScriptableData(const core::Guid& guid);
+
         // 読み込んだ中身が、読み込んだときの値から変わっていないかを確かめる(SD-2。開発ビルドだけ。製品では何もせず 0)。
         // 中身には読むだけの印が付き、書く入口は断るが、C++ の生のポインタ(const_cast など)からの書き込みは止められない。
         // そこで読み込んだときの値を控えておき、ここで比べる。変わっていたら、ファイル・型・プロパティの名前つきでエラーを出し、
