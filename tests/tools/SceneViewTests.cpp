@@ -166,4 +166,21 @@ TEST_CASE("RS-4: ギズモの線は画面で一定の大きさ(ズームする�
     CHECK(quads[1].color.g != normalAlpha); // 色が変わった(光った)
     CHECK(quads[3].color.g == doctest::Approx(0.85f)); // y の軸はふつうの緑のまま
 }
+
+TEST_CASE("スナップ: snap を渡すと、動かした軸だけを snap の倍数(グリッドの線の上)に丸める")
+{
+    using husky::tools::ApplyGizmoDrag;
+    using husky::tools::GizmoHandle;
+    const husky::core::Vector3 from{2019.9998f, 1083.0f, 3.0f};
+    // x の矢印: x は 10 の倍数へ。y は動かしていないので、半端な値のまま
+    const husky::core::Vector3 x = ApplyGizmoDrag(GizmoHandle::X, from, 4.0f, 9.0f, 10.0f);
+    CHECK(x.x == 2020.0f);
+    CHECK(x.y == 1083.0f);
+    // 真ん中: 両方を丸める(23 → 20、27 → 30。負の側も同じ)
+    const husky::core::Vector3 both = ApplyGizmoDrag(GizmoHandle::Center, husky::core::Vector3{0.0f, 0.0f, 0.0f}, 23.0f, -27.0f, 10.0f);
+    CHECK(both.x == 20.0f);
+    CHECK(both.y == -30.0f);
+    // snap が 0 なら丸めない(Ctrl を押していないとき)
+    CHECK(ApplyGizmoDrag(GizmoHandle::X, from, 4.0f, 0.0f, 0.0f).x == doctest::Approx(2023.9998f));
+}
 #endif

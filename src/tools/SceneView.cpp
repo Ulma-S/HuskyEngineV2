@@ -166,7 +166,11 @@ namespace husky::tools
                 // 動かしている間は、値をその場で書き換えて見せる(まだ履歴には積まない)。
                 // つかんでからマウスが動いた量を、つかんだ部品の軸だけに足す(X なら x だけ、真ん中なら両方)
                 const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
-                actor->transform.position = ApplyGizmoDrag(m_dragHandle, m_dragFrom, world.x - m_dragStartX, world.y - m_dragStartY);
+                // Ctrl を押している間だけ、見えているグリッドの線の上に吸い付かせる(スナップ。Unity と同じキー)。
+                // 間隔はグリッドと同じ(ChooseGridSpacing。寄ると細かく、引くと粗い)
+                const float snap = io.KeyCtrl ? ChooseGridSpacing(m_view.zoom) : 0.0f;
+                actor->transform.position =
+                    ApplyGizmoDrag(m_dragHandle, m_dragFrom, world.x - m_dragStartX, world.y - m_dragStartY, snap);
                 m_hovered = m_dragHandle; // つかんでいる部品は光らせたまま
             }
             else

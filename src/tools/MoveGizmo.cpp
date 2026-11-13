@@ -5,7 +5,7 @@
 
 #include "engine/TransformMatrix.h"
 
-#include <cmath> // std::fabs
+#include <cmath> // std::fabs、std::round
 
 namespace husky::tools
 {
@@ -15,6 +15,13 @@ namespace husky::tools
         constexpr render::Color YColor = {0.35f, 0.85f, 0.35f, 1.0f};      // y は緑
         constexpr render::Color CenterColor = {1.0f, 0.85f, 0.30f, 0.45f}; // 真ん中は薄い黄色
         constexpr render::Color HighlightColor = {1.0f, 0.95f, 0.30f, 1.0f}; // 乗せている・つかんでいる部品
+
+        // value を step の倍数のうち、いちばん近いものに丸める(step が 0 以下なら、そのまま)。
+        // 例: step 10 なら 23 → 20、27 → 30、-14 → -10。
+        float SnapTo(float value, float step)
+        {
+            return step > 0.0f ? std::round(value / step) * step : value;
+        }
 
         // 真ん中が (x, y)、大きさ width x height、rotation 度回した白い板を1枚足す。
         // 行列は、アクターと同じ道具(MakeModelMatrix: 移動 × 回転 × 拡大縮小)で作る。
@@ -55,16 +62,16 @@ namespace husky::tools
         return GizmoHandle::None;
     }
 
-    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY)
+    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap)
     {
         core::Vector3 to = from;
         if (handle == GizmoHandle::X || handle == GizmoHandle::Center)
         {
-            to.x += deltaX;
+            to.x = SnapTo(to.x + deltaX, snap);
         }
         if (handle == GizmoHandle::Y || handle == GizmoHandle::Center)
         {
-            to.y += deltaY;
+            to.y = SnapTo(to.y + deltaY, snap);
         }
         return to;
     }

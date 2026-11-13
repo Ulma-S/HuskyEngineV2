@@ -44,7 +44,8 @@ namespace husky::tools
 
     // つかんだ部品に合わせて、動いた先の位置を返す。from はつかむ前の位置、(deltaX, deltaY) はつかんでからマウスが動いた量
     // (ワールドの単位)。X なら x だけ、Y なら y だけ、Center なら両方に足す。z はそのまま。
-    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY);
+    // snap が 0 より大きければ、動かした軸の値を snap の倍数(グリッドの線の上)に丸める(スナップ。動かしていない軸はそのまま)。
+    core::Vector3 ApplyGizmoDrag(GizmoHandle handle, const core::Vector3& from, float deltaX, float deltaY, float snap = 0.0f);
 
     // ワールドの origin にあるギズモの線を、out に作り直す(入れ物は使い回す)。大きさはカメラの zoom から、画面で一定にする。
     // highlighted の部品は明るい黄色にする(マウスを乗せている・つかんでいる部品)。
