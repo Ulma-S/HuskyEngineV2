@@ -161,7 +161,7 @@ int main()
     app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     app.SetDevUiCallback([&commands, &debugWindow, &inspector, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
-        sceneView.Update(application, playMode, inspector);
+        sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く
         debugWindow.Draw(application, &commands, &playMode);
         inspector.Draw(application, &commands); // 値の書き換えは property.set を通す(Undo できる)
     });

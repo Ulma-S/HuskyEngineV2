@@ -6,6 +6,7 @@
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
 #include "engine/SpriteComponent.h"
+#include "tools/EditorCommands.h"
 #include "tools/EditorPlayMode.h"
 #include "tools/Inspector.h"
 #include "tools/SceneGrid.h"
@@ -39,12 +40,36 @@ namespace husky::tools
         return result;
     }
 
-    void SceneView::Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector)
+    bool CommitActorMove(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
+                         const core::Vector3& from)
+    {
+        // インスペクタの書き換え(PropertyEditRecorder)と同じ形: いったん前の値に戻してから、コマンドで新しい値を書く。
+        // こうすると property.set が「前の値」を正しく控え、Undo でつかむ前の位置に戻れる。
+        const core::Vector3 to = actor.transform.position;
+        actor.transform.position = from;
+        engine::ArchiveValue position = engine::ArchiveValue::MakeObject();
+        position.Set("x", engine::ArchiveValue(static_cast<double>(to.x)));
+        position.Set("y", engine::ArchiveValue(static_cast<double>(to.y)));
+        engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+        args.Set("actor", engine::ArchiveValue(actor.guid.ToString()));
+        args.Set("property", engine::ArchiveValue("transform.position"));
+        args.Set("value", std::move(position));
+        if (!commands.Execute("property.set", app, args).succeeded)
+        {
+            actor.transform.position = to; // コマンドが使えない・失敗した: 動かした所のまま(履歴には残らない)
+            return false;
+        }
+        return true;
+    }
+
+    void SceneView::Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector,
+                           EditorCommandRegistry* commands)
     {
         if (playMode.GetState() != EditorPlayMode::State::Edit)
         {
             app.ClearCameraOverride(); // 再生中はゲームのカメラで映す
             m_gridSprites.clear();     // グリッドも描かない
+            m_dragging = core::ObjectHandle();
             return;
         }
 
@@ -57,6 +82,12 @@ namespace husky::tools
             m_view = engine::FindSceneCameraView(app.GetScene(), screenWidth, screenHeight);
             m_initialized = true;
         }
+
+        // マウスの下に映っているワールドの位置(このフレームのエディタのカメラで。パンやズームをした後の値を使う)
+        auto MouseWorld = [this](const ImGuiIO& mouse, float width, float height) {
+            const engine::CameraMatrices camera = engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, width, height);
+            return engine::ScreenToWorld(camera, mouse.MousePos.x, mouse.MousePos.y, width, height);
+        };
 
         // マウスが ImGui の窓の上なら、窓の操作を優先する(シーンビューは何もしない)
         if (!io.WantCaptureMouse)
@@ -73,14 +104,46 @@ namespace husky::tools
             {
                 m_view = ZoomAt(m_view, io.MouseWheel, io.MousePos.x, io.MousePos.y, screenWidth, screenHeight);
             }
-            // 選ぶ: 左クリックした所の、いちばん手前のスプライトのアクター(無ければ選択を外す)
+            // 選ぶ・つかむ: 左ボタンを押した所の、いちばん手前のスプライトのアクターを選び、そのままドラッグで動かせるようにする
+            // (無い所なら選択を外す)。つかんだ点とアクターの位置のずれを覚えておくと、動かしても飛ばない。
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
-                const engine::CameraMatrices camera =
-                    engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, screenWidth, screenHeight);
-                const core::Vector3 world = engine::ScreenToWorld(camera, io.MousePos.x, io.MousePos.y, screenWidth, screenHeight);
+                const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
                 engine::Actor* actor = engine::FindSpriteActorAt(app.GetScene(), world.x, world.y);
                 inspector.Select(actor != nullptr ? actor->GetHandle() : core::ObjectHandle());
+                m_dragging = actor != nullptr ? actor->GetHandle() : core::ObjectHandle();
+                if (actor != nullptr)
+                {
+                    m_dragFrom = actor->transform.position;
+                    m_dragOffsetX = actor->transform.position.x - world.x;
+                    m_dragOffsetY = actor->transform.position.y - world.y;
+                }
+            }
+        }
+
+        // ドラッグ中(窓の上へ出ても続ける。押し始めがシーンビューなら、ImGui は窓の操作にしない)
+        if (!m_dragging.IsNull())
+        {
+            engine::Actor* actor = app.GetRegistry().Resolve<engine::Actor>(m_dragging);
+            if (actor == nullptr || actor->IsPendingDestroy())
+            {
+                m_dragging = core::ObjectHandle(); // 動かしている間に消えた
+            }
+            else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                // 動かしている間は、値をその場で書き換えて見せる(まだ履歴には積まない)
+                const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
+                actor->transform.position.x = world.x + m_dragOffsetX;
+                actor->transform.position.y = world.y + m_dragOffsetY;
+            }
+            else
+            {
+                // 離した: 動いていれば、ドラッグ全体を1回の property.set にする(Ctrl+Z 1回で、つかむ前の位置へ戻る)
+                if (actor->transform.position != m_dragFrom && commands != nullptr)
+                {
+                    CommitActorMove(app, *commands, *actor, m_dragFrom);
+                }
+                m_dragging = core::ObjectHandle();
             }
         }
         app.SetCameraOverride(m_view);

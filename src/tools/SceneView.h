@@ -2,6 +2,7 @@
 //   - 右ドラッグか中ドラッグ: 画面を動かす(パン)
 //   - ホイール: マウスの下の点を中心に、寄る・引く(ズーム)
 //   - 左クリック: マウスの下のアクター(いちばん手前のスプライト)を選ぶ。何も無い所なら選択を外す
+//   - 左ドラッグ: 選んだアクターを動かす。離したときに property.set を1回だけ通すので、Ctrl+Z 1回で元の位置へ戻る(RS-3)
 //   - グリッド(方眼)をシーンより奥に描く(tools/SceneGrid.h)
 // マウスが ImGui の窓の上にあるときは、窓の操作を優先して何もしない(io.WantCaptureMouse)。
 // 再生中(Play / Pause)は、ゲームのカメラに戻す(エディタのカメラの位置は覚えておき、Stop で戻ると続きから)。
@@ -15,6 +16,8 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "core/Object.h"  // core::ObjectHandle
+#include "core/Vector3.h"
 #include "engine/Camera.h"
 #include "render/RenderDevice.h"
 
@@ -23,19 +26,23 @@
 namespace husky::engine
 {
     class Application;
+    class Actor;
 }
 
 namespace husky::tools
 {
     class EditorPlayMode;
     class SceneInspector;
+    class EditorCommandRegistry;
 
     class SceneView
     {
     public:
         // 毎フレーム、開発用の UI の関数(Application::SetDevUiCallback)の中で呼ぶ。
         // 選んだアクターは inspector に渡す(インスペクタに出る)。
-        void Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector);
+        // commands があれば、ドラッグで動かした位置を property.set で書く(Undo できる)。無ければ動かすだけ。
+        void Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector,
+                    EditorCommandRegistry* commands = nullptr);
 
         // グリッド(方眼。tools/SceneGrid.h)を描く。シーンより奥に描くので、Application::SetBeforeSceneDrawCallback から呼ぶ。
         // 線は Update で、そのときのエディタのカメラに合わせて作ってある(編集中だけ。再生中は何も描かない)。
@@ -48,7 +55,18 @@ namespace husky::tools
         engine::CameraView m_view;  // エディタのカメラ
         bool m_initialized = false; // 最初の1回だけ、ゲームのカメラと同じ見え方から始める
         std::vector<render::Sprite> m_gridSprites; // グリッドの線(使い回す入れ物。毎フレーム作り直すが、確保は最初だけ)
+        core::ObjectHandle m_dragging;   // 左ドラッグで動かしているアクター(弱い参照。動かしていなければ null)
+        core::Vector3 m_dragFrom;        // つかむ前の位置(離したときに Undo のための「前の値」にする)
+        float m_dragOffsetX = 0.0f;      // つかんだ点からアクターの位置までのずれ(つかんだ所がマウスについてくる)
+        float m_dragOffsetY = 0.0f;
     };
+
+    // ドラッグで動かしたアクターの位置を、property.set で書く(RS-3)。actor は今「動かした後の位置」にいる。
+    // いったん from(つかむ前の位置)に戻してから property.set を呼ぶので、Undo で from に戻る。
+    // コマンドが使えなければ(再生中など)動かした所のまま false を返す。ImGui を使わないので、テストできる。
+    // 動作スレッド: ゲームスレッドのみ
+    bool CommitActorMove(engine::Application& app, EditorCommandRegistry& commands, engine::Actor& actor,
+                         const core::Vector3& from);
 
     // ホイールのズーム(RS-2)。マウスの下の点(画面の (screenX, screenY))が、ズームの前後で同じワールドの位置に映るように、
     // 真ん中をずらしながら zoom を steps 段(1 段 = 1.1 倍。負なら縮小)変える。zoom は 0.05〜20 に収める。

@@ -1,6 +1,9 @@
 // シーンビュー(tools/SceneView.h)のテスト。ImGui を使わない部分(ZoomAt)だけを確かめる。
 #include "tools/SceneView.h"
 #include "tools/SceneGrid.h"
+#include "tools/EditorCommands.h"
+#include "engine/Actor.h"
+#include "engine/Application.h"
 
 #if HUSKY_DEVELOPMENT
 
@@ -75,5 +78,38 @@ TEST_CASE("グリッド: 見えている範囲の線を作り、原点を通る�
     }
     CHECK(foundMajor);
     CHECK(lines.size() == 65 + 37); // 縦: x が -270〜370 の 65 本、横: y が -180〜180 の 37 本
+}
+
+TEST_CASE("RS-3: CommitActorMove はドラッグで動かした位置を property.set で書き、Undo でつかむ前の位置へ戻る")
+{
+    husky::engine::Application app;
+    husky::tools::EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    actor->transform.position = {10.0f, 20.0f, 5.0f};
+
+    // ドラッグ中はその場で書き換わっている(履歴にはまだ無い)
+    const husky::core::Vector3 from = actor->transform.position;
+    actor->transform.position.x = 50.0f;
+    actor->transform.position.y = 60.0f;
+    REQUIRE(husky::tools::CommitActorMove(app, commands, *actor, from));
+    CHECK(actor->transform.position.x == 50.0f);
+    CHECK(actor->transform.position.y == 60.0f);
+    CHECK(actor->transform.position.z == 5.0f); // z は変えない
+
+    REQUIRE(commands.Execute("editor.undo", app).succeeded); // 1回でつかむ前の位置へ
+    CHECK(actor->transform.position.x == 10.0f);
+    CHECK(actor->transform.position.y == 20.0f);
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(actor->transform.position.x == 50.0f);
+    CHECK(actor->transform.position.y == 60.0f);
+
+    // property.set が無い(使えない)ときは、動かした所のまま false
+    husky::tools::EditorCommandRegistry none;
+    actor->transform.position.x = 70.0f;
+    CHECK_FALSE(husky::tools::CommitActorMove(app, none, *actor, from));
+    CHECK(actor->transform.position.x == 70.0f);
 }
 #endif
