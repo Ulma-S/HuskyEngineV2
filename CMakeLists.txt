@@ -212,6 +212,7 @@ endfunction()
 add_library(husky_core STATIC
     src/core/FreeListAllocator.cpp
     src/core/Guid.cpp
+    src/core/JsonLinesLogSink.cpp
     src/core/Log.cpp
     src/core/Profiler.cpp
     src/core/JobSystem.cpp
@@ -233,6 +234,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 add_library(husky_platform STATIC
     src/platform/FileSystem.cpp
     src/platform/Image.cpp
+    src/platform/LogFileWriter.cpp
     src/platform/MemoryHooks.cpp
     src/platform/Platform.cpp
     src/platform/Window.cpp
@@ -390,6 +392,7 @@ add_library(husky_tools STATIC
     src/tools/AssetBrowser.cpp
     src/tools/DebugWindow.cpp
     src/tools/EditorCli.cpp
+    src/tools/LogCatalog.cpp
     src/tools/EditorCommands.cpp
     src/tools/EditorPlayMode.cpp
     src/tools/Inspector.cpp
@@ -490,12 +493,14 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/EditorCommandsTests.cpp
         tests/tools/DataCommandsTests.cpp
         tests/tools/AssetBrowserTests.cpp
+        tests/tools/LogCatalogTests.cpp
         tests/tools/ArrayEditTests.cpp
         tests/tools/ReferenceEditTests.cpp
         tests/tools/EditorPlayModeTests.cpp
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/core/GuidTests.cpp
+        tests/core/JsonLinesLogSinkTests.cpp
         tests/core/LogTests.cpp
         tests/core/ProfilerTests.cpp
         tests/core/JobSystemTests.cpp

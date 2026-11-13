@@ -253,6 +253,15 @@ namespace husky::tools
     // (人に直してもらう必要があるため。ファイルの名前はログに出ている)。
     EditorCommand MakeRefreshAssetsCommand(std::string assetsDirectory);
 
+    // "log.catalog": ログのカタログ(登録した全部のチャンネルとメッセージの定義の一覧)を JSON のファイルに書く(LOG-3)。
+    // 将来のビュワーは、ログのファイル(番号と値)をこれで文にする。引数 path(省略すると exe の隣の logs/catalog.json)。
+    // 載るのは、この exe に入っているチャンネルだけ。ファイルを書くだけで、シーンもアセットも変えない(Undo なし)。
+    // 中身は tools/LogCatalog.cpp。
+    EditorCommand MakeLogCatalogCommand();
+
+    // カタログの値の木を作る(コマンドとテストが使う)。
+    engine::ArchiveValue BuildLogCatalog();
+
     // 「アクターを置く」コマンド(actor.spawn)を作る。引数は prefab か type のどちらか一方と、x、y(位置。省略すると 0):
     //   - prefab(GUID か assets の中のパス): プレハブのとおりにアクター、コンポーネント、値を作り、元のプレハブを覚えさせる
     //     (Actor::prefab)。読み込み中なら、読み終わるまで待つ。

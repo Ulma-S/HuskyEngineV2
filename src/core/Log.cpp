@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -78,6 +79,7 @@ namespace husky::core
             char* buffer;
             std::size_t size;
             std::size_t length = 0;
+            bool overflowed = false; // 入りきらずに捨てた分があるか
 
             void Append(const char* text, std::size_t count)
             {
@@ -85,6 +87,7 @@ namespace husky::core
                     return;
                 const std::size_t room = size - 1 - length;
                 const std::size_t n = std::min(count, room);
+                overflowed = overflowed || count > room;
                 std::memcpy(buffer + length, text, n);
                 length += n;
                 buffer[length] = '\0';
@@ -600,6 +603,161 @@ namespace husky::core
         return out.length;
     }
 
+    namespace
+    {
+        // JSON の文字列として書く(前後の " と、" \ 制御文字の書き換え)。日本語などの UTF-8 はそのまま書く。
+        void AppendJsonString(TextWriter& out, const char* text)
+        {
+            out.Append("\"");
+            for (const char* p = text; *p != '\0'; ++p)
+            {
+                const unsigned char c = static_cast<unsigned char>(*p);
+                if (c == '"')
+                    out.Append("\\\"");
+                else if (c == '\\')
+                    out.Append("\\\\");
+                else if (c == '\n')
+                    out.Append("\\n");
+                else if (c == '\r')
+                    out.Append("\\r");
+                else if (c == '\t')
+                    out.Append("\\t");
+                else if (c < 0x20)
+                {
+                    char escaped[8];
+                    std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
+                    out.Append(escaped);
+                }
+                else
+                    out.Append(p, 1);
+            }
+            out.Append("\"");
+        }
+
+        void AppendJsonArg(TextWriter& out, const LogRecord& record, int index)
+        {
+            if (record.args[index].type == LogArgType::String)
+                AppendJsonString(out, record.GetString(index));
+            else if (record.args[index].type == LogArgType::None ||
+                     (record.args[index].type == LogArgType::Float && !std::isfinite(record.args[index].floatValue)))
+                out.Append("null"); // JSON には NaN や無限大が無い
+            else
+                AppendArg(out, record, index); // 数と true / false は、そのまま JSON の値になる
+        }
+    }
+
+    std::size_t Log::FormatRecordJson(const LogRecord& record, char* buffer, std::size_t size)
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        std::size_t length = 0;
+        // 入りきらなければ、文を省いてもう一度。それでも入らなければ、値も省いた短い形にする(壊れた JSON は書かない)。
+        if (FormatJsonLocked(record, buffer, size, true, length) || FormatJsonLocked(record, buffer, size, false, length))
+            return length;
+        TextWriter out{buffer, size};
+        char head[160];
+        std::snprintf(head, sizeof(head), "{\"time\":%.6f,\"level\":\"%s\",\"id\":%u,\"truncated\":true}",
+                      record.timeSeconds, ToString(record.level), static_cast<unsigned>(record.id));
+        out.Append(head);
+        return out.length;
+    }
+
+    bool Log::FormatJsonLocked(const LogRecord& record, char* buffer, std::size_t size, bool withText,
+                               std::size_t& length) const
+    {
+        TextWriter out{buffer, size};
+        if (size > 0)
+            buffer[0] = '\0';
+
+        char head[160];
+        std::snprintf(head, sizeof(head), "{\"time\":%.6f,\"frame\":%llu,\"thread\":%u,\"level\":\"%s\",\"channel\":",
+                      record.timeSeconds, static_cast<unsigned long long>(record.frame),
+                      static_cast<unsigned>(record.thread), ToString(record.level));
+        out.Append(head);
+        const ChannelInfo* channel = record.channel < m_channels.size() ? &m_channels[record.channel] : nullptr;
+        AppendJsonString(out, channel != nullptr ? channel->name.c_str() : "?");
+        char id[32];
+        std::snprintf(id, sizeof(id), ",\"id\":%u", static_cast<unsigned>(record.id));
+        out.Append(id);
+
+        if (record.id != LogTextId)
+        {
+            const MessageInfo* message = nullptr;
+            if (channel != nullptr && record.id < channel->messages.size() && channel->messages[record.id].registered)
+                message = &channel->messages[record.id];
+            if (message != nullptr)
+            {
+                // 値は名前つき("args":{"path":"a.png"})。ビュワーが名前で絞り込めるように。
+                out.Append(",\"message\":");
+                AppendJsonString(out, message->name.c_str());
+                out.Append(",\"args\":{");
+                for (int i = 0; i < record.argCount && i < static_cast<int>(message->args.size()); ++i)
+                {
+                    if (i > 0)
+                        out.Append(",");
+                    AppendJsonString(out, message->args[i].name.c_str());
+                    out.Append(":");
+                    AppendJsonArg(out, record, i);
+                }
+                out.Append("}");
+            }
+            else
+            {
+                // 定義が無い: 値を並びのまま書く。
+                out.Append(",\"args\":[");
+                for (int i = 0; i < record.argCount; ++i)
+                {
+                    if (i > 0)
+                        out.Append(",");
+                    AppendJsonArg(out, record, i);
+                }
+                out.Append("]");
+            }
+        }
+
+        if (withText || record.id == LogTextId)
+        {
+            char text[1024];
+            const std::size_t textLength = FormatLocked(record, text, sizeof(text));
+            // FormatLocked は "[レベル][チャンネル] " を前に付けるので、その後ろだけを書く(最初の "] " はチャンネルの後ろ)。
+            const char* body = std::strstr(text, "] ");
+            out.Append(",\"text\":");
+            AppendJsonString(out, body != nullptr ? body + 2 : (textLength > 0 ? text : ""));
+        }
+        out.Append("}");
+        length = out.length;
+        return !out.overflowed;
+    }
+
+    int Log::GetChannelCount()
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        return static_cast<int>(m_channels.size());
+    }
+
+    std::vector<Log::MessageSnapshot> Log::GetMessages(int channel)
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        std::vector<MessageSnapshot> result;
+        if (channel < 0 || channel >= static_cast<int>(m_channels.size()))
+            return result;
+        const ChannelInfo& info = m_channels[channel];
+        for (std::size_t id = 0; id < info.messages.size(); ++id)
+        {
+            const MessageInfo& message = info.messages[id];
+            if (!message.registered)
+                continue;
+            MessageSnapshot snapshot;
+            snapshot.id = static_cast<std::uint16_t>(id);
+            snapshot.name = message.name;
+            snapshot.level = message.level;
+            snapshot.format = message.format;
+            for (const ArgInfo& arg : message.args)
+                snapshot.args.push_back({arg.name, arg.type});
+            result.push_back(std::move(snapshot));
+        }
+        return result;
+    }
+
     int RegisterLogChannelTable(const char* channelName, const LogMessageDef* messages, std::size_t count)
     {
         Log& log = Log::Get();
@@ -617,8 +775,9 @@ namespace husky::core
             return;
         char line[1024];
         Log::Get().FormatRecord(record, line, sizeof(line));
-        std::printf("%s\n", line);
-        std::fflush(stdout); // 溜めずにすぐ書き出す(ファイルへ流しているときも、落ちる直前のログが残るように)
+        std::FILE* out = m_stream == Stream::StandardError ? stderr : stdout;
+        std::fprintf(out, "%s\n", line);
+        std::fflush(out); // 溜めずにすぐ書き出す(ファイルへ流しているときも、落ちる直前のログが残るように)
     }
 
     void WriteLogTextFormat(int channel, LogLevel level, const char* format, ...)

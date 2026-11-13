@@ -10,7 +10,9 @@
 #include "game/Game.h"
 #include "game/GameLog.h"
 #include "platform/FileSystem.h"
+#include "core/JsonLinesLogSink.h"
 #include "core/Log.h"
+#include "platform/LogFileWriter.h"
 #include "platform/MemoryHooks.h"
 #include "render/RenderDevice.h"
 
@@ -47,6 +49,18 @@ int main()
     husky::core::ConsoleLogSink consoleLog;
     husky::core::ScopedLogSink attachConsoleLog(consoleLog);
 
+    // ログを exe の隣の logs/husky.log にも書く(JSON Lines。起動のたびに上書き。Verbose まで全部)。
+    // 書くのは受け手の書き出しのスレッド。main を抜けるときに、外れる → 残りを書く → ファイルを閉じる、の順になる
+    // (C++ のローカル変数は、作った順の逆に壊れる)。
+    const std::string logDirectory = platform::GetExecutableDirectory() + "logs";
+    platform::MakeDirectory(logDirectory.c_str());
+    platform::LogFileWriter logFile;
+    const bool logFileOpened = logFile.Open((logDirectory + "/husky.log").c_str());
+    husky::core::JsonLinesLogSink fileLog(logFile);
+    husky::core::ScopedLogSink attachFileLog(fileLog);
+    if (!logFileOpened)
+        HUSKY_LOG_TEXT(Warning, "Game", "ログのファイルを開けませんでした(%s/husky.log)", logDirectory.c_str());
+
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
     // ジョブシステムのワーカーは「コア数 - 1」本(1 本はゲームスレッドの分)。テクスチャの読み込みなどに使う。
     engine::Application app(husky::core::ObjectRegistry::DefaultCapacityBytes, husky::core::JobSystem::RecommendedWorkerCount());
@@ -78,6 +92,7 @@ int main()
     playMode.RegisterCommands(commands);
     // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
+    commands.Register(tools::MakeLogCatalogCommand());
     // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
     // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。
     // 再生中は保存できないようにする(動いた後の位置などを、うっかり編集の結果として保存しないように)。

@@ -19,8 +19,10 @@ int main(int argc, char** argv)
     husky::platform::InstallMemoryHooks();
     // ログの日本語を、コンソールで文字化けさせない。
     husky::platform::EnableUtf8ConsoleOutput();
-    // ログを画面に出す(main を抜けるときに外れる。core/Log.h)。
-    husky::core::ConsoleLogSink consoleLog;
+    // ログを画面に出す(main を抜けるときに外れる。core/Log.h)。標準エラーに出し、標準出力はコマンドの結果だけにする
+    // (ほかのプログラムが結果を読むとき、ログが混ざらないように)。
+    husky::core::ConsoleLogSink consoleLog(husky::core::LogLevel::Info,
+                                           husky::core::ConsoleLogSink::Stream::StandardError);
     husky::core::ScopedLogSink attachConsoleLog(consoleLog);
     husky::platform::ForwardSdlLogToEngine(); // SDL 自身のログもエンジンのログへ
 
@@ -37,7 +39,14 @@ int main(int argc, char** argv)
     const int exitCode = husky::tools::RunEditorCli(
         args, std::string(HUSKY_SOURCE_DIR) + "assets", out,
         [](husky::engine::Application& app) { husky::game::RegisterGameTypes(app.GetTypeRegistry()); });
-    std::fputs(out.c_str(), stdout);
+    // 人向けの結果は標準出力へ。ただし --json-out - (結果の JSON を標準出力へ)のときは、JSON だけが標準出力に
+    // 来るように、人向けの結果は標準エラーへ回す。
+    bool jsonToStandardOutput = false;
+    for (std::size_t i = 0; i + 1 < args.size(); ++i)
+    {
+        jsonToStandardOutput = jsonToStandardOutput || (args[i] == "--json-out" && args[i + 1] == "-");
+    }
+    std::fputs(out.c_str(), jsonToStandardOutput ? stderr : stdout);
     return exitCode;
 #else
     (void)argc;

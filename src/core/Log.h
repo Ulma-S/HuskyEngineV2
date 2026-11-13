@@ -183,6 +183,30 @@ namespace husky::core
         // 受け手の Receive の中(mutex を持っている)からも、外からも呼べる。
         std::size_t FormatRecord(const LogRecord& record, char* buffer, std::size_t size);
 
+        // 記録を JSON の1行にする(ファイルの受け手が使う。終わりの改行は付けない)。確保しない。入れ物が足りなければ
+        // 壊れた JSON を書かずに、文や値を省いた短い形にする。
+        //   {"time":1.25,"frame":12,"thread":1,"level":"Warning","channel":"Engine.Asset","id":3,"message":"MetaMissing",
+        //    "args":{"path":"a.png"},"text":".meta がありません(a.png)"}
+        // "text" は、ビュワーができるまで読みやすくするための文(後で外せる)。ID の無いログは "id":0 と "text" だけ。
+        std::size_t FormatRecordJson(const LogRecord& record, char* buffer, std::size_t size);
+
+        // カタログ(全部の定義の一覧)用に、登録したものを写して返す(エディタのコマンドが使う。確保する)。
+        struct ArgSnapshot
+        {
+            std::string name;
+            LogArgType type = LogArgType::None;
+        };
+        struct MessageSnapshot
+        {
+            std::uint16_t id = 0;
+            std::string name;
+            LogLevel level = LogLevel::Info;
+            std::string format;
+            std::vector<ArgSnapshot> args;
+        };
+        int GetChannelCount();
+        std::vector<MessageSnapshot> GetMessages(int channel); // 番号の小さい順
+
         // 定義を引く(無ければ nullptr)。返したポインタは、次の登録まで有効。
         const char* GetChannelName(int channel);
         int FindChannel(const char* name); // 無ければ -1
@@ -219,6 +243,8 @@ namespace husky::core
 
         void Deliver(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount); // mutex を持って呼ぶ
         std::size_t FormatLocked(const LogRecord& record, char* buffer, std::size_t size) const;
+        bool FormatJsonLocked(const LogRecord& record, char* buffer, std::size_t size, bool withText,
+                              std::size_t& length) const;
         int FindChannelLocked(const char* name, std::size_t length) const;
 
         std::recursive_mutex m_mutex; // FormatRecord を受け手の中からも呼べるように、同じスレッドなら二重に取れる mutex
@@ -253,13 +279,22 @@ namespace husky::core
         LogLevel m_default;
     };
 
-    // 画面(標準出力)に1行ずつ出す受け手。既定は Info 以上(Verbose は毎秒の処理時間など、量が多いもの)。
+    // 画面に1行ずつ出す受け手。既定は Info 以上(Verbose は毎秒の処理時間など、量が多いもの)。
     // チャンネルごとのレベルは GetFilter で決める。
+    // 出す先は標準出力か標準エラー。エディタの CLI は標準エラーに出す(標準出力はコマンドの結果だけにして、
+    // ほかのプログラムが結果を読めるように)。
     class ConsoleLogSink : public LogSink
     {
     public:
-        explicit ConsoleLogSink(LogLevel minimum = LogLevel::Info)
+        enum class Stream
+        {
+            StandardOutput,
+            StandardError,
+        };
+
+        explicit ConsoleLogSink(LogLevel minimum = LogLevel::Info, Stream stream = Stream::StandardOutput)
             : m_filter(minimum)
+            , m_stream(stream)
         {
         }
         void Receive(const LogRecord& record) override;
@@ -267,6 +302,7 @@ namespace husky::core
 
     private:
         LogChannelFilter m_filter;
+        Stream m_stream;
     };
 
     // HUSKY_LOG_TEXT の中身(printf の形で文を作り、WriteText に渡す。文は MaxLogTextBytes - 1 バイトまで)。

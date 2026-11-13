@@ -9,6 +9,7 @@
 #include "platform/FileSystem.h"
 #include "tools/EditorCommands.h"
 
+#include <cstdio>  // std::fputs
 #include <utility> // std::move
 
 namespace husky::tools
@@ -27,7 +28,7 @@ namespace husky::tools
             "  --assets <folder>      The assets folder (default: the source assets folder)\n"
             "  --scene <file>         The scene file for commands that change the scene: it is loaded first\n"
             "                         (or started empty if it does not exist) and saved if the command succeeds\n"
-            "  --json-out <file>      Also write the result as JSON to <file> (for CI and AI)\n"
+            "  --json-out <file>      Also write the result as JSON to <file> (for CI and AI); - writes it to stdout\n"
             "\n"
             "Exit code: 0 = success, 1 = the command failed, 2 = usage error\n";
 
@@ -98,6 +99,7 @@ namespace husky::tools
         void RegisterCliCommands(EditorCommandRegistry& commands, const std::string& assetsDirectory)
         {
             commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
+            commands.Register(MakeLogCatalogCommand());
             commands.Register(MakeSpawnActorCommand());
             commands.Register(MakeDestroyActorCommand());
             commands.Register(MakeAddComponentCommand());
@@ -119,6 +121,13 @@ namespace husky::tools
         bool WriteJsonFile(const engine::ArchiveValue& value, const std::string& path, std::string& out)
         {
             std::string text;
+            if (path == "-" && engine::JsonFormat::Write(value, text, true))
+            {
+                // "-" は標準出力(ほかのプログラムがパイプで読む用。ログは標準エラーに出ているので混ざらない)。
+                std::fputs(text.c_str(), stdout);
+                std::fputs("\n", stdout);
+                return true;
+            }
             if (!engine::JsonFormat::Write(value, text, true) || !platform::WriteTextFile(path.c_str(), text))
             {
                 out += "Could not write the JSON result: " + path + "\n";
