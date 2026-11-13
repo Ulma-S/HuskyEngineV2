@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
 #include <utility>
 
 namespace husky::engine::Prefab
@@ -86,16 +87,50 @@ namespace husky::engine::Prefab
             return nullptr;
         }
 
+        // 型の既定の値("properties" の値の木)。型から1つ作って書き出し、すぐに捨てる。型ごとに1回だけ作って控える
+        // (既定の値は実行中に変わらないため)。作れない(登録簿に無い・メモリが足りない)なら nullptr。
+        // プレハブのファイルに無い値は、置いたときに型の既定の値になるので、それと比べるのに使う。
+        const ArchiveValue* FindDefaultProperties(const core::TypeInfo& type, const core::TypeRegistry& types,
+                                                  core::ObjectRegistry& registry)
+        {
+            // static: 最初に呼んだときに1回だけ作られ、プログラムの終わりまで残る(ゲームスレッドだけで使う)。
+            static std::unordered_map<const core::TypeInfo*, ArchiveValue> cache;
+            const auto found = cache.find(&type);
+            if (found != cache.end())
+            {
+                return found->second.Find("properties");
+            }
+            core::Object* temporary = types.Create(type.GetName(), registry);
+            if (temporary == nullptr)
+            {
+                return nullptr;
+            }
+            ArchiveValue value = ObjectSerializer::Write(*temporary);
+            temporary->Destroy(); // フレームの終わりに破棄される(シーンにもどこにも入れていない)
+            return cache.emplace(&type, std::move(value)).first->second.Find("properties");
+        }
+
         // 1つのオブジェクトの値(instance)を、プレハブの値(base)と比べ、違う値を out に足す。
-        // 構造体は中まで比べ、道筋を点でつなぐ。ハンドルと guid は比べない。プレハブに無い名前も飛ばす。
-        void CompareMembers(const ArchiveValue& instance, const ArchiveValue& base, const core::TypeInfo& type,
-                            const std::string& component, const std::string& prefix, std::vector<Override>& out)
+        // 構造体は中まで比べ、道筋を点でつなぐ。ハンドルと guid は比べない。
+        // プレハブに無い名前は、defaults(型の既定の値の、同じ段)と比べる(置いたときにその値になるため)。
+        // defaults が無ければ飛ばす。
+        void CompareMembers(const ArchiveValue& instance, const ArchiveValue& base, const ArchiveValue* defaults,
+                            const core::TypeInfo& type, const std::string& component, const std::string& prefix,
+                            std::vector<Override>& out)
         {
             for (std::size_t i = 0; i < instance.GetMemberCount(); ++i)
             {
                 const std::string& name = instance.GetMemberName(i);
                 const ArchiveValue& value = instance.GetMemberValue(i);
+                const ArchiveValue* defaultValue = defaults != nullptr ? defaults->Find(name) : nullptr;
                 const ArchiveValue* baseValue = base.Find(name);
+                if (baseValue == nullptr)
+                {
+                    // プレハブのファイルに無い(コードで後から足したプロパティなど)。ただしアクターの prefab
+                    // (どのプレハブから置いたか)は、プレハブのファイルにわざと書かない値なので比べない(guid と同じ扱い)。
+                    const bool identity = component.empty() && prefix.empty() && name == "prefab";
+                    baseValue = identity ? nullptr : defaultValue;
+                }
                 const core::Property* property = type.FindProperty(name.c_str());
                 if (baseValue == nullptr || property == nullptr || property->GetType() == core::PropertyType::ObjectHandle ||
                     property->GetType() == core::PropertyType::ObjectHandleArray ||
@@ -107,7 +142,9 @@ namespace husky::engine::Prefab
                 if (property->GetType() == core::PropertyType::Struct && value.GetType() == ArchiveValue::Type::Object &&
                     baseValue->GetType() == ArchiveValue::Type::Object)
                 {
-                    CompareMembers(value, *baseValue, *property->GetStructType(), component, path + ".", out);
+                    const ArchiveValue* structDefaults =
+                        defaultValue != nullptr && defaultValue->GetType() == ArchiveValue::Type::Object ? defaultValue : nullptr;
+                    CompareMembers(value, *baseValue, structDefaults, *property->GetStructType(), component, path + ".", out);
                     continue;
                 }
                 if (!value.Equals(*baseValue))
@@ -125,7 +162,7 @@ namespace husky::engine::Prefab
         }
     }
 
-    OverridesResult FindOverrides(const Actor& actor)
+    OverridesResult FindOverrides(const Actor& actor, const core::TypeRegistry* types)
     {
         OverridesResult result;
         const Scene* scene = actor.GetScene();
@@ -236,8 +273,13 @@ namespace husky::engine::Prefab
         }
 
         result.prefab = prefab;
-        CompareMembers(*ObjectSerializer::Write(actor).Find("properties"), *actorProperties, actor.GetType(), std::string(),
-                       std::string(), result.overrides);
+        // 型の既定の値(types を渡されたときだけ。プレハブのファイルに無い値と比べるため)
+        core::ObjectRegistry* writableRegistry = scene->GetObjectRegistry();
+        auto defaultsOf = [&](const core::TypeInfo& type) -> const ArchiveValue* {
+            return types != nullptr ? FindDefaultProperties(type, *types, *writableRegistry) : nullptr;
+        };
+        CompareMembers(*ObjectSerializer::Write(actor).Find("properties"), *actorProperties, defaultsOf(actor.GetType()),
+                       actor.GetType(), std::string(), std::string(), result.overrides);
         for (std::size_t c = 0; c < components.size(); ++c)
         {
             if (pairOf[c] == none)
@@ -259,7 +301,8 @@ namespace husky::engine::Prefab
             }
             const std::size_t first = result.overrides.size();
             CompareMembers(*ObjectSerializer::Write(*components[c]).Find("properties"),
-                           *prefabComponents[pairOf[c]]->Find("properties"), components[c]->GetType(),
+                           *prefabComponents[pairOf[c]]->Find("properties"), defaultsOf(components[c]->GetType()),
+                           components[c]->GetType(),
                            components[c]->GetType().GetName(), std::string(), result.overrides);
             for (std::size_t k = first; k < result.overrides.size(); ++k)
             {

@@ -98,10 +98,13 @@ namespace husky::engine::Prefab
     // プレハブから置いたアクターの、プレハブと違う値を集める(シーンに保存される「違い」と同じ比べ方)。
     // コンポーネントは、保存と同じく ID(Component::prefabComponentId)でプレハブのものと組にし、組になったものだけを比べる
     // (PF-7b)。組にならないものは、addedComponents / removedComponents に並べる。
-    // 比べないもの: ハンドル(シーンとプレハブで指す相手が違う)、guid、プレハブのファイルに無い値。
+    // 比べないもの: ハンドル(シーンとプレハブで指す相手が違う)、guid。
+    // プレハブのファイルに無い値(コードで後から足したプロパティなど)は、置いたときに型の既定の値になるので、
+    // types(型の登録簿)を渡せば、型の既定の値と比べる(prefab.apply で書き戻せるように)。渡さなければ比べない。
+    // 既定の値は、型から1つ作って書き出したもの(型ごとに1回だけ作って控える)。
     // アクターがプレハブから置いたものでない、プレハブが読み込まれていない、ID の無い古いプレハブとコンポーネントの並びが違うときは、
     // error に理由。
-    OverridesResult FindOverrides(const Actor& actor);
+    OverridesResult FindOverrides(const Actor& actor, const core::TypeRegistry* types = nullptr);
 
     // プレハブの値を1つ変える(prefab.apply で、置いたものの違いをプレハブへ書き戻すとき)。
     struct ValueChange

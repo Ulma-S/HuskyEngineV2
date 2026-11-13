@@ -64,7 +64,7 @@ namespace husky::tools
         PropertyEditRecorder m_recorder;
 
         // 選んでいるアクターの、プレハブとの違いを作り直す(印を付けるため。Prefab::FindOverrides)。
-        void RefreshOverrides(const engine::Actor& actor);
+        void RefreshOverrides(const engine::Actor& actor, const core::TypeRegistry& types);
         // プレハブとの違いの(コンポーネントの型の名前、道筋)。アクター自身の値なら、型の名前は空。
         std::vector<std::pair<std::string, std::string>> m_overrides;
         core::ObjectHandle m_overridesFor; // m_overrides を作ったアクター

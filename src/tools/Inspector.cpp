@@ -491,7 +491,7 @@ namespace husky::tools
                 // 違いの一覧は、選び直したときと 30 フレームごとにだけ作り直す(毎フレーム比べると、値の木を毎回作るため)。
                 if (m_selected != m_overridesFor || ++m_overridesAge >= 30)
                 {
-                    RefreshOverrides(*selected);
+                    RefreshOverrides(*selected, app.GetTypeRegistry());
                 }
                 if (!selected->prefab.IsNull())
                 {
@@ -706,10 +706,10 @@ namespace husky::tools
         m_recorder.EndFrame();
     }
 
-    void SceneInspector::RefreshOverrides(const engine::Actor& actor)
+    void SceneInspector::RefreshOverrides(const engine::Actor& actor, const core::TypeRegistry& types)
     {
         m_overrides.clear(); // 入れ物は使い回す(中の文字列は作り直す)
-        const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(actor);
+        const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(actor, &types);
         for (const engine::Prefab::Override& item : found.overrides)
         {
             m_overrides.emplace_back(item.component, item.path);

@@ -1611,7 +1611,7 @@ namespace husky::tools
             std::string ignored;
             const engine::Actor* actor =
                 actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
-            return actor != nullptr ? engine::Prefab::FindOverrides(*actor) : engine::Prefab::OverridesResult{};
+            return actor != nullptr ? engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()) : engine::Prefab::OverridesResult{};
         }
 
         // プレハブから置いたアクターだけを選択肢にする。
@@ -1719,7 +1719,7 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure(error);
             }
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
             if (found.prefab == nullptr)
             {
                 return EditorCommandResult::Failure(DescribeActor(*actor) + ": " + found.error);
@@ -1786,7 +1786,7 @@ namespace husky::tools
             {
                 return choices;
             }
-            for (const engine::Prefab::ComponentChange& removed : engine::Prefab::FindOverrides(*actor).removedComponents)
+            for (const engine::Prefab::ComponentChange& removed : engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()).removedComponents)
             {
                 choices.push_back({removed.componentId.ToString(), removed.type});
             }
@@ -1817,7 +1817,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
             if (found.prefab == nullptr)
             {
                 return EditorCommandResult::Failure(who + ": " + found.error);
@@ -1866,7 +1866,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
             if (found.prefab == nullptr)
             {
                 return EditorCommandResult::Failure(who + ": " + found.error);
@@ -1956,7 +1956,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
             if (found.prefab == nullptr)
             {
                 return EditorCommandResult::Failure(who + ": " + found.error);
@@ -2038,7 +2038,7 @@ namespace husky::tools
             {
                 return choices;
             }
-            for (const engine::Prefab::ComponentChange& added : engine::Prefab::FindOverrides(*actor).addedComponents)
+            for (const engine::Prefab::ComponentChange& added : engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()).addedComponents)
             {
                 choices.push_back({added.type, std::string()});
             }
@@ -2080,7 +2080,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure("Give exactly one of added or removed");
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
             if (found.prefab == nullptr)
             {
                 return EditorCommandResult::Failure(who + ": " + found.error);
@@ -2178,7 +2178,7 @@ namespace husky::tools
                 }
                 if (applied != nullptr)
                 {
-                    for (const engine::Prefab::ComponentChange& missing : engine::Prefab::FindOverrides(*other).removedComponents)
+                    for (const engine::Prefab::ComponentChange& missing : engine::Prefab::FindOverrides(*other, &app.GetTypeRegistry()).removedComponents)
                     {
                         if (missing.componentId == componentId)
                         {

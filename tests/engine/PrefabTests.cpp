@@ -605,3 +605,43 @@ TEST_CASE("COL-4: コンポーネントの ID の無い古いシーンでも、�
     CHECK(actor->GetComponent<SpriteComponent>()->width == 48.0f);
     CHECK(actor->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
 }
+
+TEST_CASE("SD-4 の修正: プレハブのファイルに無いプロパティは、型の既定の値と比べて違いになり、WriteChanges で書き戻せる")
+{
+    // スプライトの値は width だけを書いたプレハブ(color などは、コードの既定の値になる。後から足したプロパティと同じ)
+    husky::tests::TestFolder folder("husky_test_prefab_missing_property");
+    folder.Write("box.prefab", R"({ "version": 1, "objects": [
+        { "id": 0, "type": "Actor", "properties": { "name": "Box", "components": [1] } },
+        { "id": 1, "type": "SpriteComponent", "properties": { "width": 32 } }
+    ], "actors": [0] })");
+    folder.Write("box.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(BoxGuid));
+
+    husky::engine::Application app;
+    Actor* placed = PlaceBox(app, folder);
+    const TypeRegistry& types = app.GetTypeRegistry();
+    CHECK(Prefab::FindOverrides(*placed, &types).overrides.empty()); // 既定の値のままなら、違いは無い
+
+    SpriteComponent* sprite = placed->GetComponent<SpriteComponent>();
+    REQUIRE(sprite != nullptr);
+    sprite->color.g = 0.5f;
+    CHECK(Prefab::FindOverrides(*placed).overrides.empty()); // 登録簿を渡さなければ、今までどおり比べない
+
+    const Prefab::OverridesResult found = Prefab::FindOverrides(*placed, &types);
+    REQUIRE(found.overrides.size() == 1);
+    CHECK(found.overrides[0].component == "SpriteComponent");
+    CHECK(found.overrides[0].path == "color.g");
+    CHECK(found.overrides[0].prefabValue.AsFloat() == doctest::Approx(1.0)); // 型の既定の値
+
+    // 書き戻すと、プレハブのファイルの値になり、新しく置いたものにも入る
+    Prefab::ValueChange change;
+    change.component = found.overrides[0].component;
+    change.path = found.overrides[0].path;
+    change.oldValue = found.overrides[0].prefabValue;
+    change.newValue = found.overrides[0].value;
+    ArchiveValue written;
+    std::string error;
+    REQUIRE(Prefab::WriteChanges(found.prefab->GetData(), {change}, written, error));
+    const Prefab::InstantiateResult again = Prefab::Instantiate(written, app.GetScene(), types);
+    REQUIRE(again.actor != nullptr);
+    CHECK(again.actor->GetComponent<SpriteComponent>()->color.g == 0.5f);
+}
