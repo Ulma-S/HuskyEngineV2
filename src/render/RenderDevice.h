@@ -4,7 +4,7 @@
 
 #include "core/Handle.h"
 
-#include <glm/mat4x4.hpp>
+#include "core/Matrix4.h" // 行列は自前の型で受け取る(glm の型はこのヘッダに出さない)
 
 #include <cstddef>
 #include <cstdint>
@@ -45,7 +45,7 @@ namespace husky::render
     //   ピボット (0, 0) なら左下の角が原点になる。
     struct Sprite
     {
-        glm::mat4 model = glm::mat4(1.0f); // ローカル → ワールドの行列(既定は何もしない「単位行列」)
+        core::Matrix4 model; // ローカル → ワールドの行列(既定は何もしない「単位行列」)
         float width = 0.0f;  // ローカルでの大きさ(拡大縮小の前)
         float height = 0.0f;
         float pivotX = 0.5f; // ピボット: 四角形の中のどこを原点にするか(割合。0 が左・下、1 が右・上)
@@ -132,7 +132,7 @@ namespace husky::render
         // クリップ座標(画面の左下が (-1, -1)、右上が (+1, +1))にする。
         // BeginFrame と EndFrame の間で呼ぶ。このフレームで呼ばなければ、前のフレームの行列のまま描く
         // (一度も呼ばなければ単位行列。ワールドの -1〜+1 が画面いっぱいになる)。
-        void SetViewProjection(const glm::mat4& viewProjection);
+        void SetViewProjection(const core::Matrix4& viewProjection);
 
         // スプライトを1枚、描く予定に加える。後から加えたものほど手前に描かれる。
         // BeginFrame と EndFrame の間で呼ぶ。

@@ -73,12 +73,12 @@ TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコン
     const std::vector<Sprite> sprites = CollectSprites(*scene);
 
     REQUIRE(sprites.size() == 2);
-    CHECK(sprites[0].model[3][0] == 10.0f);
-    CHECK(sprites[0].model[3][1] == 20.0f);
+    CHECK(sprites[0].model.m[12] == 10.0f);
+    CHECK(sprites[0].model.m[13] == 20.0f);
     CHECK(sprites[0].width == 64.0f);
     CHECK(sprites[0].height == 48.0f);
     CHECK(sprites[0].color.g == 0.25f);
-    CHECK(sprites[1].model[3][0] == 100.0f); // 一覧の順(奥から手前)。model[3] は行列の4列目 = 移動の分
+    CHECK(sprites[1].model.m[12] == 100.0f); // 一覧の順(奥から手前)。m[12] は行列の4列目の1行目 = x の移動量(core/Matrix4.h)
     CHECK(sprites[1].width == 32.0f);
 }
 
@@ -100,7 +100,7 @@ TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描か�
     const std::vector<Sprite> sprites = CollectSprites(*scene);
 
     REQUIRE(sprites.size() == 1);
-    CHECK(sprites[0].model[3][0] == 5.0f);
+    CHECK(sprites[0].model.m[12] == 5.0f);
 }
 
 TEST_CASE("SpriteComponent: テクスチャは、テクスチャのアセットへの参照(AssetRef)のプロパティ")

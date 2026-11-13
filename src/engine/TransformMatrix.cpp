@@ -7,12 +7,12 @@
 
 namespace husky::engine
 {
-    glm::mat4 MakeModelMatrix(const Transform& transform)
+    core::Matrix4 MakeModelMatrix(const Transform& transform)
     {
         // glm::translate(m, v) は「m × 移動の行列」を返す(右から掛ける)。なので、書いた順 = 移動 × 回転 × 拡大縮小になる。
         glm::mat4 model = glm::translate(glm::mat4(1.0f), ToGlm(transform.position));
         model = glm::rotate(model, glm::radians(transform.rotation), glm::vec3(0.0f, 0.0f, 1.0f)); // 度 → ラジアン
         model = glm::scale(model, ToGlm(transform.scale));
-        return model;
+        return FromGlm(model); // 外へは自前の型で返す
     }
 }

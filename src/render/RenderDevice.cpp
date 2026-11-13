@@ -21,6 +21,9 @@
 #include <cstddef> // std::size_t, offsetof
 #include <cstdint>
 #include <cstring> // std::memcpy
+
+#include <glm/gtc/type_ptr.hpp> // glm::make_mat4(自前の行列の 16 個の float から glm の行列を作る)
+#include <glm/mat4x4.hpp>
 #include <vector>
 
 // ビルドの途中で DXC が生成したヘッダ。中身は const unsigned char g_〜[] = { 0x44, 0x58, ... }; という配列。
@@ -51,11 +54,11 @@ namespace husky::render
         };
 
         // 頂点シェーダの cbuffer FrameUniforms と一致させる(4×4 の行列 = float 16 個 = 64 バイト)。
-        // glm::mat4 は、メモリに「列」を順に並べる(列優先、column-major)。HLSL の cbuffer の行列も既定で列優先なので、
+        // core::Matrix4 は、メモリに「列」を順に並べる(列優先、column-major)。HLSL の cbuffer の行列も既定で列優先なので、
         // 並べ替えずにそのまま送ればよい。
         struct FrameUniforms
         {
-            glm::mat4 viewProjection;
+            core::Matrix4 viewProjection;
         };
         static_assert(sizeof(FrameUniforms) == 64, "FrameUniforms は HLSL の float4x4 と同じ 64 バイトにする");
 
@@ -143,7 +146,7 @@ namespace husky::render
         SDL_GPUTexture* swapchainTexture = nullptr;    // 今回描き込む画面(持ち主は SDL。借りているだけ)
         Uint32 screenWidth = 0;                        // 今回の画面の大きさ(ピクセル)
         Uint32 screenHeight = 0;
-        glm::mat4 viewProjection = glm::mat4(1.0f);    // カメラの行列(SetViewProjection)。最初は単位行列
+        core::Matrix4 viewProjection;                  // カメラの行列(SetViewProjection)。最初は単位行列
         Color clearColor;                             // 画面を最初に塗りつぶす色
         std::vector<Vertex> vertices;                  // DrawSprite で溜めた頂点(CPU 側)
         std::vector<SpriteBatch> batches;              // 同じテクスチャが続く区間(1区間 = 描画命令1回)
@@ -800,11 +803,13 @@ namespace husky::render
         const float top = sprite.height * (1.0f - sprite.pivotY);
         const float localX[4] = {left, right, right, left};
         const float localY[4] = {top, top, bottom, bottom};
+        // 計算は glm で行う(描画層の外へは glm の型を出さない)。core::Matrix4 と glm::mat4 は同じ並び(列優先)。
+        const glm::mat4 model = glm::make_mat4(sprite.model.m);
         SpriteCorners corners{};
         for (int i = 0; i < 4; ++i)
         {
             // 点は (x, y, 0, 1)。4 つ目の 1 は「位置」の印で、これがあると行列の移動の分も掛かる(向きなら 0 にする)。
-            const glm::vec4 world = sprite.model * glm::vec4(localX[i], localY[i], 0.0f, 1.0f);
+            const glm::vec4 world = model * glm::vec4(localX[i], localY[i], 0.0f, 1.0f);
             corners.x[i] = world.x;
             corners.y[i] = world.y;
         }
@@ -948,7 +953,7 @@ namespace husky::render
         return static_cast<int>(m_impl->screenHeight);
     }
 
-    void RenderDevice::SetViewProjection(const glm::mat4& viewProjection)
+    void RenderDevice::SetViewProjection(const core::Matrix4& viewProjection)
     {
         m_impl->viewProjection = viewProjection;
     }

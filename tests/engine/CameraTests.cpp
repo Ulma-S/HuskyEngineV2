@@ -4,6 +4,7 @@
 #include "engine/Actor.h"
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
+#include "engine/GlmConversion.h"
 #include "engine/Scene.h"
 
 #include <doctest/doctest.h>
@@ -18,7 +19,7 @@ namespace
     // ワールドの点 (x, y, z) に行列を掛けて、クリップ座標にする。w = 1 は「位置を表す点」の印(平行移動が効く)。
     glm::vec4 ToClip(const CameraMatrices& camera, float x, float y, float z = 0.0f)
     {
-        return camera.ViewProjection() * glm::vec4(x, y, z, 1.0f);
+        return husky::engine::ToGlm(camera.ViewProjection()) * glm::vec4(x, y, z, 1.0f); // 計算は glm で
     }
 }
 

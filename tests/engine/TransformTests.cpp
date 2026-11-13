@@ -9,6 +9,8 @@
 
 #include <doctest/doctest.h>
 
+#include <glm/gtc/matrix_transform.hpp> // glm::translate
+
 #include <string>
 
 using husky::engine::Actor;
@@ -72,4 +74,18 @@ TEST_CASE("Vector3: 計算するときは glm に変え、結果を自前の型�
     const husky::core::Vector3 position{1.0f, 2.0f, 3.0f};
     const glm::vec3 moved = husky::engine::ToGlm(position) + glm::vec3(10.0f, 0.0f, 0.0f); // 計算は glm で
     CHECK(husky::engine::FromGlm(moved) == (husky::core::Vector3{11.0f, 2.0f, 3.0f}));
+}
+
+TEST_CASE("Matrix4: 既定は単位行列で、glm の行列と同じ並び(列優先)のまま行き来できる")
+{
+    const husky::core::Matrix4 identity;
+    CHECK(husky::engine::FromGlm(glm::mat4(1.0f)) == identity);
+
+    // 移動の行列: x の移動量は 4 列目の 1 行目 = m[12]
+    const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 6.0f, 7.0f));
+    const husky::core::Matrix4 converted = husky::engine::FromGlm(moved);
+    CHECK(converted.m[12] == 5.0f);
+    CHECK(converted.m[13] == 6.0f);
+    CHECK(converted.m[14] == 7.0f);
+    CHECK(husky::engine::ToGlm(converted) == moved); // 行って戻っても同じ
 }

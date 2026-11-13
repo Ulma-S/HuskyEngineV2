@@ -8,18 +8,19 @@
 // 動作スレッド: どこでもよい(ただの計算。GC 管理のオブジェクトを触らない)
 #pragma once
 
-#include <glm/mat4x4.hpp>
+#include "core/Matrix4.h" // 外へは自前の行列の型で渡す(glm は Camera.cpp の中だけ)
 
 namespace husky::engine
 {
     // ビュー行列と射影行列の組。
     struct CameraMatrices
     {
-        glm::mat4 view = glm::mat4(1.0f);       // ワールド → カメラから見た位置(カメラを動かすと変わる)
-        glm::mat4 projection = glm::mat4(1.0f); // カメラから見た位置 → クリップ座標(見える範囲と、ピクセルとの換算)
+        core::Matrix4 view;       // ワールド → カメラから見た位置(カメラを動かすと変わる)。既定は単位行列
+        core::Matrix4 projection; // カメラから見た位置 → クリップ座標(見える範囲と、ピクセルとの換算)
 
         // 描画層に渡す行列。行列は右から順に掛かるので、先にビュー、次に射影が効く。
-        glm::mat4 ViewProjection() const { return projection * view; }
+        // 掛け算は計算なので、glm を使う Camera.cpp に書く。
+        core::Matrix4 ViewProjection() const;
     };
 
     // 2D のカメラ(正射影)。ワールドの (centerX, centerY) が画面の真ん中に映る。

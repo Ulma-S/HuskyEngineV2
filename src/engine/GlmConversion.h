@@ -4,9 +4,14 @@
 // 動作スレッド: どこでもよい(ただの計算)
 #pragma once
 
+#include "core/Matrix4.h"
 #include "core/Vector3.h"
 
+#include <glm/gtc/type_ptr.hpp> // glm::make_mat4(float の並びから行列を作る)、glm::value_ptr(行列の中の float の並び)
+#include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+
+#include <algorithm> // std::copy
 
 namespace husky::engine
 {
@@ -18,5 +23,19 @@ namespace husky::engine
     inline core::Vector3 FromGlm(const glm::vec3& value)
     {
         return core::Vector3{value.x, value.y, value.z};
+    }
+
+    // 行列: どちらも列優先で同じ並びなので、16 個の float をそのまま写す。
+    inline glm::mat4 ToGlm(const core::Matrix4& value)
+    {
+        return glm::make_mat4(value.m);
+    }
+
+    inline core::Matrix4 FromGlm(const glm::mat4& value)
+    {
+        core::Matrix4 result;
+        const float* source = glm::value_ptr(value);
+        std::copy(source, source + 16, result.m);
+        return result;
     }
 }

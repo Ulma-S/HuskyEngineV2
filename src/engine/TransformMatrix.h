@@ -1,5 +1,5 @@
 // アクターの Transform(位置・回転・拡大縮小)から、モデル行列(ローカル → ワールド)を作る(RS-1)。
-// データの型(Transform)は glm に依存させず、計算するここで glm に変える(engine/GlmConversion.h)。
+// データの型(Transform、Matrix4)は glm に依存させず、計算する .cpp の中でだけ glm に変える(engine/GlmConversion.h)。
 //
 // モデル行列 = 移動 × 回転 × 拡大縮小。点に掛けると、右から順に効く:
 //   1. 拡大縮小(ピボットを中心に大きくする)
@@ -12,9 +12,9 @@
 
 #include "engine/Transform.h"
 
-#include <glm/mat4x4.hpp>
+#include "core/Matrix4.h"
 
 namespace husky::engine
 {
-    glm::mat4 MakeModelMatrix(const Transform& transform);
+    core::Matrix4 MakeModelMatrix(const Transform& transform);
 }
