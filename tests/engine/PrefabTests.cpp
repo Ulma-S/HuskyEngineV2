@@ -7,6 +7,8 @@
 #include "engine/Prefab.h"
 #include "engine/Scene.h"
 #include "engine/SceneSerializer.h"
+#include "engine/CameraComponent.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 
 #include "TestFolder.h"
@@ -14,6 +16,8 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
+#include <functional>
+#include <string_view>
 #include <string>
 
 using husky::core::ObjectHandle;
@@ -213,9 +217,50 @@ namespace
 {
     const husky::core::Guid BoxGuid = husky::tests::MakeGuid(0x1a2b3c4d5e6f4a1bull, 0x9c8d7e6f5a4b3c2dull);
 
+    // プレハブのコンポーネントの ID(テストでは決まった値にする。プレハブを書き直しても、同じコンポーネントは同じ ID のまま)。
+    const husky::core::Guid SpriteId = husky::tests::MakeGuid(0x1111111111114111ull, 0x8111111111111111ull);
+    const husky::core::Guid AnimatorId = husky::tests::MakeGuid(0x2222222222224222ull, 0x8222222222222222ull);
+
+    // 値の木を写す。名前が key のメンバーは make(元の値) の値に置き換え、make が Null を返せば取り除く(中まですべて)。
+    ArchiveValue Rewrite(const ArchiveValue& value, std::string_view key,
+                         const std::function<ArchiveValue(const ArchiveValue&)>& make)
+    {
+        if (value.GetType() == ArchiveValue::Type::Array)
+        {
+            ArchiveValue copy = ArchiveValue::MakeArray();
+            for (std::size_t i = 0; i < value.GetArraySize(); ++i)
+            {
+                copy.Append(Rewrite(value.At(i), key, make));
+            }
+            return copy;
+        }
+        if (value.GetType() != ArchiveValue::Type::Object)
+        {
+            return value;
+        }
+        ArchiveValue copy = ArchiveValue::MakeObject();
+        for (std::size_t i = 0; i < value.GetMemberCount(); ++i)
+        {
+            const std::string& name = value.GetMemberName(i);
+            if (name != key)
+            {
+                copy.Set(name, Rewrite(value.GetMemberValue(i), key, make));
+                continue;
+            }
+            ArchiveValue replaced = make(value.GetMemberValue(i));
+            if (!replaced.IsNull())
+            {
+                copy.Set(name, std::move(replaced));
+            }
+        }
+        return copy;
+    }
+
     // PF-4 のテストで使うプレハブ(Actor + 幅 width、高さ 16 の SpriteComponent)を folder に書く。名前と幅を変えて書き直せる。
+    // withAnimator なら、2つ目のコンポーネントとして SpriteAnimatorComponent も付ける(PF-7a: プレハブに後から足す)。
     // prefab.create と同じく、アクターから Prefab::Write で作る(全部の値が入る。違いは、書いてある値とだけ比べられるため)。
-    void WriteBoxPrefab(husky::tests::TestFolder& folder, const char* name, float width)
+    // コンポーネントの ID は、Prefab::Write が振った乱数を SpriteId / AnimatorId に替える(書き直しても同じ ID にするため)。
+    void WriteBoxPrefab(husky::tests::TestFolder& folder, const char* name, float width, bool withAnimator = false)
     {
         husky::engine::Application maker;
         Actor* actor = maker.GetScene().Spawn<Actor>();
@@ -225,10 +270,18 @@ namespace
         REQUIRE(sprite != nullptr);
         sprite->width = width;
         sprite->height = 16.0f;
+        if (withAnimator)
+        {
+            REQUIRE(actor->AddComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+        }
         const Prefab::WriteResult written = Prefab::Write(*actor);
         REQUIRE(written.ok);
+        std::size_t count = 0; // コンポーネントは並んだ順に出てくる
+        const ArchiveValue fixedIds = Rewrite(written.value, "prefabComponentId", [&count](const ArchiveValue&) {
+            return ArchiveValue((count++ == 0 ? SpriteId : AnimatorId).ToString());
+        });
         std::string text;
-        REQUIRE(JsonFormat::Write(written.value, text));
+        REQUIRE(JsonFormat::Write(fixedIds, text));
         folder.Write("prefabs/box.prefab", text);
         folder.Write("prefabs/box.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(BoxGuid));
     }
@@ -286,9 +339,11 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
     REQUIRE(actor.Find("transform")->Find("position") != nullptr);
     CHECK(actor.Find("transform")->Find("position")->GetMemberCount() == 1);
     CHECK(actor.Find("transform")->Find("position")->Find("x")->AsFloat() == 5.0);
-    // コンポーネント: 変えた height だけ
+    // コンポーネント: 変えた height と、いつも書く prefabComponentId(プレハブのどれと組にするか)だけ
     const ArchiveValue& sprite = PropertiesAt(saved, 1);
-    CHECK(sprite.GetMemberCount() == 1);
+    CHECK(sprite.GetMemberCount() == 2);
+    REQUIRE(sprite.Find("prefabComponentId") != nullptr);
+    CHECK(sprite.Find("prefabComponentId")->AsString() == SpriteId.ToString());
     REQUIRE(sprite.Find("height") != nullptr);
     CHECK(sprite.Find("height")->AsFloat() == 20.0);
 
@@ -315,7 +370,7 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
     // もう一度保存しても、違いは同じ(プレハブの値は書かない)
     const ArchiveValue again = husky::engine::SceneSerializer::Write(app.GetScene()).value;
     CHECK(PropertiesAt(again, 0).Find("name") == nullptr);
-    CHECK(PropertiesAt(again, 1).GetMemberCount() == 1);
+    CHECK(PropertiesAt(again, 1).GetMemberCount() == 2);
 }
 
 TEST_CASE("PF-4: プレハブが読めないときは、警告を出してファイルにある値だけで作る")
@@ -344,30 +399,114 @@ TEST_CASE("PF-4: プレハブが読めないときは、警告を出してファ
     CHECK(loaded->GetComponent<SpriteComponent>()->height == 20.0f); // ファイルにある値
 }
 
-TEST_CASE("PF-4: コンポーネントを足したものは、警告を出して全部の値を書き、読むときもファイルの値だけで作る")
+namespace
+{
+    // シーンの値の木を JSON に通してから、別のアプリに読む(プレハブは folder から探す)。警告は CHECK で 0 件を確かめる。
+    const Actor* ReadInto(husky::engine::Application& app, const husky::tests::TestFolder& folder, const ArchiveValue& saved)
+    {
+        REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+        const husky::engine::SceneSerializer::ReadReport report =
+            husky::engine::SceneSerializer::Read(ThroughJson(saved), app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        CHECK(report.warnings.empty());
+        REQUIRE(report.addedActors.size() == 1);
+        return app.GetRegistry().Resolve<Actor>(report.addedActors[0]);
+    }
+}
+
+TEST_CASE("PF-7a: 置いた後に足したコンポーネントは全部の値を書き、外したものは removedComponents に ID を書く。読むとそのとおりに戻る")
 {
     husky::tests::TestFolder folder("husky_test_prefab_diff_added");
-    WriteBoxPrefab(folder, "Box", 32.0f);
+    WriteBoxPrefab(folder, "Box", 32.0f, true); // スプライト + アニメーター
 
-    husky::engine::Application app;
-    Actor* placed = PlaceBox(app, folder);
-    REQUIRE(placed->AddComponent<SpriteComponent>() != nullptr); // プレハブに無い2つ目
+    // 置いて、アニメーターを外し、カメラを足す
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        Actor* placed = PlaceBox(app, folder);
+        placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->Destroy();
+        app.GetScene().RemoveDestroyedActors(); // フレームの終わり: Destroy 済みのコンポーネントが一覧から外れる
+        husky::engine::CameraComponent* camera = placed->AddComponent<husky::engine::CameraComponent>();
+        REQUIRE(camera != nullptr);
+        camera->zoom = 2.0f;
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        CHECK(written.warnings.empty());
+        saved = ThroughJson(written.value);
+    }
 
-    const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
-    REQUIRE(written.warnings.size() == 1);
-    CHECK(written.warnings[0].find("コンポーネントの並び") != std::string::npos);
-    CHECK(PropertiesAt(written.value, 0).Find("name") != nullptr); // 全部の値
-    CHECK(PropertiesAt(written.value, 1).Find("width") != nullptr);
+    // アクターの記録に、外したもの(アニメーター)の ID。アクターは違いだけ(name は書かない)
+    const ArchiveValue& actorEntry = saved.Find("objects")->At(0);
+    REQUIRE(actorEntry.Find("removedComponents") != nullptr);
+    REQUIRE(actorEntry.Find("removedComponents")->GetArraySize() == 1);
+    CHECK(actorEntry.Find("removedComponents")->At(0).AsString() == AnimatorId.ToString());
+    CHECK(PropertiesAt(saved, 0).Find("name") == nullptr);
+    // スプライト(組になる): ID だけ。カメラ(足したもの): 全部の値
+    CHECK(PropertiesAt(saved, 1).GetMemberCount() == 1);
+    CHECK(PropertiesAt(saved, 2).Find("zoom") != nullptr);
 
     husky::engine::Application other;
-    REQUIRE(other.GetAssetDatabase().Scan(folder.Root()));
-    const husky::engine::SceneSerializer::ReadReport report = husky::engine::SceneSerializer::Read(
-        ThroughJson(written.value), other.GetScene(), other.GetTypeRegistry(), FinderOf(other));
-    REQUIRE(report.warnings.size() == 1);
-    CHECK(report.warnings[0].find("コンポーネントの並び") != std::string::npos);
-    REQUIRE(report.addedActors.size() == 1);
-    const Actor* loaded = other.GetRegistry().Resolve<Actor>(report.addedActors[0]);
+    const Actor* loaded = ReadInto(other, folder, saved);
     REQUIRE(loaded != nullptr);
     CHECK(loaded->name == "Box");
     CHECK(loaded->components.size() == 2);
+    CHECK(loaded->GetComponent<husky::engine::SpriteAnimatorComponent>() == nullptr);
+    REQUIRE(loaded->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(loaded->GetComponent<SpriteComponent>()->prefabComponentId == SpriteId);
+    CHECK(loaded->GetComponent<SpriteComponent>()->width == 32.0f);
+    REQUIRE(loaded->GetComponent<husky::engine::CameraComponent>() != nullptr);
+    CHECK(loaded->GetComponent<husky::engine::CameraComponent>()->zoom == 2.0f);
+    CHECK(loaded->GetComponent<husky::engine::CameraComponent>()->GetOwner() == loaded);
+
+    // もう一度保存しても、同じ形(外した一覧が残る)
+    const ArchiveValue again = husky::engine::SceneSerializer::Write(other.GetScene()).value;
+    REQUIRE(again.Find("objects")->At(0).Find("removedComponents") != nullptr);
+    CHECK(again.Find("objects")->At(0).Find("removedComponents")->GetArraySize() == 1);
+}
+
+TEST_CASE("PF-7a: プレハブに後から足したコンポーネントは、置いたものにも伝わる(外した一覧に無いので)")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_diff_grow");
+    WriteBoxPrefab(folder, "Box", 32.0f); // スプライトだけ
+
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        PlaceBox(app, folder)->GetComponent<SpriteComponent>()->height = 20.0f;
+        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetScene()).value);
+    }
+    CHECK(saved.Find("objects")->At(0).Find("removedComponents") == nullptr);
+
+    WriteBoxPrefab(folder, "Box", 32.0f, true); // プレハブにアニメーターを足す
+    husky::engine::Application other;
+    const Actor* loaded = ReadInto(other, folder, saved);
+    REQUIRE(loaded != nullptr);
+    CHECK(loaded->components.size() == 2);
+    REQUIRE(loaded->GetComponent<SpriteComponent>() != nullptr);
+    CHECK(loaded->GetComponent<SpriteComponent>()->height == 20.0f); // 違いは残る
+    REQUIRE(loaded->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+    CHECK(loaded->GetComponent<husky::engine::SpriteAnimatorComponent>()->GetOwner() == loaded);
+}
+
+TEST_CASE("PF-7a: コンポーネントに ID の無い古いシーンのファイルは、並び順でプレハブと組にする")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_diff_legacy");
+    WriteBoxPrefab(folder, "Box", 32.0f);
+
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        PlaceBox(app, folder)->GetComponent<SpriteComponent>()->height = 20.0f;
+        saved = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+    }
+    // ID を取り除き、PF-4 の形にする
+    const ArchiveValue legacy = Rewrite(saved, "prefabComponentId", [](const ArchiveValue&) { return ArchiveValue(); });
+    CHECK(PropertiesAt(legacy, 1).GetMemberCount() == 1);
+
+    husky::engine::Application other;
+    const Actor* loaded = ReadInto(other, folder, legacy);
+    REQUIRE(loaded != nullptr);
+    REQUIRE(loaded->components.size() == 1);
+    const SpriteComponent* sprite = loaded->GetComponent<SpriteComponent>();
+    REQUIRE(sprite != nullptr);
+    CHECK(sprite->height == 20.0f);
+    CHECK(sprite->prefabComponentId == SpriteId); // プレハブから作ったので、ID はプレハブのもの(次に保存すると ID の形になる)
 }

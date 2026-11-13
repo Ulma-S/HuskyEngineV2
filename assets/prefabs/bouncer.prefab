@@ -30,6 +30,7 @@
       "id": 1,
       "type": "SpriteComponent",
       "properties": {
+        "prefabComponentId": "7b5a0c6d-e4b1-4b89-b7e8-c929981475c5",
         "width": 32.0,
         "height": 32.0,
         "color": {

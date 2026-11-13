@@ -17,6 +17,7 @@
 //   health->Destroy();                               // 外す(フレームの終わりに消える)
 #pragma once
 
+#include "core/Guid.h"
 #include "core/Object.h"
 
 #include <cstdint>
@@ -61,6 +62,18 @@ namespace husky::engine
 
         // 取り付け先のアクター。もう存在しなければ nullptr。
         Actor* GetOwner() const;
+
+        // プレハブの中で、このコンポーネントを指す変わらない ID(PF-7a。Unity の fileID にあたる)。
+        //   - プレハブのファイルの中: そのコンポーネント自身の ID。プレハブを書くとき(Prefab::Write)に振る。
+        //   - プレハブから置いたもの: 「プレハブのどのコンポーネントから来たか」。プレハブから作ると値が写るので、そのまま覚えている。
+        //   - それ以外(コードで AddComponent したもの、プレハブに無いのに足したもの): 空(null)。
+        // シーンの保存は、この ID でプレハブのコンポーネントと組にする(並び順ではないので、足した・外したものがあっても組がずれない)。
+        // GUID にしているのは、番号の振り方を考えずに重ならないことと、インスペクタで読むだけ(灰色)・property.set で変えられない扱いになるため。
+        core::Guid prefabComponentId;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(prefabComponentId)
+        HUSKY_REFLECTION_END()
 
     private:
         // 取り付け先のアクター。プロパティとして登録しないので、弱い参照(GC はここをたどらない)。

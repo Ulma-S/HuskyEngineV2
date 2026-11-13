@@ -150,6 +150,35 @@ namespace husky::engine::SceneSerializer
             return diff;
         }
 
+        // コンポーネントの記録の "prefabComponentId"(Component::prefabComponentId)を読む。無い・読めなければ空の Guid。
+        core::Guid ComponentIdOf(const ArchiveValue& entry)
+        {
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* id = properties != nullptr ? properties->Find("prefabComponentId") : nullptr;
+            core::Guid guid;
+            if (id == nullptr || id->GetType() != ArchiveValue::Type::String || !core::Guid::Parse(id->AsString(), guid))
+            {
+                return core::Guid{};
+            }
+            return guid;
+        }
+
+        // プレハブのコンポーネントの「ID → base.components の位置」の表を作る。
+        // 全部に、重ならない ID があれば true(ID で組にできる)。ID の無い古いプレハブなら false(並び順で組にする)。
+        bool IndexPrefabComponents(const ActorEntries& base, std::unordered_map<core::Guid, std::size_t>& out)
+        {
+            for (std::size_t i = 0; i < base.components.size(); ++i)
+            {
+                const core::Guid id = ComponentIdOf(*base.components[i]);
+                if (id.IsNull() || !out.emplace(id, i).second) // emplace の second: 入れられたか(すでにあれば false)
+                {
+                    out.clear();
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // 2体のアクターの記録が、同じ形(アクターの型、コンポーネントの数と、並んだ順の型)か。
         bool SameShape(const ActorEntries& a, const ActorEntries& b)
         {
@@ -291,10 +320,18 @@ namespace husky::engine::SceneSerializer
             return found->second;
         };
 
-        // 3. プレハブから置いたアクターは、比べる相手(プレハブの中の、同じ位置のオブジェクトの値)を決める。
+        // 3. プレハブから置いたアクターは、比べる相手(プレハブの中の、組になるオブジェクトの値)を決める。
         //    baseOf[番号] が nullptr でなければ、そのオブジェクトはプレハブとの違いだけを書く。
         //    プレハブそのものを書くとき(writeActorIdentity が false)は、違いではなく全部を書く。
+        //    コンポーネントは、プレハブのコンポーネントと ID(Component::prefabComponentId)で組にする(PF-7a):
+        //      - 組になったもの: 違いだけを書く
+        //      - 組にならないもの(置いた後に足したもの): 全部の値を書く
+        //      - プレハブにあるのに、組にならなかったもの(置いた後に外したもの): アクターの記録に "removedComponents" として ID を書く。
+        //        「無いものは外した」と推し量らずに書いておくのは、プレハブに後から足したコンポーネント(これも置いたものに無い)と
+        //        見分けるため。後から足したものは、読むときに置いたものにも足す(プレハブを直すと伝わる)。
+        //    ID の無い古いプレハブは、今までどおり並び順で組にする(並びが違えば、全部の値を書く)。
         std::vector<const ArchiveValue*> baseOf(objects.size(), nullptr);
+        std::unordered_map<std::size_t, ArchiveValue> removedOf; // アクターの番号 → 外したコンポーネントの ID の配列
         for (std::size_t k = 0; options.writeActorIdentity && k < actorIds.size(); ++k)
         {
             const std::size_t actorIndex = static_cast<std::size_t>(actorIds[k]);
@@ -314,23 +351,63 @@ namespace husky::engine::SceneSerializer
                                           " が読み込まれていないので、違いではなく全部の値を書きます");
                 continue;
             }
-            bool sameShape = TypeNameOf(*base.actor) == actor.GetType().GetName() &&
-                             base.components.size() == end - actorIndex - 1;
-            for (std::size_t c = 0; sameShape && c < base.components.size(); ++c)
+            if (TypeNameOf(*base.actor) != actor.GetType().GetName())
             {
-                sameShape = TypeNameOf(*base.components[c]) == objects[actorIndex + 1 + c]->GetType().GetName();
-            }
-            if (!sameShape)
-            {
-                result.warnings.push_back("アクター " + actor.name + ": コンポーネントの並びがプレハブと違うので、"
-                                          "違いではなく全部の値を書きます(足した・外したコンポーネントは、まだ違いとして書けません)");
+                result.warnings.push_back("アクター " + actor.name + ": 型がプレハブと違うので、違いではなく全部の値を書きます");
                 continue;
             }
-            baseOf[actorIndex] = base.actor->Find("properties");
-            for (std::size_t c = 0; c < base.components.size(); ++c)
+            const std::size_t componentCount = end - actorIndex - 1;
+            std::unordered_map<core::Guid, std::size_t> prefabIndex;
+            if (IndexPrefabComponents(base, prefabIndex))
             {
-                baseOf[actorIndex + 1 + c] = base.components[c]->Find("properties");
+                // ID で組にする。1つのプレハブのコンポーネントと組になるのは1つだけ(同じ ID が2つあれば、2つ目は足したもの扱い)。
+                std::vector<bool> used(base.components.size(), false);
+                for (std::size_t c = 0; c < componentCount; ++c)
+                {
+                    // アクターの後ろに並ぶのは、そのアクターのコンポーネント(CollectObjects の並べ方)
+                    const Component& component = static_cast<const Component&>(*objects[actorIndex + 1 + c]);
+                    const auto found = prefabIndex.find(component.prefabComponentId);
+                    if (component.prefabComponentId.IsNull() || found == prefabIndex.end() || used[found->second] ||
+                        TypeNameOf(*base.components[found->second]) != component.GetType().GetName())
+                    {
+                        continue; // 足したもの: 全部の値を書く
+                    }
+                    used[found->second] = true;
+                    baseOf[actorIndex + 1 + c] = base.components[found->second]->Find("properties");
+                }
+                ArchiveValue removed = ArchiveValue::MakeArray();
+                for (std::size_t i = 0; i < base.components.size(); ++i)
+                {
+                    if (!used[i])
+                    {
+                        removed.Append(ArchiveValue(ComponentIdOf(*base.components[i]).ToString()));
+                    }
+                }
+                if (removed.GetArraySize() > 0)
+                {
+                    removedOf.emplace(actorIndex, std::move(removed));
+                }
             }
+            else
+            {
+                // ID の無い古いプレハブ: 並び順で組にする。
+                bool sameShape = base.components.size() == componentCount;
+                for (std::size_t c = 0; sameShape && c < base.components.size(); ++c)
+                {
+                    sameShape = TypeNameOf(*base.components[c]) == objects[actorIndex + 1 + c]->GetType().GetName();
+                }
+                if (!sameShape)
+                {
+                    result.warnings.push_back("アクター " + actor.name + ": プレハブのコンポーネントに ID が無く、並びも違うので、"
+                                              "違いではなく全部の値を書きます(プレハブを作り直すと ID が付きます)");
+                    continue;
+                }
+                for (std::size_t c = 0; c < base.components.size(); ++c)
+                {
+                    baseOf[actorIndex + 1 + c] = base.components[c]->Find("properties");
+                }
+            }
+            baseOf[actorIndex] = base.actor->Find("properties");
         }
 
         // 4. オブジェクトを1つずつ書く。読みやすいように、"id" を先頭に置く。
@@ -349,15 +426,26 @@ namespace husky::engine::SceneSerializer
                 std::find(actorIds.begin(), actorIds.end(), static_cast<std::int64_t>(i)) != actorIds.end();
             if (baseOf[i] != nullptr)
             {
-                // アクターの guid、prefab、components は、同じでも書く(この1体であること、元のプレハブ、番号の対応に要る)
+                // アクターの guid、prefab、components は、同じでも書く(この1体であること、元のプレハブ、番号の対応に要る)。
+                // コンポーネントの prefabComponentId も、同じでも書く(読むときに、プレハブのどれと組にするかに要る)。
                 static const std::vector<std::string_view> actorKeep = {"guid", "prefab", "components"};
-                properties = DiffMembers(properties, *baseOf[i], objects[i]->GetType(),
-                                         isActor ? actorKeep : std::vector<std::string_view>{});
+                static const std::vector<std::string_view> componentKeep = {"prefabComponentId"};
+                properties = DiffMembers(properties, *baseOf[i], objects[i]->GetType(), isActor ? actorKeep : componentKeep);
             }
             if (!options.writeActorIdentity && isActor)
             {
                 properties.Remove("guid");
                 properties.Remove("prefab");
+            }
+            if (!options.writeActorIdentity && !isActor)
+            {
+                // プレハブを書く: コンポーネントに、プレハブの中の新しい ID を振る(置いたものが、これで組になる)
+                properties.Set("prefabComponentId", ArchiveValue(core::Guid::Generate().ToString()));
+            }
+            const auto removed = removedOf.find(i);
+            if (removed != removedOf.end())
+            {
+                entry.Set("removedComponents", removed->second);
             }
         }
 
@@ -407,6 +495,8 @@ namespace husky::engine::SceneSerializer
         //        2回目で、その上にファイルの値(プレハブとの違い)を重ねる。ファイルの番号とは、並んだ順で組にする。
         std::unordered_set<std::int64_t> fromPrefab;                          // プレハブから作った番号(1回目で作らない)
         std::vector<std::pair<core::ObjectHandle, core::ObjectHandle>> linked; // (アクター、プレハブのアセット)
+        // (アクター、コンポーネント): プレハブに後から足されたコンポーネント。2回目の後で、アクターの components の末尾に足す。
+        std::vector<std::pair<core::ObjectHandle, core::ObjectHandle>> addedByPrefab;
         const EntryIndex index = findPrefab ? IndexEntries(value) : EntryIndex{};
         for (std::size_t i = 0; findPrefab && actorArray != nullptr && i < actorArray->GetArraySize(); ++i)
         {
@@ -431,13 +521,28 @@ namespace husky::engine::SceneSerializer
                 report.warnings.push_back(where + " を読めないので、ファイルにある値だけで作ります(書いていない値は型の既定値になります)");
                 continue;
             }
-            if (!SameShape(file, base))
+            if (TypeNameOf(*file.actor) != TypeNameOf(*base.actor))
+            {
+                report.warnings.push_back(where + " と型が違うので、ファイルにある値だけで作ります");
+                continue;
+            }
+            // コンポーネントの組の作り方: ファイルが ID を使っていて(コンポーネントの ID か、外した一覧がある)、
+            // プレハブのコンポーネントに ID があれば ID で。そうでなければ(ID の無い古いファイルかプレハブ)並び順で。
+            const ArchiveValue* removedValue = file.actor->Find("removedComponents");
+            bool fileUsesIds = removedValue != nullptr;
+            for (std::size_t c = 0; !fileUsesIds && c < file.components.size(); ++c)
+            {
+                fileUsesIds = !ComponentIdOf(*file.components[c]).IsNull();
+            }
+            std::unordered_map<core::Guid, std::size_t> prefabIndex;
+            const bool byId = fileUsesIds && IndexPrefabComponents(base, prefabIndex);
+            if (!byId && !SameShape(file, base))
             {
                 report.warnings.push_back(where + " とコンポーネントの並びが違うので、ファイルにある値だけで作ります");
                 continue;
             }
             Actor* actor = CreateFromPrefab(*prefab, *registry, types, report);
-            if (actor == nullptr || actor->components.size() != file.components.size())
+            if (actor == nullptr || actor->components.size() != base.components.size())
             {
                 // 作りかけのものはシーンに入らないので、GC で回収される
                 report.warnings.push_back(where + " から作れないので、ファイルにある値だけで作ります");
@@ -446,14 +551,68 @@ namespace husky::engine::SceneSerializer
             handleOf[id] = actor->GetHandle();
             created.emplace_back(file.actor, actor);
             fromPrefab.insert(id);
+            report.createdCount += 1 + actor->components.size();
+            linked.emplace_back(actor->GetHandle(), prefab->GetHandle());
+
+            // ファイルの c 番目のコンポーネントを、プレハブから作った i 番目と組にする(2回目で、その上にファイルの値を重ねる)。
+            std::vector<bool> used(actor->components.size(), false);
+            const auto pair = [&](std::size_t c, std::size_t i) {
+                handleOf[file.componentIds[c]] = actor->components[i];
+                created.emplace_back(file.components[c], registry->Resolve<Component>(actor->components[i]));
+                fromPrefab.insert(file.componentIds[c]);
+                used[i] = true;
+            };
+            if (!byId)
+            {
+                for (std::size_t c = 0; c < file.components.size(); ++c)
+                {
+                    pair(c, c);
+                }
+                continue;
+            }
             for (std::size_t c = 0; c < file.components.size(); ++c)
             {
-                handleOf[file.componentIds[c]] = actor->components[c];
-                created.emplace_back(file.components[c], registry->Resolve<Component>(actor->components[c]));
-                fromPrefab.insert(file.componentIds[c]);
+                const core::Guid componentId = ComponentIdOf(*file.components[c]);
+                const auto found = componentId.IsNull() ? prefabIndex.end() : prefabIndex.find(componentId);
+                if (found == prefabIndex.end() || used[found->second] ||
+                    TypeNameOf(*file.components[c]) != TypeNameOf(*base.components[found->second]))
+                {
+                    // 置いた後に足したもの: 組にせず、1回目でファイルの値から作る
+                    if (!componentId.IsNull())
+                    {
+                        report.warnings.push_back(where + ": コンポーネント " + componentId.ToString() +
+                                                  " と組になるものがプレハブに無いので、ファイルにある値だけで作ります");
+                    }
+                    continue;
+                }
+                pair(c, found->second);
             }
-            report.createdCount += 1 + file.components.size();
-            linked.emplace_back(actor->GetHandle(), prefab->GetHandle());
+            // 組にならなかったプレハブのコンポーネント: 外した一覧にあれば消し、無ければ(プレハブに後から足されたもの)残して足す。
+            std::unordered_set<core::Guid> removed;
+            for (std::size_t r = 0; removedValue != nullptr && r < removedValue->GetArraySize(); ++r)
+            {
+                core::Guid removedId;
+                if (core::Guid::Parse(removedValue->At(r).AsString(), removedId))
+                {
+                    removed.insert(removedId);
+                }
+            }
+            for (std::size_t k = 0; k < used.size(); ++k)
+            {
+                if (used[k])
+                {
+                    continue;
+                }
+                Component* component = registry->Resolve<Component>(actor->components[k]);
+                if (component != nullptr && removed.count(component->prefabComponentId) > 0)
+                {
+                    component->Destroy(); // 外したもの(2回目でアクターの components がファイルの一覧に替わり、どこからも指されなくなる)
+                }
+                else
+                {
+                    addedByPrefab.emplace_back(actor->GetHandle(), actor->components[k]);
+                }
+            }
         }
 
         // 1回目: 残りの全オブジェクトを、型の名前から作る。
@@ -470,6 +629,15 @@ namespace husky::engine::SceneSerializer
             if (actor != nullptr && prefab != nullptr && actor->prefab.guid == prefab->GetGuid())
             {
                 actor->prefab.asset = prefabHandle;
+            }
+        }
+        // 2回目で、アクターの components はファイルの一覧に替わった。プレハブに後から足されたものを、その末尾に足す
+        // (持ち主は、3. でシーンに入れるときに付け直される)。
+        for (const auto& [actorHandle, componentHandle] : addedByPrefab)
+        {
+            if (Actor* actor = registry->Resolve<Actor>(actorHandle))
+            {
+                actor->components.push_back(componentHandle);
             }
         }
 

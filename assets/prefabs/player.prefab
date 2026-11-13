@@ -30,6 +30,7 @@
       "id": 1,
       "type": "SpriteComponent",
       "properties": {
+        "prefabComponentId": "892efae7-1047-4876-88b0-85c1f6bcb868",
         "width": 128.0,
         "height": 128.0,
         "color": {
@@ -53,6 +54,7 @@
       "id": 2,
       "type": "SpriteAnimatorComponent",
       "properties": {
+        "prefabComponentId": "f216d4cb-62b9-495d-a519-018377f9e762",
         "animation": 1811624963,
         "playing": true,
         "speed": 1.0
