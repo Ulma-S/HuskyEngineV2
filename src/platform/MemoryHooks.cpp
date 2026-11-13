@@ -1,5 +1,6 @@
 // MemoryHooks.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/MemoryHooks.h"
+#include "platform/PlatformLog.h"
 
 #include "core/MemoryTracker.h"
 
@@ -41,7 +42,7 @@ namespace husky::platform
         }
         if (!SDL_SetMemoryFunctions(TrackedSdlMalloc, TrackedSdlCalloc, TrackedSdlRealloc, TrackedSdlFree))
         {
-            SDL_Log("SDL_SetMemoryFunctions に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(PlatformLog::SdlCallFailed, "SDL_SetMemoryFunctions", SDL_GetError());
             return false;
         }
         g_installed = true;

@@ -1,11 +1,12 @@
 // AssetDatabase.h の実装。
 #include "engine/AssetDatabase.h"
+#include "engine/EngineLog.h"
 
 #include "engine/ArchiveValue.h"
 #include "engine/JsonFormat.h"
 #include "platform/FileSystem.h"
 
-#include <cstdio> // std::printf
+
 #include <unordered_set>
 #include <utility> // std::move
 #include <vector>
@@ -129,7 +130,7 @@ namespace husky::engine
             std::string assetPath = meta.substr(0, meta.size() - MetaSuffix.size());
             if (assetSet.count(assetPath) == 0)
             {
-                std::printf("アセット: 対になるファイルが無い .meta があります(%s)\n", meta.c_str());
+                HUSKY_LOG(AssetLog::OrphanMeta, meta);
                 ++report.orphanMetaCount;
                 continue;
             }
@@ -139,7 +140,7 @@ namespace husky::engine
             core::Guid guid;
             if (!platform::ReadTextFile((m_rootDirectory + meta).c_str(), text) || !ParseMetaText(text, guid))
             {
-                std::printf("アセット: .meta から GUID を読めません(%s)\n", meta.c_str());
+                HUSKY_LOG(AssetLog::MetaUnreadable, meta);
                 ++report.invalidMetaCount;
                 continue;
             }
@@ -152,7 +153,7 @@ namespace husky::engine
         {
             if (assetsWithMeta.count(asset) == 0)
             {
-                std::printf("アセット: .meta がありません(%s)\n", asset.c_str());
+                HUSKY_LOG(AssetLog::MetaMissing, asset);
                 ++report.missingMetaCount;
             }
         }
@@ -162,8 +163,7 @@ namespace husky::engine
         {
             if (guidUseCount[entry.guid] > 1)
             {
-                std::printf("アセット: GUID が重なっています。どちらも使いません(%s: %s)\n",
-                            entry.guid.ToString().c_str(), entry.assetPath.c_str());
+                HUSKY_LOG(AssetLog::DuplicateGuid, entry.guid.ToString(), entry.assetPath);
                 ++report.duplicateGuidCount;
                 continue;
             }
@@ -221,7 +221,7 @@ namespace husky::engine
             const std::string text = AssetDatabase::MakeMetaText(core::Guid::Generate());
             if (platform::WriteTextFile((root + meta).c_str(), text))
             {
-                std::printf("アセット: .meta を作りました(%s)\n", meta.c_str());
+                HUSKY_LOG(AssetLog::MetaCreated, meta);
                 ++created;
                 if (!mirror.empty())
                 {

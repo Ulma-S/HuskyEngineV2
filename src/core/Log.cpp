@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -88,8 +89,9 @@ namespace husky::core
             void Append(const char* text) { Append(text, std::strlen(text)); }
         };
 
-        void AppendArg(TextWriter& out, const LogArg& arg)
+        void AppendArg(TextWriter& out, const LogRecord& record, int index)
         {
+            const LogRecord::Arg& arg = record.args[index];
             char number[64];
             switch (arg.type)
             {
@@ -105,7 +107,7 @@ namespace husky::core
                 out.Append(arg.boolValue ? "true" : "false");
                 break;
             case LogArgType::String:
-                out.Append(arg.text);
+                out.Append(record.GetString(index));
                 break;
             case LogArgType::None:
                 break;
@@ -167,19 +169,48 @@ namespace husky::core
     {
         LogArg arg;
         arg.type = LogArgType::String;
-        if (value == nullptr)
-            return arg;
-        std::size_t length = std::strlen(value);
-        if (length > MaxLogArgTextLength - 1)
-        {
-            // 長ければ切る。UTF-8 の1文字(日本語は 3 バイト)の途中で切らないように、文字の続きのバイト(10xxxxxx)の前まで戻る。
-            length = MaxLogArgTextLength - 1;
-            while (length > 0 && (static_cast<unsigned char>(value[length]) & 0xC0) == 0x80)
-                --length;
-        }
-        std::memcpy(arg.text, value, length);
-        arg.text[length] = '\0';
+        arg.text = value;
         return arg;
+    }
+
+    bool LogRecord::AddArg(const LogArg& arg)
+    {
+        if (argCount >= MaxLogArgs)
+            return false;
+        Arg& stored = args[argCount];
+        stored = Arg{};
+        stored.type = arg.type;
+        stored.intValue = arg.intValue;
+        stored.floatValue = arg.floatValue;
+        stored.boolValue = arg.boolValue;
+        if (arg.type == LogArgType::String)
+        {
+            // text の空いているところへ、終わりの 0 まで写す。入りきらなければ切る。
+            stored.textOffset = textLength;
+            const std::size_t room = MaxLogTextBytes - textLength; // 0 を含めて書ける大きさ(textLength は必ず MaxLogTextBytes 未満)
+            const char* value = arg.text != nullptr ? arg.text : "";
+            std::size_t length = std::strlen(value);
+            if (length > room - 1)
+            {
+                // UTF-8 の1文字(日本語は 3 バイト)の途中で切らないように、文字の続きのバイト(10xxxxxx)の前まで戻る。
+                length = room - 1;
+                while (length > 0 && (static_cast<unsigned char>(value[length]) & 0xC0) == 0x80)
+                    --length;
+            }
+            std::memcpy(text + textLength, value, length);
+            text[textLength + length] = '\0';
+            // 次の文字列は 0 の後ろから。いっぱいなら最後の 0 を共有する(後の文字列は空になる)。
+            textLength = static_cast<std::uint16_t>(std::min<std::size_t>(textLength + length + 1, MaxLogTextBytes - 1));
+        }
+        ++argCount;
+        return true;
+    }
+
+    const char* LogRecord::GetString(int index) const
+    {
+        if (index < 0 || index >= argCount || args[index].type != LogArgType::String)
+            return "";
+        return text + args[index].textOffset;
     }
 
     Log& Log::Get()
@@ -321,14 +352,7 @@ namespace husky::core
                         ok = args[i].type == message.args[i].type;
                     if (ok)
                     {
-                        LogRecord record;
-                        record.level = message.level;
-                        record.channel = static_cast<std::uint16_t>(channel);
-                        record.id = id;
-                        record.argCount = static_cast<std::uint8_t>(argCount);
-                        for (int i = 0; i < argCount; ++i)
-                            record.args[i] = args[i];
-                        Deliver(record);
+                        Deliver(channel, message.level, id, args, argCount);
                         return true;
                     }
                 }
@@ -343,15 +367,31 @@ namespace husky::core
         return false;
     }
 
-    void Log::WriteChecked(int channel, LogRecord& record)
+    void Log::WriteChecked(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount)
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
-        record.channel = static_cast<std::uint16_t>(channel);
-        Deliver(record);
+        Deliver(channel, level, id, args, argCount);
     }
 
-    void Log::Deliver(LogRecord& record)
+    void Log::WriteText(int channel, LogLevel level, const char* text)
     {
+        const LogArg arg = LogArg::String(text);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        Deliver(channel, level, LogTextId, &arg, 1);
+    }
+
+    void Log::Deliver(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount)
+    {
+        if (m_sinks.empty())
+            return; // 受け手がいなければ、記録を作る手間も省く
+        // 記録は 1 件ずつ使い回す(mutex を持っている間だけ使うので、1つで足りる。スタックに大きな構造体を置かずに済む)。
+        LogRecord& record = m_scratch;
+        record = LogRecord{};
+        record.channel = static_cast<std::uint16_t>(channel < 0 ? 0xFFFF : channel);
+        record.level = level;
+        record.id = id;
+        for (int i = 0; i < argCount; ++i)
+            record.AddArg(args[i]);
         record.timeSeconds = static_cast<double>(NowNanoseconds() - m_startNanoseconds) / 1e9;
         record.frame = m_frame.load(std::memory_order_relaxed);
         record.thread = CurrentThreadNumber();
@@ -391,6 +431,12 @@ namespace husky::core
         out.Append(channel != nullptr ? channel->name.c_str() : "?");
         out.Append("] ");
 
+        if (record.id == LogTextId)
+        {
+            out.Append(record.GetString(0)); // ID の無いログ: 文そのもの
+            return out.length;
+        }
+
         const MessageInfo* message = nullptr;
         if (channel != nullptr && record.id < channel->messages.size() && channel->messages[record.id].registered)
             message = &channel->messages[record.id];
@@ -403,7 +449,7 @@ namespace husky::core
             for (int i = 0; i < record.argCount; ++i)
             {
                 out.Append(" ");
-                AppendArg(out, record.args[i]);
+                AppendArg(out, record, i);
             }
             return out.length;
         }
@@ -432,7 +478,7 @@ namespace husky::core
                 const std::string& name = message->args[i].name;
                 if (name.size() == nameLength && std::memcmp(name.data(), open + 1, nameLength) == 0)
                 {
-                    AppendArg(out, record.args[i]);
+                    AppendArg(out, record, static_cast<int>(i));
                     replaced = true;
                     break;
                 }
@@ -457,9 +503,22 @@ namespace husky::core
 
     void ConsoleLogSink::Receive(const LogRecord& record)
     {
+        if (record.level < m_minimum)
+            return;
         char line[1024];
         Log::Get().FormatRecord(record, line, sizeof(line));
         std::printf("%s\n", line);
+        std::fflush(stdout); // 溜めずにすぐ書き出す(ファイルへ流しているときも、落ちる直前のログが残るように)
+    }
+
+    void WriteLogTextFormat(int channel, LogLevel level, const char* format, ...)
+    {
+        char text[MaxLogTextBytes];
+        va_list args; // 可変個の引数(...)を順に読むための道具
+        va_start(args, format);
+        std::vsnprintf(text, sizeof(text), format, args);
+        va_end(args);
+        Log::Get().WriteText(channel, level, text);
     }
 
     void ReportAssertFailure(const char* condition, const char* file, int line)

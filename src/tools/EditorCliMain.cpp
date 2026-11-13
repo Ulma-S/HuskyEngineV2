@@ -22,6 +22,7 @@ int main(int argc, char** argv)
     // ログを画面に出す(main を抜けるときに外れる。core/Log.h)。
     husky::core::ConsoleLogSink consoleLog;
     husky::core::ScopedLogSink attachConsoleLog(consoleLog);
+    husky::platform::ForwardSdlLogToEngine(); // SDL 自身のログもエンジンのログへ
 
 #if HUSKY_DEVELOPMENT
     // argv[0] は exe の名前なので飛ばす。char* の並びを、扱いやすい std::string の並びに直す。

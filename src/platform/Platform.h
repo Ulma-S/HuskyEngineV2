@@ -25,6 +25,11 @@ namespace husky::platform
     // 動作スレッド: メインスレッド
     void EnableUtf8ConsoleOutput();
 
+    // SDL 自身のログ(SDL の中の警告など)を、エンジンのログ(core/Log.h)の "SDL" チャンネルへ流す(ID の無いログ)。
+    // Initialize が呼ぶ。Initialize を呼ばない exe(エディタの CLI)は自分で呼ぶ。何回呼んでもよい。
+    // 動作スレッド: どこでも(SDL はどのスレッドからでもログを出すことがあり、受けたスレッドで流す)
+    void ForwardSdlLogToEngine();
+
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】OS のイベントを、開発用の UI(ImGui)にも渡すための口。描画層(render)が登録する。
     // platform は ImGui を知らない。登録された関数に、イベントを1つずつ渡すだけ。

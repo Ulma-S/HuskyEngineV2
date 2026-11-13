@@ -1,5 +1,6 @@
 // Game.h と GameActors.h の実装。
 #include "game/Game.h"
+#include "game/GameLog.h"
 
 #include "engine/AssetLoader.h"
 #include "engine/CameraComponent.h"
@@ -14,7 +15,7 @@
 
 #include <algorithm> // std::clamp
 #include <cstdint>
-#include <cstdio> // std::printf
+
 #include <random> // std::mt19937(乱数)
 #include <string>
 
@@ -45,7 +46,7 @@ namespace husky::game
             const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
             if (guid == nullptr)
             {
-                std::printf("プレハブがアセットの表にありません(%s)\n", path);
+                HUSKY_LOG(GameLog::PrefabNotInDatabase, path);
                 return nullptr;
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
@@ -53,7 +54,7 @@ namespace husky::game
             loader.WaitForAllLoads();
             if (prefab == nullptr || !prefab->IsLoaded())
             {
-                std::printf("プレハブを読めませんでした(%s)\n", path);
+                HUSKY_LOG(GameLog::PrefabLoadFailed, path);
                 return nullptr;
             }
             return prefab;
@@ -68,7 +69,7 @@ namespace husky::game
                 engine::Prefab::Instantiate(prefab, app.GetScene(), app.GetTypeRegistry());
             for (const std::string& warning : placed.warnings)
             {
-                std::printf("プレハブの注意: %s\n", warning.c_str());
+                HUSKY_LOG(GameLog::PrefabWarning, warning);
             }
             return core::Cast<T>(placed.actor);
         }
@@ -81,7 +82,7 @@ namespace husky::game
             const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
             if (guid == nullptr)
             {
-                std::printf("設定のデータがアセットの表にありません(%s)。既定の値を使います\n", path);
+                HUSKY_LOG(GameLog::SettingsNotInDatabase, path);
                 return nullptr;
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
@@ -91,7 +92,7 @@ namespace husky::game
             const BouncerSettings* settings = loader.Resolve(reference);
             if (settings == nullptr)
             {
-                std::printf("設定のデータを読めませんでした(%s)。既定の値を使います\n", path);
+                HUSKY_LOG(GameLog::SettingsLoadFailed, path);
             }
             return settings;
         }
@@ -117,7 +118,7 @@ namespace husky::game
                     bouncer != nullptr ? bouncer->GetComponent<engine::SpriteComponent>() : nullptr;
                 if (sprite == nullptr) // オブジェクト用のメモリを使い切った、またはプレハブの形が違う
                 {
-                    std::printf("跳ね回るアクターを置けませんでした(%d 個目)\n", i);
+                    HUSKY_LOG(GameLog::BouncerSpawnFailed, i);
                     return;
                 }
                 // 位置はスプライトの真ん中(ピボットが真ん中のため)。乱数は左下の角として引き、大きさの半分を足す

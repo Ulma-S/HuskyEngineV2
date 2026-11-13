@@ -1,5 +1,8 @@
 // Application.h の実装。
 #include "engine/Application.h"
+#include "engine/EngineLog.h"
+
+#include <cmath> // std::round
 
 #include "core/Log.h"
 #include "core/Profiler.h"
@@ -15,7 +18,7 @@
 #include "platform/Platform.h"
 #include "platform/Window.h"
 
-#include <cstdio> // std::printf
+
 
 namespace husky::engine
 {
@@ -113,17 +116,16 @@ namespace husky::engine
         std::string error;
         if (!JsonFormat::Read(text, file, &error))
         {
-            std::printf("シーンのファイルを読めません(%s): %s\n", path.c_str(), error.c_str());
+            HUSKY_LOG(SceneLog::ReadFailed, path, error);
             return false;
         }
         const SceneSerializer::ReadReport report = SceneSerializer::Read(
             file, *m_scene, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
         for (const std::string& warning : report.warnings)
         {
-            std::printf("シーンの読み込みの警告(%s): %s\n", path.c_str(), warning.c_str());
+            HUSKY_LOG(SceneLog::ReadWarning, path, warning);
         }
-        std::printf("シーンを読み込みました(%s): アクター %zu、オブジェクト %zu、警告 %zu\n", path.c_str(),
-                    report.addedActorCount, report.createdCount, report.warnings.size());
+        HUSKY_LOG(SceneLog::Loaded, path, report.addedActorCount, report.createdCount, report.warnings.size());
         return true;
     }
 
@@ -134,20 +136,19 @@ namespace husky::engine
         const SceneSerializer::WriteResult saved = SceneSerializer::Write(*m_scene);
         for (const std::string& warning : saved.warnings)
         {
-            std::printf("シーンの保存の警告(%s): %s\n", path.c_str(), warning.c_str());
+            HUSKY_LOG(SceneLog::SaveWarning, path, warning);
         }
         std::string text;
         if (!JsonFormat::Write(saved.value, text, true))
         {
-            std::printf("シーンを JSON にできません(%s)\n", path.c_str());
+            HUSKY_LOG(SceneLog::JsonWriteFailed, path);
             return false;
         }
         if (!platform::WriteTextFile(path.c_str(), text))
         {
             return false; // 理由は platform がログに出している
         }
-        std::printf("シーンを保存しました(%s): アクター %zu、%zu バイト\n", path.c_str(), m_scene->actors.size(),
-                    text.size());
+        HUSKY_LOG(SceneLog::Saved, path, m_scene->actors.size(), text.size());
         return true;
     }
 #endif
@@ -210,7 +211,7 @@ namespace husky::engine
         const core::Guid* guid = m_assets.FindGuid(relativePath);
         if (guid == nullptr)
         {
-            std::printf("既定のテクスチャがアセットの表にありません(%s)。テクスチャ無しで描きます\n", relativePath.c_str());
+            HUSKY_LOG(AssetLog::DefaultTextureMissing, relativePath);
             return;
         }
         m_defaultSpriteTexture = m_loader.LoadTexture(*guid);
@@ -251,30 +252,26 @@ namespace husky::engine
             {
                 const render::FrameStats stats = renderDevice.GetLastFrameStats();
                 const core::MemoryStats memory = core::GetMemoryStats();
-                std::printf("FPS: %d  平均 dt: %.2f ms  スプライト: %d  描画命令: %d 回  描けなかった数: %d"
-                            "  オブジェクト: %zu  直前の GC で回収: %zu"
-                            "  ヒープ: %.2f MB(%zu 件、最大 %.2f MB、この1秒の確保 %llu 回)\n",
-                            framesThisSecond,
-                            secondsThisSecond / framesThisSecond * 1000.0,
-                            stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount,
-                            m_registry.GetObjectCount(), m_collectedLastGc,
-                            static_cast<double>(memory.currentBytes) / (1024.0 * 1024.0), memory.currentCount,
-                            static_cast<double>(memory.peakBytes) / (1024.0 * 1024.0),
-                            static_cast<unsigned long long>(memory.totalAllocations - totalAllocationsAtLastLog));
+                // 小数は 2 桁に丸めて渡す(受け手は %g で書くので、丸めないと 16.6667 のように長くなる)。
+                const auto round2 = [](double value) { return std::round(value * 100.0) / 100.0; };
+                constexpr double megabyte = 1024.0 * 1024.0;
+                HUSKY_LOG(StatsLog::Frame, framesThisSecond, round2(secondsThisSecond / framesThisSecond * 1000.0),
+                          stats.spriteCount, stats.drawCallCount, stats.droppedSpriteCount, m_registry.GetObjectCount(),
+                          m_collectedLastGc);
+                HUSKY_LOG(StatsLog::Memory, round2(static_cast<double>(memory.currentBytes) / megabyte),
+                          memory.currentCount, round2(static_cast<double>(memory.peakBytes) / megabyte),
+                          memory.totalAllocations - totalAllocationsAtLastLog);
                 totalAllocationsAtLastLog = memory.totalAllocations;
 #if HUSKY_DEVELOPMENT
-                // 区間ごとの処理時間(平均 / この1秒の最大、ミリ秒)。1行に並べる(文字列を組み立てず、そのまま書き出す)
+                // 区間ごとの処理時間(平均 / この1秒の最大、ミリ秒)。区間ごとに1件(Verbose なので画面には出ない)
                 core::Profiler& profiler = core::Profiler::Get();
-                std::printf("処理時間 ms(平均/最大):");
                 for (int i = 0; i < profiler.GetSectionCount(); ++i)
                 {
                     const core::Profiler::SectionStats& section = profiler.GetStats(i);
-                    std::printf("  %s %.2f/%.2f", section.name, section.averageMs, section.maxMs);
+                    HUSKY_LOG(StatsLog::Profile, section.name, round2(section.averageMs), round2(section.maxMs));
                 }
-                std::printf("\n");
                 profiler.ResetMax();
 #endif
-                std::fflush(stdout); // 出力を溜めずに、すぐ画面(やファイル)へ書き出す
                 framesThisSecond = 0;
                 secondsThisSecond = 0.0;
             }

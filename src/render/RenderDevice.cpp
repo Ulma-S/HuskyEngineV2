@@ -1,5 +1,6 @@
 // RenderDevice.h の SDL_GPU による実装。ここでは SDL を直接呼んでよい。
 #include "render/RenderDevice.h"
+#include "render/RenderLog.h"
 
 #include "core/HandleTable.h"
 #include "platform/Image.h"
@@ -109,14 +110,14 @@ namespace husky::render
             }
             else
             {
-                SDL_Log("CreateShader: 使えるシェーダの形式がありません");
+                HUSKY_LOG(RenderLog::NoShaderFormat);
                 return nullptr;
             }
 
             SDL_GPUShader* shader = SDL_CreateGPUShader(device, &info);
             if (shader == nullptr)
             {
-                SDL_Log("SDL_CreateGPUShader に失敗しました: %s", SDL_GetError());
+                HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUShader", SDL_GetError());
             }
             return shader;
         }
@@ -282,7 +283,7 @@ namespace husky::render
             spritePipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
             if (spritePipeline == nullptr)
             {
-                SDL_Log("SDL_CreateGPUGraphicsPipeline に失敗しました: %s", SDL_GetError());
+                HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUGraphicsPipeline", SDL_GetError());
             }
         }
 
@@ -319,7 +320,7 @@ namespace husky::render
 
         if (spriteVertexBuffer == nullptr || spriteIndexBuffer == nullptr || spriteTransferBuffer == nullptr)
         {
-            SDL_Log("スプライト用バッファの作成に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SpriteBufferFailed, SDL_GetError());
             return false;
         }
 
@@ -342,13 +343,13 @@ namespace husky::render
         SDL_GPUTransferBuffer* indexTransfer = SDL_CreateGPUTransferBuffer(device, &indexTransferInfo);
         if (indexTransfer == nullptr)
         {
-            SDL_Log("SDL_CreateGPUTransferBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUTransferBuffer", SDL_GetError());
             return false;
         }
         void* mapped = SDL_MapGPUTransferBuffer(device, indexTransfer, false);
         if (mapped == nullptr)
         {
-            SDL_Log("SDL_MapGPUTransferBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_MapGPUTransferBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, indexTransfer);
             return false;
         }
@@ -358,7 +359,7 @@ namespace husky::render
         SDL_GPUCommandBuffer* uploadCommands = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommands == nullptr)
         {
-            SDL_Log("SDL_AcquireGPUCommandBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_AcquireGPUCommandBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, indexTransfer);
             return false;
         }
@@ -393,7 +394,7 @@ namespace husky::render
         pointSampler = SDL_CreateGPUSampler(device, &info);
         if (pointSampler == nullptr)
         {
-            SDL_Log("SDL_CreateGPUSampler に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUSampler", SDL_GetError());
             return false;
         }
         return true;
@@ -406,7 +407,7 @@ namespace husky::render
         void* mapped = SDL_MapGPUTransferBuffer(device, spriteTransferBuffer, true);
         if (mapped == nullptr)
         {
-            SDL_Log("SDL_MapGPUTransferBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_MapGPUTransferBuffer", SDL_GetError());
             return;
         }
         std::memcpy(mapped, vertices.data(), bytes);
@@ -460,7 +461,7 @@ namespace husky::render
         // 2. 入力(SDL3)と描画(SDL_GPU)につなぐ。
         if (!ImGui_ImplSDL3_InitForSDLGPU(window))
         {
-            SDL_Log("ImGui_ImplSDL3_InitForSDLGPU に失敗しました");
+            HUSKY_LOG(RenderLog::DevUiInitFailed, "ImGui_ImplSDL3_InitForSDLGPU");
             ImGui::DestroyContext();
             return false;
         }
@@ -470,7 +471,7 @@ namespace husky::render
         info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
         if (!ImGui_ImplSDLGPU3_Init(&info))
         {
-            SDL_Log("ImGui_ImplSDLGPU3_Init に失敗しました");
+            HUSKY_LOG(RenderLog::DevUiInitFailed, "ImGui_ImplSDLGPU3_Init");
             ImGui_ImplSDL3_Shutdown();
             ImGui::DestroyContext();
             return false;
@@ -522,7 +523,7 @@ namespace husky::render
     {
         if (m_impl->device != nullptr)
         {
-            SDL_Log("RenderDevice::Initialize: すでに初期化されています");
+            HUSKY_LOG(RenderLog::AlreadyInitialized);
             return false;
         }
 
@@ -530,7 +531,7 @@ namespace husky::render
         SDL_Window* sdlWindow = static_cast<SDL_Window*>(window.GetNativeHandle());
         if (sdlWindow == nullptr)
         {
-            SDL_Log("RenderDevice::Initialize: ウィンドウが開いていません");
+            HUSKY_LOG(RenderLog::WindowNotOpen);
             return false;
         }
 
@@ -551,16 +552,16 @@ namespace husky::render
             nullptr);
         if (m_impl->device == nullptr)
         {
-            SDL_Log("SDL_CreateGPUDevice に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUDevice", SDL_GetError());
             return false;
         }
-        SDL_Log("GPU の API: %s", SDL_GetGPUDeviceDriver(m_impl->device));
+        HUSKY_LOG(RenderLog::GpuDriver, SDL_GetGPUDeviceDriver(m_impl->device));
 
         // ウィンドウを GPU に結び付ける。これで、ウィンドウの画面(スワップチェーン)に描けるようになる。
         // 表示の方式は既定の VSYNC(モニターの書き換えに合わせて待つ)になる。
         if (!SDL_ClaimWindowForGPUDevice(m_impl->device, sdlWindow))
         {
-            SDL_Log("SDL_ClaimWindowForGPUDevice に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_ClaimWindowForGPUDevice", SDL_GetError());
             return false;
         }
         m_impl->window = sdlWindow;
@@ -585,7 +586,7 @@ namespace husky::render
         // 開発用の UI は、用意できなくてもゲームは動かせるので、失敗してもログを出すだけにする。
         if (!m_impl->InitializeDevUi())
         {
-            SDL_Log("開発用の UI(ImGui)を用意できませんでした。UI なしで続けます");
+            HUSKY_LOG(RenderLog::DevUiUnavailable);
         }
 #endif
         return true;
@@ -598,7 +599,7 @@ namespace husky::render
         const Uint32 bytes = width * height * 4;
         if (image.width <= 0 || image.height <= 0 || image.pixels.size() != bytes)
         {
-            SDL_Log("CreateTexture: 画像の大きさが不正です");
+            HUSKY_LOG(RenderLog::InvalidTextureSize, image.width, image.height);
             return nullptr;
         }
 
@@ -614,7 +615,7 @@ namespace husky::render
         SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureInfo);
         if (texture == nullptr)
         {
-            SDL_Log("SDL_CreateGPUTexture に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUTexture", SDL_GetError());
             return nullptr;
         }
 
@@ -625,7 +626,7 @@ namespace husky::render
         SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
         if (transferBuffer == nullptr)
         {
-            SDL_Log("SDL_CreateGPUTransferBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUTransferBuffer", SDL_GetError());
             SDL_ReleaseGPUTexture(device, texture);
             return nullptr;
         }
@@ -633,7 +634,7 @@ namespace husky::render
         void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
         if (mapped == nullptr)
         {
-            SDL_Log("SDL_MapGPUTransferBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_MapGPUTransferBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
             SDL_ReleaseGPUTexture(device, texture);
             return nullptr;
@@ -646,7 +647,7 @@ namespace husky::render
         SDL_GPUCommandBuffer* uploadCommands = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommands == nullptr)
         {
-            SDL_Log("SDL_AcquireGPUCommandBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_AcquireGPUCommandBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
             SDL_ReleaseGPUTexture(device, texture);
             return nullptr;
@@ -674,7 +675,7 @@ namespace husky::render
     {
         if (m_impl->device == nullptr)
         {
-            SDL_Log("RenderDevice::CreateTexture: まだ初期化されていません");
+            HUSKY_LOG(RenderLog::NotInitialized, "RenderDevice::CreateTexture");
             return {};
         }
         SDL_GPUTexture* gpuTexture = m_impl->CreateGpuTexture(image);
@@ -737,7 +738,7 @@ namespace husky::render
         m_impl->commandBuffer = SDL_AcquireGPUCommandBuffer(m_impl->device);
         if (m_impl->commandBuffer == nullptr)
         {
-            SDL_Log("SDL_AcquireGPUCommandBuffer に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_AcquireGPUCommandBuffer", SDL_GetError());
             return false;
         }
 
@@ -746,7 +747,7 @@ namespace husky::render
         if (!SDL_WaitAndAcquireGPUSwapchainTexture(m_impl->commandBuffer, m_impl->window, &m_impl->swapchainTexture,
                                                    &m_impl->screenWidth, &m_impl->screenHeight))
         {
-            SDL_Log("SDL_WaitAndAcquireGPUSwapchainTexture に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_WaitAndAcquireGPUSwapchainTexture", SDL_GetError());
             SDL_CancelGPUCommandBuffer(m_impl->commandBuffer);
             m_impl->ResetFrame();
             return false;
@@ -873,7 +874,7 @@ namespace husky::render
         SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(m_impl->commandBuffer, &colorTarget, 1, nullptr);
         if (renderPass == nullptr)
         {
-            SDL_Log("SDL_BeginGPURenderPass に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_BeginGPURenderPass", SDL_GetError());
         }
         else
         {

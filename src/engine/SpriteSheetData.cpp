@@ -1,11 +1,12 @@
 // SpriteSheetData.h の実装。
 #include "engine/SpriteSheetData.h"
+#include "engine/EngineLog.h"
 
 #if HUSKY_DEVELOPMENT
 #include "engine/JsonFormat.h"
 #include "platform/FileSystem.h"
 
-#include <cstdio>  // std::printf
+
 #include <random>  // std::random_device
 #endif
 
@@ -362,7 +363,7 @@ namespace husky::engine
             {
                 continue;
             }
-            std::printf("アセット: スプライトシートを整えました(ID とコマを %zu か所)(%s)\n", changed, file.c_str());
+            HUSKY_LOG(AssetLog::SpriteSheetNormalized, changed, file);
             if (!mirror.empty())
             {
                 platform::WriteTextFile((mirror + file).c_str(), updated);

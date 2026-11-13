@@ -1,5 +1,6 @@
 // Platform.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/Platform.h"
+#include "platform/PlatformLog.h"
 
 #include "platform/MemoryHooks.h"
 
@@ -56,13 +57,37 @@ namespace husky::platform
     }
 #endif
 
+    namespace
+    {
+        // SDL のログの受け口(SDL_SetLogOutputFunction に渡す)。SDL の重要度をエンジンのレベルに読み替える。
+        void SDLCALL ForwardSdlLog(void* /*userdata*/, int /*category*/, SDL_LogPriority priority, const char* message)
+        {
+            core::LogLevel level = core::LogLevel::Info;
+            if (priority >= SDL_LOG_PRIORITY_ERROR)
+                level = core::LogLevel::Error;
+            else if (priority == SDL_LOG_PRIORITY_WARN)
+                level = core::LogLevel::Warning;
+            else if (priority <= SDL_LOG_PRIORITY_DEBUG)
+                level = core::LogLevel::Verbose;
+            static const int channel = core::Log::Get().RegisterChannel("SDL");
+            core::Log::Get().WriteText(channel, level, message);
+        }
+    }
+
+    void ForwardSdlLogToEngine()
+    {
+        SDL_SetLogOutputFunction(ForwardSdlLog, nullptr);
+    }
+
     bool Initialize()
     {
+        ForwardSdlLogToEngine();
+
         // SDL のメモリの確保が MemoryTracker を通っていなければ、知らせる(ヒープの集計から SDL の分が抜けるため)。
         // 差し替えは、ここでは遅すぎる(SDL はもう確保しているかもしれない)ので、main の最初で行う(MemoryHooks.h)。
         if (!AreMemoryHooksInstalled())
         {
-            SDL_Log("注意: InstallMemoryHooks が呼ばれていません。SDL のメモリは集計に入りません");
+            HUSKY_LOG(PlatformLog::MemoryHooksMissing);
         }
 
         // SDL の映像(ウィンドウ)まわりを初期化する。イベント処理も一緒に初期化される。
@@ -70,7 +95,7 @@ namespace husky::platform
         if (!SDL_Init(SDL_INIT_VIDEO))
         {
             // 例外は使わないので、失敗は戻り値で伝える。理由は SDL_GetError() で取れる。
-            SDL_Log("SDL_Init に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(PlatformLog::SdlCallFailed, "SDL_Init", SDL_GetError());
             return false;
         }
         return true;

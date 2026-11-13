@@ -1,5 +1,6 @@
 // Image.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/Image.h"
+#include "platform/PlatformLog.h"
 
 #include <SDL3/SDL.h>
 
@@ -15,7 +16,7 @@ namespace husky::platform
         SDL_Surface* loaded = SDL_LoadPNG(path);
         if (loaded == nullptr)
         {
-            SDL_Log("SDL_LoadPNG に失敗しました (%s): %s", path, SDL_GetError());
+            HUSKY_LOG(PlatformLog::ImageLoadFailed, path, SDL_GetError());
             return false;
         }
 
@@ -25,7 +26,7 @@ namespace husky::platform
         SDL_DestroySurface(loaded);
         if (rgba == nullptr)
         {
-            SDL_Log("SDL_ConvertSurface に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(PlatformLog::SdlCallFailed, "SDL_ConvertSurface", SDL_GetError());
             return false;
         }
 

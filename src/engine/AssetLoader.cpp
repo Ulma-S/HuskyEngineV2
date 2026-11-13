@@ -1,12 +1,13 @@
 // AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h、PrefabAsset.h の実装。ScriptableData.h の箱(ScriptableDataAsset)のデストラクタも。
 #include "engine/AssetLoader.h"
+#include "engine/EngineLog.h"
 
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
 #include "platform/FileSystem.h"
 #include "platform/Image.h"
 
-#include <cstdio>  // std::printf
+
 #include <utility> // std::move, std::swap
 
 namespace husky::engine
@@ -241,7 +242,7 @@ namespace husky::engine
         std::string path = m_database.GetFullPath(guid);
         if (path.empty())
         {
-            std::printf("アセット: GUID が表にありません(%s)\n", guid.ToString().c_str());
+            HUSKY_LOG(AssetLog::GuidNotInDatabase, guid.ToString());
         }
         return path;
     }
@@ -274,7 +275,7 @@ namespace husky::engine
         TextureAsset* asset = m_registry.Create<TextureAsset>();
         if (asset == nullptr)
         {
-            std::printf("アセット: オブジェクト用のメモリが足りず、テクスチャを作れません(%s)\n", guid.ToString().c_str());
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "テクスチャ", guid.ToString());
             return {};
         }
         asset->m_guid = guid;
@@ -391,8 +392,7 @@ namespace husky::engine
         SpriteSheetAsset* asset = m_registry.Create<SpriteSheetAsset>();
         if (asset == nullptr)
         {
-            std::printf("アセット: オブジェクト用のメモリが足りず、スプライトシートを作れません(%s)\n",
-                        guid.ToString().c_str());
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "スプライトシート", guid.ToString());
             return {};
         }
         asset->m_guid = guid;
@@ -447,7 +447,7 @@ namespace husky::engine
     {
         for (const std::string& warning : load.warnings)
         {
-            std::printf("アセット: スプライトシートの注意(%s): %s\n", load.path.c_str(), warning.c_str());
+            HUSKY_LOG(AssetLog::LoadWarning, "スプライトシート", load.path, warning);
         }
         SpriteSheetAsset* asset = ResolveSpriteSheet(load.asset);
         if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
@@ -498,7 +498,7 @@ namespace husky::engine
         PrefabAsset* asset = m_registry.Create<PrefabAsset>();
         if (asset == nullptr)
         {
-            std::printf("アセット: オブジェクト用のメモリが足りず、プレハブを作れません(%s)\n", guid.ToString().c_str());
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "プレハブ", guid.ToString());
             return {};
         }
         asset->m_guid = guid;
@@ -554,7 +554,7 @@ namespace husky::engine
     {
         for (const std::string& warning : load.warnings)
         {
-            std::printf("アセット: プレハブの注意(%s): %s\n", load.path.c_str(), warning.c_str());
+            HUSKY_LOG(AssetLog::LoadWarning, "プレハブ", load.path, warning);
         }
         PrefabAsset* asset = ResolvePrefab(load.asset);
         if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
@@ -603,7 +603,7 @@ namespace husky::engine
         ScriptableDataAsset* asset = m_registry.Create<ScriptableDataAsset>();
         if (asset == nullptr)
         {
-            std::printf("アセット: オブジェクト用のメモリが足りず、ScriptableData を作れません(%s)\n", guid.ToString().c_str());
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "ScriptableData", guid.ToString());
             return {};
         }
         asset->m_guid = guid;
@@ -666,8 +666,7 @@ namespace husky::engine
         {
             if (asset->m_warnedType != &expected)
             {
-                std::printf("アセット: ScriptableData の型が違います(%s は %s で、%s を期待していました)\n",
-                            reference.guid.ToString().c_str(), data->GetType().GetName(), expected.GetName());
+                HUSKY_LOG(AssetLog::ScriptableDataWrongType, reference.guid.ToString(), data->GetType().GetName(), expected.GetName());
                 asset->m_warnedType = &expected;
             }
             return nullptr;
@@ -700,7 +699,7 @@ namespace husky::engine
     {
         for (const std::string& warning : load.warnings)
         {
-            std::printf("アセット: ScriptableData の注意(%s): %s\n", load.path.c_str(), warning.c_str());
+            HUSKY_LOG(AssetLog::LoadWarning, "ScriptableData", load.path, warning);
         }
         ScriptableDataAsset* asset = ResolveScriptableDataAsset(load.asset);
         if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
@@ -717,7 +716,7 @@ namespace husky::engine
         const ArchiveValue* typeName = load.data.Find("type");
         if (typeName == nullptr || typeName->GetType() != ArchiveValue::Type::String)
         {
-            std::printf("アセット: ScriptableData に \"type\"(型の名前の文字列)がありません(%s)\n", load.path.c_str());
+            HUSKY_LOG(AssetLog::ScriptableDataNoType, load.path);
             asset->m_state = AssetState::Failed;
             return;
         }
@@ -727,8 +726,10 @@ namespace husky::engine
         const core::TypeInfo* type = m_types.Find(typeName->AsString());
         if (type == nullptr || !type->IsA(ScriptableData::StaticType()))
         {
-            std::printf("アセット: ScriptableData の型 %s が%s(%s)\n", typeName->AsString().c_str(),
-                        type == nullptr ? "登録されていません" : " ScriptableData の子ではありません", load.path.c_str());
+            if (type == nullptr)
+                HUSKY_LOG(AssetLog::ScriptableDataTypeNotRegistered, typeName->AsString(), load.path);
+            else
+                HUSKY_LOG(AssetLog::ScriptableDataTypeNotData, typeName->AsString(), load.path);
             asset->m_state = AssetState::Failed;
             return;
         }
@@ -736,7 +737,7 @@ namespace husky::engine
         ScriptableData* data = created != nullptr && created->IsA<ScriptableData>() ? static_cast<ScriptableData*>(created) : nullptr;
         if (data == nullptr)
         {
-            std::printf("アセット: ScriptableData を作れません(%s)\n", load.path.c_str());
+            HUSKY_LOG(AssetLog::ScriptableDataCreateFailed, load.path);
             if (created != nullptr)
             {
                 created->Destroy();
@@ -749,7 +750,7 @@ namespace husky::engine
         const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(load.data, *data);
         for (const std::string& warning : report.warnings)
         {
-            std::printf("アセット: ScriptableData の注意(%s): %s\n", load.path.c_str(), warning.c_str());
+            HUSKY_LOG(AssetLog::LoadWarning, "ScriptableData", load.path, warning);
         }
         data->m_assetGuid = asset->m_guid;
         data->MarkReadOnly(); // ここから先は読むだけ(書く入口が断る。SD-2)
@@ -803,9 +804,7 @@ namespace husky::engine
                     const ArchiveValue* old = before->Find(now->GetMemberName(i));
                     if (old == nullptr || !old->Equals(now->GetMemberValue(i)))
                     {
-                        std::printf("エラー: 読むだけの ScriptableData が書き換えられています: %s(型 %s、GUID %s)のプロパティ %s\n",
-                                    m_database.GetFullPath(guid).c_str(), data->GetType().GetName(),
-                                    guid.ToString().c_str(), now->GetMemberName(i).c_str());
+                        HUSKY_LOG(AssetLog::ReadOnlyDataModified, m_database.GetFullPath(guid), data->GetType().GetName(), guid.ToString(), now->GetMemberName(i));
                         ++changedCount;
                     }
                 }

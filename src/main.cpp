@@ -8,6 +8,7 @@
 #include "engine/Application.h"
 #include "engine/Input.h"
 #include "game/Game.h"
+#include "game/GameLog.h"
 #include "platform/FileSystem.h"
 #include "core/Log.h"
 #include "platform/MemoryHooks.h"
@@ -22,7 +23,7 @@
 #include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
 #endif
 
-#include <cstdio> // std::printf
+
 #include <string>
 #include <utility> // std::move
 
@@ -63,7 +64,7 @@ int main()
 #else
     const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
 #endif
-    std::printf("アセットのフォルダ: %s\n", assetsDirectory.c_str());
+    HUSKY_LOG(game::GameLog::AssetsDirectory, assetsDirectory);
     const std::string scenePath = assetsDirectory + "/scenes/main.json";
 
 #if HUSKY_DEVELOPMENT
@@ -150,15 +151,14 @@ int main()
     // 製品: ファイルは直さず(エディタの役目)、表を作るだけ。
     engine::AssetScanReport assetReport;
     app.GetAssetDatabase().Scan(assetsDirectory, &assetReport);
-    std::printf("アセット: %zu 個(.meta が無い %zu、読めない .meta %zu、対の無い .meta %zu、GUID の重なり %zu)\n",
-                assetReport.assetCount, assetReport.missingMetaCount, assetReport.invalidMetaCount,
-                assetReport.orphanMetaCount, assetReport.duplicateGuidCount);
+    HUSKY_LOG(game::GameLog::AssetScan, assetReport.assetCount, assetReport.missingMetaCount, assetReport.invalidMetaCount,
+              assetReport.orphanMetaCount, assetReport.duplicateGuidCount);
 #endif
 
     // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
-        std::printf("シーンのファイルが無いので、コードでアクターを置きます(%s)\n", scenePath.c_str());
+        HUSKY_LOG(game::GameLog::NoSceneFile, scenePath);
         game::SpawnInitialActors(app);
     }
 
@@ -202,7 +202,7 @@ int main()
         {
             colorIndex = 1 - colorIndex; // 0 と 1 を入れ替える
             application.SetClearColor(colors[colorIndex]);
-            std::printf("色を切り替えました: %d\n", colorIndex);
+            HUSKY_LOG(game::GameLog::ClearColorChanged, colorIndex);
         }
 
 #if HUSKY_DEVELOPMENT

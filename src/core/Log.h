@@ -54,22 +54,23 @@ namespace husky::core
         Int,
         Float,
         Bool,
-        String, // 短い文字列(MaxArgTextLength - 1 文字まで。長ければ切る)
+        String, // 文字列(記録の中の共有の入れ物に写す。1件の文字列の合計が MaxLogTextBytes - 1 バイトを超えると切る)
     };
 
     const char* ToString(LogArgType type);
 
-    constexpr int MaxLogArgs = 4;           // 1件に持てる値の数
-    constexpr int MaxLogArgTextLength = 96; // 文字列の値の入れ物の大きさ(終わりの 0 を含む)
+    constexpr int MaxLogArgs = 8;          // 1件に持てる値の数
+    constexpr int MaxLogTextBytes = 512;   // 1件の記録の、文字列の値をまとめて入れる入れ物の大きさ(それぞれの終わりの 0 を含む)
+    constexpr std::uint16_t LogTextId = 0; // ID の無いログ(HUSKY_LOG_TEXT)の番号。値は文字列1つ(文そのもの)
 
-    // 記録に入る1つの値。決まった大きさなので、記録を配列やリングバッファにそのまま並べられる(確保しない)。
+    // 出す側が渡す1つの値。文字列は借りるだけ(Write の間だけ生きていればよい。記録へは写す)。
     struct LogArg
     {
         LogArgType type = LogArgType::None;
         std::int64_t intValue = 0;
         double floatValue = 0.0;
         bool boolValue = false;
-        char text[MaxLogArgTextLength] = {};
+        const char* text = nullptr;
 
         static LogArg Int(std::int64_t value);
         static LogArg Float(double value);
@@ -78,16 +79,34 @@ namespace husky::core
     };
 
     // 1件のログ。文は持たない(チャンネルと番号で定義を引いて、受け手が文にする)。
+    // 決まった大きさなので、配列やリングバッファにそのまま並べられ、コピーしても中の文字列ごと写る(確保しない)。
     struct LogRecord
     {
+        // 記録の中の1つの値。文字列は text の中の場所(先頭からのバイト数)で指す(ポインタだと、記録をコピーしたときに古い方を指してしまう)。
+        struct Arg
+        {
+            LogArgType type = LogArgType::None;
+            std::uint16_t textOffset = 0;
+            std::int64_t intValue = 0;
+            double floatValue = 0.0;
+            bool boolValue = false;
+        };
+
         double timeSeconds = 0.0;   // Log を作ってからの秒
         std::uint64_t frame = 0;    // AdvanceFrame を呼んだ回数(ゲームは StepFrame の最初に呼ぶ)
         std::uint32_t thread = 0;   // スレッドの番号(そのスレッドが最初にログを出したときに 1 から振る)
         LogLevel level = LogLevel::Info;
         std::uint16_t channel = 0;  // 登録の番号(実行中だけの数。外へ書くときは名前にする)
-        std::uint16_t id = 0;       // チャンネルの中の番号(enum の値)
+        std::uint16_t id = 0;       // チャンネルの中の番号(enum の値)。LogTextId なら ID の無いログ
         std::uint8_t argCount = 0;
-        LogArg args[MaxLogArgs];
+        std::uint16_t textLength = 0; // text に使ったバイト数
+        Arg args[MaxLogArgs];
+        char text[MaxLogTextBytes] = {};
+
+        // 値を足す(文字列は text へ写す。入りきらなければ UTF-8 の文字の途中で切らないように切る)。足せなければ false。
+        bool AddArg(const LogArg& arg);
+        // i 番目の文字列の値(文字列でなければ "")。
+        const char* GetString(int index) const;
     };
 
     // ---- 定義(テンプレートを使わない形。C++ の表も、スクリプトも、これで登録する) ----
@@ -145,7 +164,10 @@ namespace husky::core
         bool Write(int channel, std::uint16_t id, const LogArg* args, int argCount);
 
         // 1件出す(HUSKY_LOG が使う。定義との照らし合わせはコンパイルのときに済んでいる)。時刻・フレーム・スレッドはここで入れる。
-        void WriteChecked(int channel, LogRecord& record);
+        void WriteChecked(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount);
+
+        // ID の無いログを1件出す(HUSKY_LOG_TEXT と、SDL のログ)。文そのものを、文字列の値1つとして持つ。
+        void WriteText(int channel, LogLevel level, const char* text);
 
         // 受け手の付け外し(借りるだけ。外すまで壊さないこと)。
         void AddSink(LogSink* sink);
@@ -189,24 +211,35 @@ namespace husky::core
             std::vector<MessageInfo> messages; // 番号を添字にする(番号は小さな数を手で振るので、すき間は少ない)
         };
 
-        void Deliver(LogRecord& record); // mutex を持って呼ぶ
+        void Deliver(int channel, LogLevel level, std::uint16_t id, const LogArg* args, int argCount); // mutex を持って呼ぶ
         std::size_t FormatLocked(const LogRecord& record, char* buffer, std::size_t size) const;
         int FindChannelLocked(const char* name) const;
 
         std::recursive_mutex m_mutex; // FormatRecord を受け手の中からも呼べるように、同じスレッドなら二重に取れる mutex
         std::vector<ChannelInfo> m_channels;
         std::vector<LogSink*> m_sinks;
+        LogRecord m_scratch; // Deliver が使い回す記録(mutex を持っている間だけ使う)
         std::atomic<std::uint64_t> m_frame{0};
         std::int64_t m_startNanoseconds = 0;
         bool m_breakOnAssert = true;
     };
 
-    // 画面(標準出力)に1行ずつ出す受け手。
+    // 画面(標準出力)に1行ずつ出す受け手。minimum より低いレベルは出さない(既定は Info。Verbose は毎秒の処理時間など、量が多いもの)。
     class ConsoleLogSink : public LogSink
     {
     public:
+        explicit ConsoleLogSink(LogLevel minimum = LogLevel::Info)
+            : m_minimum(minimum)
+        {
+        }
         void Receive(const LogRecord& record) override;
+
+    private:
+        LogLevel m_minimum;
     };
+
+    // HUSKY_LOG_TEXT の中身(printf の形で文を作り、WriteText に渡す。文は MaxLogTextBytes - 1 バイトまで)。
+    void WriteLogTextFormat(int channel, LogLevel level, const char* format, ...);
 
     // 受け手を、このオブジェクトが生きている間だけ付ける(RAII。壊れるときに外すので、外し忘れて壊れた受け手を呼ぶことがない)。
     //   core::ConsoleLogSink console;
@@ -305,14 +338,10 @@ namespace husky::core
         static_assert(message->ArgCount() == static_cast<int>(sizeof...(Args)), "HUSKY_LOG: 値の数が定義と違います");
         static_assert(LogArgsMatch<Args...>(*message), "HUSKY_LOG: 値の種類が定義と違います");
 
-        LogRecord record;
-        record.level = message->level;
-        record.id = message->id;
-        record.argCount = static_cast<std::uint8_t>(sizeof...(Args));
-        int i = 0;
-        ((record.args[i++] = MakeLogArg(args)), ...); // 値を順に写す(畳み込み式: 引数の数だけくり返す)
-        (void)i;
-        Log::Get().WriteChecked(Channel::Index(), record);
+        // 値を並べる(畳み込み式: 引数の数だけくり返す)。先頭は値が0個のときに配列の大きさが0にならないための埋め草。
+        const LogArg values[] = {LogArg{}, MakeLogArg(args)...};
+        Log::Get().WriteChecked(Channel::Index(), message->level, message->id, values + 1,
+                                static_cast<int>(sizeof...(Args)));
     }
 
     // HUSKY_ASSERT が外れたとき(開発ビルドだけ)。記録して、設定ならデバッガで止める。
@@ -333,7 +362,7 @@ namespace husky::core
         static constexpr const char* name = channelName;                                                      \
         static constexpr ::husky::core::LogMessageDef messages[] = {
 
-// メッセージを1つ定義する。level は Verbose / Info / Warning / Error。値は HUSKY_LOG_ARG で 0〜4 個。
+// メッセージを1つ定義する。level は Verbose / Info / Warning / Error。値は HUSKY_LOG_ARG で 0〜8 個。
 #define HUSKY_LOG_MESSAGE(valueName, level, format, ...)                                                      \
     ::husky::core::LogMessageDef{static_cast<std::uint16_t>(ThisEnum::valueName), #valueName,                 \
                                  ::husky::core::LogLevel::level, format, {__VA_ARGS__}},
@@ -352,6 +381,17 @@ namespace husky::core
 
 // ログを1件出す。message はチャンネルの enum の値(AssetLog::MetaMissing)、続けて値。
 #define HUSKY_LOG(message, ...) ::husky::core::WriteLog<message>(__VA_ARGS__)
+
+// ID の無いログ(その場限りのデバッグ用。テレメトリで絞り込みたいものは HUSKY_LOG にする)。
+//   HUSKY_LOG_TEXT(Info, "Debug", "x = %d", x);
+// level は Verbose / Info / Warning / Error、channelName は名前の文字列、続けて printf の形の書式と値。
+// チャンネルの番号は、この行を最初に通ったときに1回だけ引く(static)。
+#define HUSKY_LOG_TEXT(level, channelName, ...)                                                               \
+    do                                                                                                        \
+    {                                                                                                         \
+        static const int huskyLogTextChannel = ::husky::core::Log::Get().RegisterChannel(channelName);       \
+        ::husky::core::WriteLogTextFormat(huskyLogTextChannel, ::husky::core::LogLevel::level, __VA_ARGS__);  \
+    } while (false)
 
 // 条件が成り立つことを確かめる。外れたら Assert のレベルで記録し、開発ビルドではデバッガで止める。
 // 製品(Release)ではコードごと抜く。条件も計算しないので、条件に副作用(値を書き換える処理)を書かない。

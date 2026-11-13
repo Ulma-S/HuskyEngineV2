@@ -157,16 +157,38 @@ TEST_CASE("番号が重なる・番号 0 の登録と、値の違う Write は�
     CHECK(Format(sink.records[0]) == "[Warning][Test] a.png を読みました(1 個)");
 }
 
-TEST_CASE("長い文字列の値は、UTF-8 の文字の途中で切らない")
+TEST_CASE("文字列の値は記録の中の入れ物に写り、入りきらなければ UTF-8 の文字の途中で切らずに切る")
 {
+    LogRecord record;
+    CHECK(record.AddArg(LogArg::String("abc")));
     std::string text;
-    for (int i = 0; i < 40; ++i)
-        text += "あ"; // 3 バイト × 40 = 120 バイト(入れ物は 95 バイトまで)
-    const LogArg arg = LogArg::String(text.c_str());
-    const std::size_t length = std::strlen(arg.text);
-    CHECK(length <= static_cast<std::size_t>(husky::core::MaxLogArgTextLength - 1));
+    for (int i = 0; i < 200; ++i)
+        text += "あ"; // 3 バイト × 200 = 600 バイト(入れ物の残りは 512 - 4 = 508 バイト、0 を除いて 507)
+    CHECK(record.AddArg(LogArg::String(text.c_str())));
+    CHECK(record.AddArg(LogArg::String("後ろ"))); // もう入らないので空になる
+
+    CHECK(std::string(record.GetString(0)) == "abc");
+    const std::size_t length = std::strlen(record.GetString(1));
     CHECK(length % 3 == 0); // 「あ」の切れ端が残らない
-    CHECK(length == 93);
+    CHECK(length == 507 / 3 * 3);
+    CHECK(std::string(record.GetString(2)).empty());
+
+    // 記録をコピーしても、文字列は場所(先頭からのバイト数)で指しているので、写した方の中身を指す。
+    const LogRecord copy = record;
+    CHECK(copy.GetString(0) == copy.text + 0);
+    CHECK(std::string(copy.GetString(0)) == "abc");
+}
+
+TEST_CASE("HUSKY_LOG_TEXT は ID の無いログ(番号 0)を、名前のチャンネルで出す")
+{
+    CaptureSink sink;
+    ScopedLogSink attach(sink);
+
+    HUSKY_LOG_TEXT(Info, "TextTest", "x = %d, name = %s", 7, "player");
+    REQUIRE(sink.records.size() == 1);
+    CHECK(sink.records[0].id == husky::core::LogTextId);
+    CHECK(sink.records[0].channel == Log::Get().FindChannel("TextTest"));
+    CHECK(Format(sink.records[0]) == "[Info][TextTest] x = 7, name = player");
 }
 
 TEST_CASE("FormatRecord は入れ物が小さいと切り、必ず 0 で終える")

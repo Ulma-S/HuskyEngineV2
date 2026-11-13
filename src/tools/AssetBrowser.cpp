@@ -1,5 +1,6 @@
 // AssetBrowser.h の実装。
 #include "tools/AssetBrowser.h"
+#include "tools/EditorLog.h"
 
 #if HUSKY_DEVELOPMENT
 
@@ -13,7 +14,7 @@
 #include <imgui_stdlib.h> // ImGui::InputText(std::string*)
 
 #include <algorithm> // std::sort
-#include <cstdio>    // std::printf
+
 
 namespace husky::tools
 {
@@ -264,8 +265,7 @@ namespace husky::tools
         core::Object* copy = app.GetTypeRegistry().Create(data->GetType().GetName(), app.GetRegistry());
         if (copy == nullptr)
         {
-            std::printf("アセットの窓: %s の写しを作れません(型が登録されていないか、メモリが足りません)\n",
-                        data->GetType().GetName());
+            HUSKY_LOG(EditorLog::DataCopyFailed, data->GetType().GetName());
             return;
         }
         engine::ObjectSerializer::ReadProperties(engine::ObjectSerializer::Write(*data), *copy);

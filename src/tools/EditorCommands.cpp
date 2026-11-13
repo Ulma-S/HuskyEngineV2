@@ -1,5 +1,6 @@
 // EditorCommands.h の実装。製品(Release)では中身が空になる。
 #include "tools/EditorCommands.h"
+#include "tools/EditorLog.h"
 
 #if HUSKY_DEVELOPMENT
 
@@ -16,7 +17,7 @@
 #include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
 
 #include <algorithm> // std::sort
-#include <cstdio>  // std::printf
+
 #include <utility> // std::move
 
 namespace husky::tools
@@ -197,11 +198,13 @@ namespace husky::tools
         // 人が後から追えるように、ログにも出す(画面の窓を閉じていても分かる)。
         if (m_logResults)
         {
-            std::printf("コマンド %s: %s %s\n", name.c_str(), result.succeeded ? "成功" : "失敗",
-                        result.message.c_str());
+            if (result.succeeded)
+                HUSKY_LOG(EditorLog::CommandSucceeded, name, result.message);
+            else
+                HUSKY_LOG(EditorLog::CommandFailed, name, result.message);
             for (const std::string& detail : result.details)
             {
-                std::printf("  %s\n", detail.c_str());
+                HUSKY_LOG(EditorLog::CommandDetail, detail);
             }
         }
         m_lastCommandName = name;

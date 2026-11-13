@@ -1,5 +1,6 @@
 // FileSystem.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/FileSystem.h"
+#include "platform/PlatformLog.h"
 
 #include <SDL3/SDL.h>
 
@@ -22,7 +23,7 @@ namespace husky::platform
         void* data = SDL_LoadFile(path, &size);
         if (data == nullptr)
         {
-            SDL_Log("ファイルを読めませんでした (%s): %s", path, SDL_GetError());
+            HUSKY_LOG(PlatformLog::FileReadFailed, path, SDL_GetError());
             return false;
         }
         outText.assign(static_cast<const char*>(data), size);
@@ -36,14 +37,14 @@ namespace husky::platform
         const std::string temporaryPath = std::string(path) + ".tmp";
         if (!SDL_SaveFile(temporaryPath.c_str(), text.data(), text.size()))
         {
-            SDL_Log("ファイルを書けませんでした (%s): %s", temporaryPath.c_str(), SDL_GetError());
+            HUSKY_LOG(PlatformLog::FileWriteFailed, temporaryPath, SDL_GetError());
             return false;
         }
         // 2. 書き終えたら、名前を変えて置き換える。名前の変更は一瞬で終わるので、
         //    「途中まで書かれた壊れたファイル」が path に残ることはない(Windows では MoveFileExW で置き換える)。
         if (!SDL_RenamePath(temporaryPath.c_str(), path))
         {
-            SDL_Log("ファイルを置き換えられませんでした (%s → %s): %s", temporaryPath.c_str(), path, SDL_GetError());
+            HUSKY_LOG(PlatformLog::FileReplaceFailed, temporaryPath, path, SDL_GetError());
             SDL_RemovePath(temporaryPath.c_str()); // 一時ファイルを残さない
             return false;
         }
@@ -67,7 +68,7 @@ namespace husky::platform
         // SDL_CreateDirectory は、途中のフォルダもまとめて作り、すでにあるときも true を返す。
         if (!SDL_CreateDirectory(path))
         {
-            SDL_Log("フォルダを作れませんでした (%s): %s", path, SDL_GetError());
+            HUSKY_LOG(PlatformLog::DirectoryCreateFailed, path, SDL_GetError());
             return false;
         }
         return true;
@@ -83,7 +84,7 @@ namespace husky::platform
         char** entries = SDL_GlobDirectory(directory, nullptr, 0, &count);
         if (entries == nullptr)
         {
-            SDL_Log("フォルダを読めませんでした (%s): %s", directory, SDL_GetError());
+            HUSKY_LOG(PlatformLog::DirectoryReadFailed, directory, SDL_GetError());
             return false;
         }
 

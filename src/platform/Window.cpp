@@ -1,5 +1,6 @@
 // Window.h の実装。ここでは SDL を直接呼んでよい。
 #include "platform/Window.h"
+#include "platform/PlatformLog.h"
 
 #include <SDL3/SDL.h>
 
@@ -42,7 +43,7 @@ namespace husky::platform
         // 2回開くと、前のウィンドウを壊す機会がなくなる(リーク)ので、開いていたら断る。
         if (m_impl->sdlWindow != nullptr)
         {
-            SDL_Log("Window::Open: すでに開いています");
+            HUSKY_LOG(PlatformLog::WindowAlreadyOpen);
             return false;
         }
 
@@ -50,7 +51,7 @@ namespace husky::platform
         m_impl->sdlWindow = SDL_CreateWindow(desc.title, desc.width, desc.height, 0);
         if (m_impl->sdlWindow == nullptr)
         {
-            SDL_Log("SDL_CreateWindow に失敗しました: %s", SDL_GetError());
+            HUSKY_LOG(PlatformLog::SdlCallFailed, "SDL_CreateWindow", SDL_GetError());
             return false;
         }
         return true;
