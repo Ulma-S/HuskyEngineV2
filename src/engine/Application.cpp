@@ -22,7 +22,7 @@ namespace husky::engine
     // { } の中が走る前に、メンバーは宣言した順に作られている。
     Application::Application(std::size_t objectCapacityBytes, std::size_t workerCount)
         : m_jobs(workerCount)
-        , m_loader(m_assets, m_registry, m_jobs) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
+        , m_loader(m_assets, m_registry, m_jobs, m_types) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
         , m_registry(objectCapacityBytes)
     {
         RegisterEngineTypes(m_types); // engine の型(Scene、Actor、SpriteComponent など)を、名前から作れるようにする

@@ -1,7 +1,8 @@
-// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h、PrefabAsset.h の実装。
+// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h、PrefabAsset.h の実装。ScriptableData.h の箱(ScriptableDataAsset)のデストラクタも。
 #include "engine/AssetLoader.h"
 
 #include "engine/JsonFormat.h"
+#include "engine/ObjectSerializer.h"
 #include "platform/FileSystem.h"
 #include "platform/Image.h"
 
@@ -58,10 +59,10 @@ namespace husky::engine
             return true;
         }
 
-        // ---- プレハブ(ジョブの中で呼ぶ) ----
+        // ---- プレハブと ScriptableData(ジョブの中で呼ぶ) ----
 
-        // .prefab(JSON)を読んで、値の木にする。形(アクターが1つか)は、置くとき(Prefab::Instantiate)に確かめる。
-        bool ReadPrefab(const std::string& path, ArchiveValue& outData, std::vector<std::string>& outWarnings)
+        // JSON のファイル(.prefab、.sdata)を読んで、値の木にする。形(プレハブならアクターが1つか)は、使う側が確かめる。
+        bool ReadJsonFile(const std::string& path, ArchiveValue& outData, std::vector<std::string>& outWarnings)
         {
             std::string text;
             std::string error;
@@ -107,9 +108,19 @@ namespace husky::engine
         }
     }
 
-    AssetLoader::AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry, core::JobSystem& jobs)
+    ScriptableDataAsset::~ScriptableDataAsset()
+    {
+        if (m_loader != nullptr)
+        {
+            m_loader->OnScriptableDataDestroyed(*this);
+        }
+    }
+
+    AssetLoader::AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry, core::JobSystem& jobs,
+                             const core::TypeRegistry& types)
         : m_database(database)
         , m_registry(registry)
+        , m_types(types)
         , m_jobs(jobs)
     {
         // registry は、ここではまだ使わない(Application では、このローダより後に作られるため。
@@ -215,6 +226,12 @@ namespace husky::engine
         if (assetType.IsA(PrefabAsset::StaticType()))
         {
             return EndsWith(relativePath, ".prefab");
+        }
+        // AssetRef<BouncerSettings> のアセットの型は、中身の型(ScriptableData の子)。箱の型で聞かれても同じに答える。
+        // ファイルの中の "type" までは見ない(どの子の型かで絞るのは、要るようになったら)。
+        if (assetType.IsA(ScriptableData::StaticType()) || assetType.IsA(ScriptableDataAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".sdata");
         }
         return false;
     }
@@ -529,7 +546,7 @@ namespace husky::engine
         // ジョブ(ワーカースレッド): ファイルを読み、記録の data、warnings、succeeded に書く。
         // 値の木はただのデータ(GC 管理のオブジェクトではない)なので、ジョブで作ってよい。
         Schedule(std::move(record), [](PendingPrefabLoad& load) {
-            load.succeeded = ReadPrefab(load.path, load.data, load.warnings);
+            load.succeeded = ReadJsonFile(load.path, load.data, load.warnings);
         });
     }
 
@@ -566,5 +583,173 @@ namespace husky::engine
     {
         m_prefabs.erase(guid); // キャッシュから外すだけ(古いアセットの後始末は OnPrefabDestroyed。外した後は何もしない)
         return LoadPrefab(guid);
+    }
+
+    // ================= ScriptableData =================
+    // 流れはプレハブと同じ。違うのは Finish で、値の木の "type" の名前から中身を作り、Property 越しに値を入れること。
+
+    core::ObjectHandle AssetLoader::LoadScriptableData(const core::Guid& guid)
+    {
+        const auto found = m_scriptableData.find(guid);
+        if (found != m_scriptableData.end())
+        {
+            const ScriptableDataAsset* cached = ResolveScriptableDataAsset(found->second);
+            if (cached != nullptr && !cached->IsPendingDestroy())
+            {
+                return found->second;
+            }
+        }
+
+        ScriptableDataAsset* asset = m_registry.Create<ScriptableDataAsset>();
+        if (asset == nullptr)
+        {
+            std::printf("アセット: オブジェクト用のメモリが足りず、ScriptableData を作れません(%s)\n", guid.ToString().c_str());
+            return {};
+        }
+        asset->m_guid = guid;
+        asset->m_loader = this;
+        StartScriptableDataLoad(*asset);
+        m_scriptableData[guid] = asset->GetHandle();
+        return asset->GetHandle();
+    }
+
+    ScriptableDataAsset* AssetLoader::ResolveScriptableDataAsset(core::ObjectHandle handle) const
+    {
+        return m_registry.Resolve<ScriptableDataAsset>(handle);
+    }
+
+    const ScriptableData* AssetLoader::GetScriptableData(const ScriptableDataAsset& asset) const
+    {
+        if (!asset.IsLoaded())
+        {
+            return nullptr;
+        }
+        return m_registry.Resolve<ScriptableData>(asset.m_data);
+    }
+
+    const ScriptableData* AssetLoader::ResolveScriptableData(core::AssetReference& reference, const core::TypeInfo& expected)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        ScriptableDataAsset* asset = ResolveScriptableDataAsset(reference.asset);
+        if (asset == nullptr || asset->GetGuid() != reference.guid)
+        {
+            reference.asset = LoadScriptableData(reference.guid);
+            asset = ResolveScriptableDataAsset(reference.asset);
+            if (asset == nullptr)
+            {
+                return nullptr;
+            }
+        }
+
+        const ScriptableData* data = GetScriptableData(*asset);
+        if (data == nullptr)
+        {
+            return nullptr; // 読み込み中か、失敗
+        }
+        if (!data->GetType().IsA(expected))
+        {
+            if (asset->m_warnedType != &expected)
+            {
+                std::printf("アセット: ScriptableData の型が違います(%s は %s で、%s を期待していました)\n",
+                            reference.guid.ToString().c_str(), data->GetType().GetName(), expected.GetName());
+                asset->m_warnedType = &expected;
+            }
+            return nullptr;
+        }
+        return data;
+    }
+
+    void AssetLoader::StartScriptableDataLoad(ScriptableDataAsset& asset)
+    {
+        asset.m_state = AssetState::Loading;
+        std::string path = FindPathOrLog(asset.m_guid);
+        if (path.empty())
+        {
+            asset.m_state = AssetState::Failed;
+            return;
+        }
+
+        auto record = std::make_unique<PendingScriptableDataLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): ファイルを読んで値の木にするだけ。中身のオブジェクト(GC 管理)は作らない。
+        // ファイルを読んで JSON にする手順はプレハブと同じ(ReadJsonFile)。
+        Schedule(std::move(record), [](PendingScriptableDataLoad& load) {
+            load.succeeded = ReadJsonFile(load.path, load.data, load.warnings);
+        });
+    }
+
+    void AssetLoader::FinishScriptableData(PendingScriptableDataLoad& load)
+    {
+        for (const std::string& warning : load.warnings)
+        {
+            std::printf("アセット: ScriptableData の注意(%s): %s\n", load.path.c_str(), warning.c_str());
+        }
+        ScriptableDataAsset* asset = ResolveScriptableDataAsset(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        {
+            return;
+        }
+        if (!load.succeeded)
+        {
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+
+        // 1. 型の名前を読む
+        const ArchiveValue* typeName = load.data.Find("type");
+        if (typeName == nullptr || typeName->GetType() != ArchiveValue::Type::String)
+        {
+            std::printf("アセット: ScriptableData に \"type\"(型の名前の文字列)がありません(%s)\n", load.path.c_str());
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+
+        // 2. 名前で登録簿から型を探し、ScriptableData の子かを確かめてから作る
+        //    (作ってから確かめると、違う型のオブジェクトを作って捨てることになるので、先に型情報で確かめる)
+        const core::TypeInfo* type = m_types.Find(typeName->AsString());
+        if (type == nullptr || !type->IsA(ScriptableData::StaticType()))
+        {
+            std::printf("アセット: ScriptableData の型 %s が%s(%s)\n", typeName->AsString().c_str(),
+                        type == nullptr ? "登録されていません" : " ScriptableData の子ではありません", load.path.c_str());
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        core::Object* created = m_types.Create(typeName->AsString(), m_registry);
+        ScriptableData* data = created != nullptr && created->IsA<ScriptableData>() ? static_cast<ScriptableData*>(created) : nullptr;
+        if (data == nullptr)
+        {
+            std::printf("アセット: ScriptableData を作れません(%s)\n", load.path.c_str());
+            if (created != nullptr)
+            {
+                created->Destroy();
+            }
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+
+        // 3. 値を Property 越しに入れる(知らない名前や型の違いは飛ばして警告。途中で止めない)
+        const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(load.data, *data);
+        for (const std::string& warning : report.warnings)
+        {
+            std::printf("アセット: ScriptableData の注意(%s): %s\n", load.path.c_str(), warning.c_str());
+        }
+        data->m_assetGuid = asset->m_guid;
+        asset->m_data = data->GetHandle(); // 箱のプロパティ(強い参照)で持つので、箱が生きている間は回収されない
+        asset->m_state = AssetState::Loaded;
+    }
+
+    void AssetLoader::OnScriptableDataDestroyed(ScriptableDataAsset& asset)
+    {
+        const auto found = m_scriptableData.find(asset.m_guid);
+        if (found != m_scriptableData.end() && found->second == asset.GetHandle())
+        {
+            m_scriptableData.erase(found);
+        }
     }
 }

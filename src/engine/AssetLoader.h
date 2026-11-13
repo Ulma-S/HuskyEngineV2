@@ -31,6 +31,8 @@
 // 書き終わったら、中で指している画像(テクスチャ)の読み込みを始める(依存の読み込み)。
 // プレハブ(LoadPrefab)も同じ流れ。ジョブが .prefab(JSON)を値の木にし、Update で値をアセットに移す(アクターは作らない)。
 //
+// ScriptableData(LoadScriptableData)も同じ流れ。ジョブが .sdata(JSON)を値の木にし、Update で型の名前から中身を作って値を入れる。
+//
 // アセットの種類を足すときは、読み込み中の記録の型(PendingLoad の子)と、Start〜 / Finish〜 の組を足す。
 //
 // 動作スレッド: ゲームスレッドのみ(中で積んだジョブだけが、ワーカースレッドで動く)
@@ -41,8 +43,10 @@
 #include "core/JobSystem.h"
 #include "core/ObjectRegistry.h"
 #include "core/TypeInfo.h"
+#include "core/TypeRegistry.h"
 #include "engine/AssetDatabase.h"
 #include "engine/PrefabAsset.h"
+#include "engine/ScriptableData.h"
 #include "engine/SpriteSheetAsset.h"
 #include "engine/TextureAsset.h"
 #include "platform/Image.h"
@@ -52,6 +56,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits> // std::enable_if_t, std::is_base_of_v
 #include <unordered_map>
 #include <vector>
 
@@ -61,9 +66,11 @@ namespace husky::engine
     {
     public:
         // database: GUID からパスを引く表。registry: アセットのオブジェクトを作るところ。jobs: 読み込みのジョブを積むところ。
+        // types: 型の登録簿(ScriptableData の中身を、ファイルの型の名前から作る)。
         // どれも借りるだけ。このローダが作ったアセットより先に、このローダを壊さないこと(アセットは、回収されるときに
         // ローダを呼ぶため)。jobs は、このローダより長く生きること(壊すときに、読み込み中のジョブを待つため)。
-        AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry, core::JobSystem& jobs);
+        AssetLoader(const AssetDatabase& database, core::ObjectRegistry& registry, core::JobSystem& jobs,
+                    const core::TypeRegistry& types);
         // 読み込み中のジョブが終わるのを待ってから壊れる(ジョブが、この中の記録に書き込むため)。
         // 結果は捨てる(このとき、レジストリはもう壊れていることがあるので、アセットには触らない)。
         ~AssetLoader();
@@ -119,6 +126,30 @@ namespace husky::engine
         // 次からの LoadPrefab は新しいアセットを返す。古いアセットは、指している人(置いたものの prefab.asset)がいる間は残る。
         core::ObjectHandle ReloadPrefab(const core::Guid& guid);
 
+        // ---- ScriptableData(.sdata。ScriptableData.h) ----
+
+        // .sdata の読み込みを始め、箱(ScriptableDataAsset)を指すハンドル(弱い参照)を返す。
+        // ジョブがファイルを読んで JSON を値の木にし、Update でファイルの "type" の名前から中身を作り、値を入れる。
+        // 型が登録簿に無い・ScriptableData の子でない・値の木の形が違うときは「失敗」にし、理由をログに出す。
+        core::ObjectHandle LoadScriptableData(const core::Guid& guid);
+        ScriptableDataAsset* ResolveScriptableDataAsset(core::ObjectHandle handle) const;
+        // 箱の中身。読み終わっていなければ nullptr。
+        const ScriptableData* GetScriptableData(const ScriptableDataAsset& asset) const;
+
+        // 参照が指す中身を、expected の型(か、その子)として返す。読み終わっていない・失敗・型が違うなら nullptr。
+        // テクスチャの Resolve と同じく、まだ読んでいない・GUID が変わったときは読み始め、reference.asset に箱を書く。
+        // 型が違うときは、箱ごとに1回だけ警告を出す。テンプレートを使わない入口(スクリプトからも同じ形で呼べる)。
+        const ScriptableData* ResolveScriptableData(core::AssetReference& reference, const core::TypeInfo& expected);
+
+        // AssetRef<T>(T は ScriptableData の子)の入口。中身は ResolveScriptableData。
+        // enable_if: T が ScriptableData の子のときだけ、この関数があることにする(テクスチャなどの Resolve と混ざらない)。
+        template <typename T, std::enable_if_t<std::is_base_of_v<ScriptableData, T>, int> = 0>
+        const T* Resolve(core::AssetRef<T>& reference)
+        {
+            // 型は ResolveScriptableData が IsA で確かめてあるので、static_cast で子の型に変えてよい(RTTI は使わない)。
+            return static_cast<const T*>(ResolveScriptableData(reference, T::StaticType()));
+        }
+
         // ---- 共通 ----
 
         // relativePath のファイルを、assetType(TextureAsset など)のアセットとして読めるか(拡張子で見分ける)。
@@ -131,6 +162,8 @@ namespace husky::engine
         std::size_t GetLoadedSpriteSheetCount() const { return m_spriteSheets.size(); }
         // キャッシュにある(まだ回収されていない)プレハブのアセットの数。確認とテスト用。
         std::size_t GetLoadedPrefabCount() const { return m_prefabs.size(); }
+        // キャッシュにある(まだ回収されていない)ScriptableData の箱の数。確認とテスト用。
+        std::size_t GetLoadedScriptableDataCount() const { return m_scriptableData.size(); }
 
         // 読み込み中(ジョブが終わっていないか、結果をまだアセットに書いていない)の数。確認とテスト用。
         std::size_t GetPendingLoadCount() const { return m_pending.size(); }
@@ -139,6 +172,7 @@ namespace husky::engine
         friend class TextureAsset;     // 回収されるときに OnTextureDestroyed を呼べるようにする
         friend class SpriteSheetAsset; // 回収されるときに OnSpriteSheetDestroyed を呼べるようにする
         friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
+        friend class ScriptableDataAsset; // 回収されるときに OnScriptableDataDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
         // アセットの種類ごとに、この型を継承して「ジョブが書く結果」を足し、Finish(結果をアセットに書く)を用意する。
@@ -183,6 +217,14 @@ namespace husky::engine
             bool succeeded = false;            // ジョブが書く: 読めたか
         };
 
+        struct PendingScriptableDataLoad final : PendingLoad
+        {
+            void Finish(AssetLoader& loader) override { loader.FinishScriptableData(*this); }
+            ArchiveValue data;                 // ジョブが書く: JSON を読んだ値の木({"type", "properties"})
+            std::vector<std::string> warnings; // ジョブが書く: 読めなかった理由(Finish がログに出す)
+            bool succeeded = false;            // ジョブが書く: 読めたか
+        };
+
         // 読むファイルのパスを表で引く。無ければ空(呼んだ側が、その場で「失敗」にする)。
         std::string FindPathOrLog(const core::Guid& guid) const;
         // 記録を m_pending に入れてから、job をジョブとして積む(記録の場所は動かない)。
@@ -201,8 +243,13 @@ namespace husky::engine
         void FinishPrefab(PendingPrefabLoad& load);
         void OnPrefabDestroyed(PrefabAsset& asset);
 
+        void StartScriptableDataLoad(ScriptableDataAsset& asset);
+        void FinishScriptableData(PendingScriptableDataLoad& load);
+        void OnScriptableDataDestroyed(ScriptableDataAsset& asset);
+
         const AssetDatabase& m_database;
         core::ObjectRegistry& m_registry;
+        const core::TypeRegistry& m_types; // ScriptableData の中身を、ファイルの型の名前から作るため
         core::JobSystem& m_jobs;
         render::RenderDevice* m_device = nullptr; // 借りているだけ(持ち主は Application::Run)
 
@@ -210,6 +257,7 @@ namespace husky::engine
         std::unordered_map<core::Guid, core::ObjectHandle> m_textures;
         std::unordered_map<core::Guid, core::ObjectHandle> m_spriteSheets;
         std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
+        std::unordered_map<core::Guid, core::ObjectHandle> m_scriptableData; // 箱(ScriptableDataAsset)を指す
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。
