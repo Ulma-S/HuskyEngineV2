@@ -1293,6 +1293,284 @@ namespace husky::tools
 
     namespace
     {
+        // コンポーネント1つの控え(component.remove の Undo、component.add の Redo 用)。形:
+        //   {"value": {"type": "...", "properties": {...}}, "references": ["<guid>", null, ...]}
+        // ハンドルのプロパティは、メモリの中の値(表の場所と世代)のままでは、控えた後にアクターが作り直されると意味を失う。
+        // そこで、相手がアクターなら references に guid を並べ、ハンドルにはその番号を書く(シーンのファイルの番号と同じ考え方)。
+        // 戻すときは guid でアクターを探し直すので、相手が Undo で作り直されていても(guid は変わらない)つながる。
+        // アクター以外(ほかのアクターのコンポーネントなど)を指すハンドルは控えられず、null になる(warnings に書く)。
+        engine::ArchiveValue SaveComponent(engine::Application& app, const engine::Component& component,
+                                           std::vector<std::string>& warnings)
+        {
+            engine::ArchiveValue references = engine::ArchiveValue::MakeArray();
+            // [&]: 外の変数(references など)を参照で取り込むラムダ式。Write の中で、ハンドルのプロパティごとに呼ばれる。
+            engine::ArchiveValue value = engine::ObjectSerializer::Write(component, [&](core::ObjectHandle handle) -> std::int64_t {
+                if (handle.IsNull())
+                {
+                    return -1; // 何も指していない → null のまま
+                }
+                if (const engine::Actor* actor = app.GetRegistry().Resolve<engine::Actor>(handle))
+                {
+                    references.Append(engine::ArchiveValue(actor->guid.ToString()));
+                    return static_cast<std::int64_t>(references.GetArraySize() - 1);
+                }
+                const core::Object* object = app.GetRegistry().Resolve<core::Object>(handle);
+                if (object != nullptr)
+                {
+                    warnings.push_back("A reference to a " + std::string(object->GetType().GetName()) +
+                                       " is not kept (it will be null when put back)");
+                }
+                return -1;
+            });
+            engine::ArchiveValue saved = engine::ArchiveValue::MakeObject();
+            saved.Set("value", std::move(value));
+            saved.Set("references", std::move(references));
+            return saved;
+        }
+
+        // SaveComponent の控えを component に書く。ハンドルは references の guid でアクターを探し直す。
+        // 読めなかったもの(知らない名前、相手のアクターがもういない、など)は warnings に書く。
+        void LoadComponent(engine::Application& app, const engine::ArchiveValue& saved, engine::Component& component,
+                           std::vector<std::string>& warnings)
+        {
+            const engine::ArchiveValue* value = saved.Find("value");
+            const engine::ArchiveValue* references = saved.Find("references");
+            if (value == nullptr)
+            {
+                warnings.push_back("\"data\" has no \"value\"; the component keeps its default values");
+                return;
+            }
+            engine::Scene& scene = app.GetScene();
+            engine::ObjectSerializer::ReadReport report = engine::ObjectSerializer::ReadProperties(
+                *value, component, [&](std::int64_t id) -> core::ObjectHandle {
+                    if (references == nullptr || references->GetType() != engine::ArchiveValue::Type::Array || id < 0 ||
+                        static_cast<std::size_t>(id) >= references->GetArraySize())
+                    {
+                        return core::ObjectHandle();
+                    }
+                    core::Guid guid;
+                    if (!core::Guid::Parse(references->At(static_cast<std::size_t>(id)).AsString(), guid))
+                    {
+                        return core::ObjectHandle();
+                    }
+                    if (engine::Actor* actor = scene.FindActorByGuid(guid))
+                    {
+                        return actor->GetHandle();
+                    }
+                    warnings.push_back("The actor " + guid.ToString() + " is no longer in the scene (the reference is null)");
+                    return core::ObjectHandle();
+                });
+            for (std::string& warning : report.warnings)
+            {
+                warnings.push_back(std::move(warning));
+            }
+        }
+
+        // component.remove の呼び出し(component.add の Undo、component.remove の Redo 用)。アクターは guid、コンポーネントは位置で指す。
+        EditorCommandCall MakeRemoveComponentCall(const core::Guid& actor, const std::string& type, std::size_t index)
+        {
+            EditorCommandCall call;
+            call.name = "component.remove";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("actor", engine::ArchiveValue(actor.ToString()));
+            call.args.Set("component", engine::ArchiveValue(type));
+            call.args.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(index)));
+            return call;
+        }
+
+        // component.add の呼び出し(component.remove の Undo、component.add の Redo 用)。data は SaveComponent の控え。
+        EditorCommandCall MakeAddComponentCall(const core::Guid& actor, const std::string& type, std::size_t index,
+                                               const engine::ArchiveValue& data)
+        {
+            EditorCommandCall call;
+            call.name = "component.add";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("actor", engine::ArchiveValue(actor.ToString()));
+            call.args.Set("type", engine::ArchiveValue(type));
+            call.args.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(index)));
+            call.args.Set("data", data);
+            return call;
+        }
+
+        // コンポーネントの型(Component の子孫)を選ばせる選択肢。型の登録簿(エンジンの型と、ゲームが登録した型)から作る。
+        std::vector<EditorArgChoice> ComponentTypeChoices(engine::Application& app, const engine::ArchiveValue&)
+        {
+            std::vector<EditorArgChoice> names;
+            const core::TypeRegistry& types = app.GetTypeRegistry();
+            for (std::size_t i = 0; i < types.GetCount(); ++i)
+            {
+                const core::TypeInfo* type = types.GetType(i);
+                if (type != nullptr && type->IsA(engine::Component::StaticType()))
+                {
+                    names.push_back({type->GetName(), std::string()});
+                }
+            }
+            return names;
+        }
+
+        // 選んだアクターに付いているコンポーネントの型を選ばせる選択肢。
+        std::vector<EditorArgChoice> AttachedComponentChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> names;
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string error;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actor == nullptr)
+            {
+                return names;
+            }
+            for (const core::ObjectHandle handle : actor->components)
+            {
+                const engine::Component* component = app.GetRegistry().Resolve<engine::Component>(handle);
+                if (component != nullptr && !component->IsPendingDestroy())
+                {
+                    names.push_back({component->GetType().GetName(), std::string()});
+                }
+            }
+            return names;
+        }
+    }
+
+    EditorCommand MakeAddComponentCommand()
+    {
+        EditorCommand command;
+        command.name = "component.add";
+        command.label = "Add component";
+        command.description = "Attach a new component of the given type to an actor. Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
+        actorArg.choices = ActorChoices;
+        EditorCommandArg typeArg{"type", EditorArgType::String, "Type name of the component, like \"SpriteComponent\"", true};
+        typeArg.choices = ComponentTypeChoices;
+        command.args = {
+            actorArg,
+            typeArg,
+            {"index", EditorArgType::Int, "Position in the actor's component list (leave out to add at the end)", false},
+            {"data", EditorArgType::Any, "Values saved by component.remove (used by editor.undo)", false},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            // 型の名前から型を探し、コンポーネントの子孫かを確かめてから作る(actor.spawn の type と同じ流れ)。
+            const std::string& typeName = context.args.Find("type")->AsString();
+            const core::TypeRegistry& types = app.GetTypeRegistry();
+            const core::TypeInfo* type = types.Find(typeName);
+            if (type == nullptr)
+            {
+                return EditorCommandResult::Failure("Unknown type: " + typeName);
+            }
+            if (!type->IsA(engine::Component::StaticType()))
+            {
+                return EditorCommandResult::Failure(typeName + " is not a component");
+            }
+            const engine::ArchiveValue* indexValue = context.args.Find("index");
+            if (indexValue != nullptr && indexValue->AsInt(-1) < 0)
+            {
+                return EditorCommandResult::Failure("\"index\" must be 0 or more");
+            }
+            engine::Component* component = core::Cast<engine::Component>(types.Create(typeName, app.GetRegistry()));
+            if (component == nullptr)
+            {
+                return EditorCommandResult::Failure("Could not create " + typeName + " (out of object memory?)");
+            }
+            std::vector<std::string> warnings;
+            if (const engine::ArchiveValue* data = context.args.Find("data"))
+            {
+                // 控えから戻す(Undo): 値も prefabComponentId も控えのとおり。プレハブとの組が元どおりになる。
+                LoadComponent(app, *data, *component, warnings);
+            }
+            const std::size_t wanted = indexValue != nullptr ? static_cast<std::size_t>(indexValue->AsInt()) : actor->components.size();
+            const std::size_t index = actor->InsertComponent(*component, wanted);
+
+            EditorCommandResult result = EditorCommandResult::Success("Added " + typeName + " to " + DescribeActor(*actor));
+            result.details = std::move(warnings);
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(index)));
+            // Undo は、入れた位置のものを外す。Redo は、足した直後の控えで同じ位置に足し直す(値と ID がそろう)。
+            std::vector<std::string> ignored; // 足した直後の控えの警告は、上の details と同じことしか言わない
+            result.undo = MakeRemoveComponentCall(actor->guid, typeName, index);
+            result.redo = MakeAddComponentCall(actor->guid, typeName, index, SaveComponent(app, *component, ignored));
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeRemoveComponentCommand()
+    {
+        EditorCommand command;
+        command.name = "component.remove";
+        command.label = "Remove component";
+        command.description = "Detach a component from an actor (the first one of the given type, or the one at index). "
+                              "Can be undone (editor.undo): it comes back at the same position with the same values.";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
+        actorArg.choices = ActorChoices;
+        EditorCommandArg componentArg{"component", EditorArgType::String, "Type name of a component on the actor", true};
+        componentArg.choices = AttachedComponentChoices;
+        command.args = {
+            actorArg,
+            componentArg,
+            {"index", EditorArgType::Int,
+             "Position in the actor's component list (leave out for the first one of the type; used by editor.undo)", false},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const std::string& typeName = context.args.Find("component")->AsString();
+            engine::Component* component = nullptr;
+            if (const engine::ArchiveValue* indexValue = context.args.Find("index"))
+            {
+                // 位置で指す(Undo / Redo)。その位置にあるものが、言われた型でなければ断る(履歴と食い違っている)。
+                const std::int64_t index = indexValue->AsInt(-1);
+                const core::TypeInfo* type = app.GetTypeRegistry().Find(typeName);
+                if (index >= 0 && static_cast<std::size_t>(index) < actor->components.size())
+                {
+                    component = app.GetRegistry().Resolve<engine::Component>(actor->components[static_cast<std::size_t>(index)]);
+                }
+                if (component == nullptr || component->IsPendingDestroy() || type == nullptr || !component->GetType().IsA(*type))
+                {
+                    return EditorCommandResult::Failure(DescribeActor(*actor) + " has no " + typeName + " at index " +
+                                                        std::to_string(index));
+                }
+            }
+            else
+            {
+                component = FindComponentFromArg(app, *actor, typeName, error);
+                if (component == nullptr)
+                {
+                    return EditorCommandResult::Failure(error);
+                }
+            }
+            // 外す前に控える(型の名前は、指された名前ではなく本当の型。子孫の型を親の名前で指したときも、同じ型で戻すため)。
+            const std::string actualType = component->GetType().GetName();
+            std::vector<std::string> warnings;
+            const engine::ArchiveValue saved = SaveComponent(app, *component, warnings);
+            const std::int64_t removedAt = actor->RemoveComponent(*component);
+            if (removedAt < 0)
+            {
+                return EditorCommandResult::Failure("The component is not in " + DescribeActor(*actor) + "'s list");
+            }
+            EditorCommandResult result = EditorCommandResult::Success("Removed " + actualType + " from " + DescribeActor(*actor));
+            result.details = std::move(warnings);
+            result.undo = MakeAddComponentCall(actor->guid, actualType, static_cast<std::size_t>(removedAt), saved);
+            result.redo = MakeRemoveComponentCall(actor->guid, actualType, static_cast<std::size_t>(removedAt));
+            return result;
+        };
+        return command;
+    }
+
+    namespace
+    {
         // プレハブとの違い1つを、人が読む1行にする("SpriteComponent.color.r = 0.74 (prefab: 1)")。
         std::string DescribeOverride(const engine::Prefab::Override& item)
         {

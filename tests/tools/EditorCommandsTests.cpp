@@ -5,8 +5,12 @@
 
 #include "core/MemoryTracker.h"
 #include "engine/Actor.h"
+#include "engine/CameraComponent.h"
 #include "engine/JsonFormat.h"
+#include "engine/SceneSerializer.h"
+#include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
+#include "game/CameraFollowComponent.h"
 #include "platform/FileSystem.h"
 #include "tools/DebugWindow.h"
 #include "HeadlessImGui.h"
@@ -1057,5 +1061,189 @@ TEST_CASE("EditorCommands: prefab.apply は違いをプレハブのファイル�
     const std::string d = place();
     CHECK(sprite(d)->width == 40.0f);
     CHECK(sprite(d)->color.r == 0.5f);
+}
+
+namespace
+{
+    // PF-7c のテスト用: component.add / component.remove と Undo / Redo を登録する。
+    void RegisterComponentCommands(EditorCommandRegistry& commands)
+    {
+        REQUIRE(commands.Register(husky::tools::MakeAddComponentCommand()));
+        REQUIRE(commands.Register(husky::tools::MakeRemoveComponentCommand()));
+        REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+        REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+    }
+
+    // index 番目のコンポーネントの型の名前(無ければ空)。
+    std::string ComponentTypeAt(Application& app, const husky::engine::Actor& actor, std::size_t index)
+    {
+        if (index >= actor.components.size())
+        {
+            return std::string();
+        }
+        const husky::engine::Component* component = app.GetRegistry().Resolve<husky::engine::Component>(actor.components[index]);
+        return component != nullptr ? component->GetType().GetName() : std::string();
+    }
+}
+
+TEST_CASE("PF-7c: component.add は指定の位置に足し、Undo で外れ、Redo で同じ位置に戻る")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    RegisterComponentCommands(commands);
+    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    hero->name = "Hero";
+    hero->AddComponent<husky::engine::SpriteComponent>();
+    hero->AddComponent<husky::engine::CameraComponent>();
+
+    const EditorCommandResult added =
+        commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "SpriteAnimatorComponent", "index": 1})"));
+    REQUIRE(added.succeeded);
+    CHECK(added.data.Find("index")->AsInt() == 1);
+    REQUIRE(hero->components.size() == 3);
+    CHECK(ComponentTypeAt(app, *hero, 1) == "SpriteAnimatorComponent");
+    REQUIRE(hero->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
+    CHECK(hero->GetComponent<husky::engine::SpriteAnimatorComponent>()->GetOwner() == hero);
+
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(hero->components.size() == 2);
+    CHECK(hero->GetComponent<husky::engine::SpriteAnimatorComponent>() == nullptr);
+    CHECK(ComponentTypeAt(app, *hero, 1) == "CameraComponent");
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(ComponentTypeAt(app, *hero, 1) == "SpriteAnimatorComponent");
+
+    // 省くと末尾。知らない型、コンポーネントでない型、負の位置は断る
+    REQUIRE(commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "CameraComponent"})")).succeeded);
+    CHECK(ComponentTypeAt(app, *hero, 3) == "CameraComponent");
+    CHECK_FALSE(commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "NoSuchType"})")).succeeded);
+    CHECK_FALSE(commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "Actor"})")).succeeded);
+    CHECK_FALSE(commands.Execute("component.add", app, Json(R"({"actor": "Hero", "type": "CameraComponent", "index": -1})")).succeeded);
+}
+
+TEST_CASE("PF-7c: component.remove はすぐに一覧から外し、Undo で同じ位置・同じ値で戻る(同じ型が2つあっても位置で取り違えない)")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    RegisterComponentCommands(commands);
+    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    hero->name = "Hero";
+    hero->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    hero->AddComponent<husky::engine::CameraComponent>()->zoom = 2.0f;
+    hero->AddComponent<husky::engine::CameraComponent>()->zoom = 3.0f;
+
+    // 型で指すと最初のもの(zoom 2)。外したものには Destroy の印
+    husky::engine::CameraComponent* first = hero->GetComponent<husky::engine::CameraComponent>();
+    REQUIRE(commands.Execute("component.remove", app, Json(R"({"actor": "Hero", "component": "CameraComponent"})")).succeeded);
+    CHECK(first->IsPendingDestroy());
+    REQUIRE(hero->components.size() == 2);
+    CHECK(hero->GetComponent<husky::engine::CameraComponent>()->zoom == 3.0f);
+    app.GetScene().RemoveDestroyedActors();
+    app.GetRegistry().FlushDestroyed();
+
+    // Undo: 1番目に、zoom 2 のまま戻る(新しいオブジェクトとして)
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    REQUIRE(hero->components.size() == 3);
+    CHECK(ComponentTypeAt(app, *hero, 1) == "CameraComponent");
+    husky::engine::CameraComponent* back = app.GetRegistry().Resolve<husky::engine::CameraComponent>(hero->components[1]);
+    REQUIRE(back != nullptr);
+    CHECK(back->zoom == 2.0f);
+    CHECK(back->GetOwner() == hero);
+    // Redo: 位置で指すので、また zoom 2 のほうが外れる
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    REQUIRE(hero->components.size() == 2);
+    CHECK(hero->GetComponent<husky::engine::CameraComponent>()->zoom == 3.0f);
+
+    // 位置と型が合わない、付いていない型は断る
+    CHECK_FALSE(commands.Execute("component.remove", app, Json(R"({"actor": "Hero", "component": "CameraComponent", "index": 0})")).succeeded);
+    CHECK_FALSE(commands.Execute("component.remove", app, Json(R"({"actor": "Hero", "component": "SpriteAnimatorComponent"})")).succeeded);
+    CHECK(hero->components.size() == 2);
+}
+
+TEST_CASE("PF-7c: プレハブから来たコンポーネントを外すと removedComponents に入り、Undo で同じ ID に戻ると違いではなくなる")
+{
+    husky::tests::TestFolder folder("husky_test_component_remove_prefab");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    RegisterComponentCommands(commands);
+
+    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    original->name = "Coin";
+    original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
+    original->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+    const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
+    REQUIRE(spawned.succeeded);
+    const std::string guidText = spawned.data.Find("guid")->AsString();
+    husky::core::Guid guid;
+    REQUIRE(husky::core::Guid::Parse(guidText, guid));
+    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    REQUIRE(placed != nullptr);
+    REQUIRE(placed->GetComponent<husky::engine::SpriteComponent>() != nullptr);
+    const husky::core::Guid componentId = placed->GetComponent<husky::engine::SpriteComponent>()->prefabComponentId;
+    REQUIRE_FALSE(componentId.IsNull());
+
+    // 保存したアクターの記録(objects の中で guid が合うもの)に removedComponents があるか
+    auto hasRemoved = [&app, &guidText]() {
+        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+        const ArchiveValue* objects = written.Find("objects");
+        for (std::size_t i = 0; objects != nullptr && i < objects->GetArraySize(); ++i)
+        {
+            const ArchiveValue* properties = objects->At(i).Find("properties");
+            const ArchiveValue* guidValue = properties != nullptr ? properties->Find("guid") : nullptr;
+            if (guidValue != nullptr && guidValue->AsString() == guidText)
+            {
+                return objects->At(i).Find("removedComponents") != nullptr;
+            }
+        }
+        return false;
+    };
+
+    const std::string removeArgs = "{\"actor\": \"" + guidText + "\", \"component\": \"SpriteComponent\"}";
+    REQUIRE(commands.Execute("component.remove", app, Json(removeArgs.c_str())).succeeded);
+    CHECK(placed->GetComponent<husky::engine::SpriteComponent>() == nullptr);
+    CHECK(hasRemoved());
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    husky::engine::SpriteComponent* back = placed->GetComponent<husky::engine::SpriteComponent>();
+    REQUIRE(back != nullptr);
+    CHECK(back->prefabComponentId == componentId);
+    CHECK(back->width == 24.0f);
+    CHECK_FALSE(hasRemoved());
+}
+
+TEST_CASE("PF-7c: 外したコンポーネントのアクターへの参照は guid で控え、相手が作り直されていても Undo でつながり直る")
+{
+    Application app;
+    app.GetTypeRegistry().Register<husky::game::CameraFollowComponent>();
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
+    RegisterComponentCommands(commands);
+    husky::engine::Actor* player = app.GetScene().Spawn<husky::engine::Actor>();
+    player->name = "Player";
+    husky::engine::Actor* camera = app.GetScene().Spawn<husky::engine::Actor>();
+    camera->name = "MainCamera";
+    camera->AddComponent<husky::game::CameraFollowComponent>()->target = player->GetHandle();
+    const husky::core::Guid playerGuid = player->guid;
+
+    // 追従を外し、それから相手を消して戻す(戻した相手は新しいオブジェクトで、ハンドルは変わる。guid は同じ)
+    const EditorCommandResult removed =
+        commands.Execute("component.remove", app, Json(R"({"actor": "MainCamera", "component": "CameraFollowComponent"})"));
+    REQUIRE(removed.succeeded);
+    CHECK(removed.details.empty());
+    REQUIRE(commands.Execute("actor.destroy", app, Json(R"({"actor": "Player"})")).succeeded);
+    app.GetScene().RemoveDestroyedActors();
+    app.GetRegistry().FlushDestroyed();
+    REQUIRE(commands.Execute("editor.undo", app).succeeded); // プレイヤーが戻る
+    REQUIRE(commands.Execute("editor.undo", app).succeeded); // 追従が戻る
+    husky::game::CameraFollowComponent* follow = camera->GetComponent<husky::game::CameraFollowComponent>();
+    REQUIRE(follow != nullptr);
+    husky::engine::Actor* restoredPlayer = app.GetScene().FindActorByGuid(playerGuid);
+    REQUIRE(restoredPlayer != nullptr);
+    CHECK(follow->target == restoredPlayer->GetHandle());
 }
 #endif

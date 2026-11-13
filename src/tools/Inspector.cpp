@@ -554,6 +554,9 @@ namespace husky::tools
                 }
 
                 // --- コンポーネント ---
+                // Remove を押したものは、一覧を回し終わってから外す(回している途中で一覧を変えると、i がずれるため)。
+                engine::Component* removing = nullptr;
+                std::size_t removingIndex = 0;
                 for (std::size_t i = 0; i < selected->components.size(); ++i)
                 {
                     engine::Component* component = registry.Resolve<engine::Component>(selected->components[i]);
@@ -568,8 +571,64 @@ namespace husky::tools
                         marks.component = component->GetType().GetName();
                         DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder,
                                            &marks);
+                        if (ImGui::SmallButton("Remove component"))
+                        {
+                            removing = component;
+                            removingIndex = i;
+                        }
                     }
                     ImGui::PopID();
+                }
+                if (removing != nullptr)
+                {
+                    // 編集中は component.remove を通す(Ctrl+Z で同じ位置・同じ値で戻る)。位置で指すので、同じ型が2つあっても取り違えない。
+                    // 使えないとき(再生中)は、Destroy ボタンと同じく、その場で外すだけで履歴に残さない(Stop で元に戻る)。
+                    const EditorCommand* remove = commands != nullptr ? commands->Find("component.remove") : nullptr;
+                    if (remove != nullptr && commands->GetUnavailableReason(*remove, app) == nullptr)
+                    {
+                        engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                        args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                        args.Set("component", engine::ArchiveValue(std::string(removing->GetType().GetName())));
+                        args.Set("index", engine::ArchiveValue(static_cast<std::int64_t>(removingIndex)));
+                        commands->Execute("component.remove", app, args);
+                    }
+                    else
+                    {
+                        selected->RemoveComponent(*removing);
+                    }
+                }
+
+                // 型を選んで足す。一覧は型の登録簿をそのまま回す(名前は登録簿が持つ文字列なので、毎フレームの確保が無い)。
+                ImGui::Separator();
+                if (ImGui::BeginCombo("##addComponent", "Add component..."))
+                {
+                    const core::TypeRegistry& types = app.GetTypeRegistry();
+                    for (std::size_t t = 0; t < types.GetCount(); ++t)
+                    {
+                        const core::TypeInfo* type = types.GetType(t);
+                        if (type == nullptr || !type->IsA(engine::Component::StaticType()) ||
+                            type == &engine::Component::StaticType()) // 何もしない基底そのものは並べない
+                        {
+                            continue;
+                        }
+                        if (ImGui::Selectable(type->GetName()))
+                        {
+                            const EditorCommand* add = commands != nullptr ? commands->Find("component.add") : nullptr;
+                            if (add != nullptr && commands->GetUnavailableReason(*add, app) == nullptr)
+                            {
+                                engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                                args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                                args.Set("type", engine::ArchiveValue(std::string(type->GetName())));
+                                commands->Execute("component.add", app, args);
+                            }
+                            else if (engine::Component* added =
+                                         core::Cast<engine::Component>(types.Create(type->GetName(), registry)))
+                            {
+                                selected->InsertComponent(*added, selected->components.size()); // 再生中: 履歴に残さない
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
                 }
             }
         }

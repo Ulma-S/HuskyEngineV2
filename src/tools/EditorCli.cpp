@@ -100,6 +100,8 @@ namespace husky::tools
             commands.Register(MakeRefreshAssetsCommand(assetsDirectory));
             commands.Register(MakeSpawnActorCommand());
             commands.Register(MakeDestroyActorCommand());
+            commands.Register(MakeAddComponentCommand());
+            commands.Register(MakeRemoveComponentCommand());
             commands.Register(MakeCreatePrefabCommand(assetsDirectory));
             commands.Register(MakeListActorsCommand());
             commands.Register(MakeSetPropertyCommand());

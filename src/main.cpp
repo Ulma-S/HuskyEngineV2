@@ -88,6 +88,13 @@ int main()
     tools::EditorCommand restoreActor = tools::MakeRestoreActorCommand();
     restoreActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(restoreActor));
+    // コンポーネントを足す・外す(component.add / component.remove。PF-7c)。互いの Undo になる。編集中だけ。
+    tools::EditorCommand addComponent = tools::MakeAddComponentCommand();
+    addComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(addComponent));
+    tools::EditorCommand removeComponent = tools::MakeRemoveComponentCommand();
+    removeComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(removeComponent));
     // 選んだアクターからプレハブを作る(prefab.create)。ソースの assets に書く。再生中の値を写さないよう、編集中だけ。
     tools::EditorCommand createPrefab = tools::MakeCreatePrefabCommand(assetsDirectory);
     createPrefab.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };

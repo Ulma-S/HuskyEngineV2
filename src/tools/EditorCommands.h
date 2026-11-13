@@ -305,6 +305,17 @@ namespace husky::tools
     // プレハブから作ってから違いを重ねる。同じ guid のアクターが生きていれば断る。ふつうは editor.undo から呼ばれる。
     EditorCommand MakeRestoreActorCommand();
 
+    // 「コンポーネントを足す」コマンド(component.add)を作る(PF-7c)。引数: actor、type(Component の子孫の型の名前)、
+    // index(省略可。一覧の何番目に入れるか。省くと末尾)、data(省略可。component.remove が控えた値。Undo で使う)。
+    // data があれば、その値(prefabComponentId も)を書く。Undo は、入れた位置の component.remove。
+    EditorCommand MakeAddComponentCommand();
+
+    // 「コンポーネントを外す」コマンド(component.remove)を作る(PF-7c)。引数: actor、component(型の名前。その型の最初のもの)、
+    // index(省略可。一覧の何番目かで指す。Undo / Redo が使う。同じ型が2つあっても取り違えないため)。
+    // 外す前に値を控え、Undo は「同じ型・同じ位置・控えた値」の component.add。アクターを指すハンドルは guid で控えるので、
+    // 戻すとつながり直る(相手が生きていれば)。アクター以外を指すハンドルは戻すと null(警告を出す)。
+    EditorCommand MakeRemoveComponentCommand();
+
     // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
     // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
     EditorCommand MakeListOverridesCommand();

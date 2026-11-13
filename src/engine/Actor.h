@@ -10,6 +10,7 @@
 #include "engine/Transform.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -74,6 +75,17 @@ namespace husky::engine
             }
             return nullptr;
         }
+
+        // 作ってある component(型の登録簿で名前から作ったものなど)を、一覧の index 番目に差し込んで取り付ける(PF-7c)。
+        // index が一覧の長さ以上なら末尾。エディタが型を文字列で受け取って足すとき(component.add)に使う。
+        // AddComponent<T>() はテンプレートで、型をコードに書く必要があるため、型が実行するまで分からないときはこちらを使う。
+        // 戻り値: 取り付けた位置。
+        std::size_t InsertComponent(Component& component, std::size_t index);
+
+        // component を一覧からすぐに外し、Destroy の印を付ける(メモリはフレームの終わりに片付く)(PF-7c)。
+        // 一覧からすぐに外すので、同じフレームのうちに別のものを同じ位置へ差し込んでも、並びが崩れない。
+        // 戻り値: 外す前の位置。このアクターに付いていなければ -1(何もしない)。
+        std::int64_t RemoveComponent(Component& component);
 
         std::string name; // 人が読む名前。ほかのアクターと重なってもよい(区別には guid を使う)
         // このアクターの変わらない ID。シーンに入れたとき(Scene::Spawn、AddLoadedActor)に、まだ無ければ振られる。

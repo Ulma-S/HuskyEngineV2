@@ -3,7 +3,7 @@
 
 #include "engine/Scene.h" // GetScene で Scene* を返すために、Scene の中身(Object の子であること)を知る必要がある
 
-#include <algorithm> // std::remove_if
+#include <algorithm> // std::remove_if, std::find
 
 namespace husky::engine
 {
@@ -42,6 +42,29 @@ namespace husky::engine
                 component->Destroy(); // 何度呼んでもよい(すでに予約済みなら何もしない)
             }
         }
+    }
+
+    std::size_t Actor::InsertComponent(Component& component, std::size_t index)
+    {
+        // Component& のまま書く(子クラスに同じ名前のメンバーがあっても、Component の m_owner を指すように)。
+        component.m_owner = GetHandle();
+        const std::size_t at = index < components.size() ? index : components.size();
+        // insert: at 番目の前に入れる(at 番目から後ろは1つずつ後ろへずれる)。C# の List<T>.Insert と同じ。
+        components.insert(components.begin() + static_cast<std::ptrdiff_t>(at), component.GetHandle());
+        return at;
+    }
+
+    std::int64_t Actor::RemoveComponent(Component& component)
+    {
+        const auto found = std::find(components.begin(), components.end(), component.GetHandle());
+        if (found == components.end())
+        {
+            return -1;
+        }
+        const std::int64_t index = found - components.begin();
+        components.erase(found);
+        component.Destroy();
+        return index;
     }
 
     std::size_t Actor::RemoveDestroyedComponents()
