@@ -1,6 +1,7 @@
 // シーンビュー(tools/SceneView.h)のテスト。ImGui を使わない部分(ZoomAt)だけを確かめる。
 #include "tools/SceneView.h"
 #include "tools/SceneGrid.h"
+#include "tools/MoveGizmo.h"
 #include "tools/EditorCommands.h"
 #include "engine/Actor.h"
 #include "engine/Application.h"
@@ -111,5 +112,58 @@ TEST_CASE("RS-3: CommitActorMove はドラッグで動かした位置を propert
     actor->transform.position.x = 70.0f;
     CHECK_FALSE(husky::tools::CommitActorMove(app, none, *actor, from));
     CHECK(actor->transform.position.x == 70.0f);
+}
+
+TEST_CASE("RS-4: ギズモの部品の当たり(画面のピクセル。真ん中の四角を先に調べる)")
+{
+    using husky::tools::GizmoHandle;
+    using husky::tools::PickGizmoHandle;
+    // ギズモの真ん中が画面の (500, 300)
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 503.0f, 297.0f) == GizmoHandle::Center);
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 560.0f, 302.0f) == GizmoHandle::X);  // 右へ 60(軸の上)
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 498.0f, 240.0f) == GizmoHandle::Y);  // 上へ 60(画面の y は小さくなる)
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 500.0f, 360.0f) == GizmoHandle::None); // 下には矢印が無い
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 440.0f, 300.0f) == GizmoHandle::None); // 左にも無い
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 560.0f, 320.0f) == GizmoHandle::None); // 軸から離れすぎ
+    CHECK(PickGizmoHandle(500.0f, 300.0f, 588.0f, 300.0f) == GizmoHandle::X);  // 先の菱形まで
+}
+
+TEST_CASE("RS-4: ギズモのドラッグは、つかんだ部品の軸だけに動いた量を足す")
+{
+    using husky::tools::ApplyGizmoDrag;
+    using husky::tools::GizmoHandle;
+    const husky::core::Vector3 from{10.0f, 20.0f, 3.0f};
+    const husky::core::Vector3 x = ApplyGizmoDrag(GizmoHandle::X, from, 5.0f, 7.0f);
+    CHECK(x.x == 15.0f);
+    CHECK(x.y == 20.0f);
+    const husky::core::Vector3 y = ApplyGizmoDrag(GizmoHandle::Y, from, 5.0f, 7.0f);
+    CHECK(y.x == 10.0f);
+    CHECK(y.y == 27.0f);
+    const husky::core::Vector3 both = ApplyGizmoDrag(GizmoHandle::Center, from, 5.0f, 7.0f);
+    CHECK(both.x == 15.0f);
+    CHECK(both.y == 27.0f);
+    CHECK(both.z == 3.0f);
+}
+
+TEST_CASE("RS-4: ギズモの線は画面で一定の大きさ(ズームすると、ワールドでの大きさが逆に変わる)。乗せた部品は光る")
+{
+    using husky::tools::GizmoHandle;
+    std::vector<husky::render::Sprite> quads;
+    husky::tools::BuildGizmoSprites(CameraView{0.0f, 0.0f, 1.0f}, husky::core::Vector3{100.0f, 50.0f, 0.0f},
+                                    GizmoHandle::None, quads);
+    REQUIRE(quads.size() == 5); // 真ん中、x の軸と先、y の軸と先
+    CHECK(quads[0].model.m[12] == doctest::Approx(100.0f)); // 真ん中の四角はアクターの位置
+    CHECK(quads[0].width == doctest::Approx(husky::tools::GizmoSize::CenterSize));
+    CHECK(quads[1].width == doctest::Approx(husky::tools::GizmoSize::ArrowLength)); // x の軸
+    const float normalAlpha = quads[1].color.g;
+
+    // 2 倍に寄ると、ワールドでは半分の大きさ(画面では同じ)。x の矢印を光らせる
+    husky::tools::BuildGizmoSprites(CameraView{0.0f, 0.0f, 2.0f}, husky::core::Vector3{100.0f, 50.0f, 0.0f},
+                                    GizmoHandle::X, quads);
+    REQUIRE(quads.size() == 5);
+    CHECK(quads[1].width == doctest::Approx(husky::tools::GizmoSize::ArrowLength / 2.0f));
+    CHECK(quads[1].model.m[12] == doctest::Approx(100.0f + husky::tools::GizmoSize::ArrowLength / 4.0f));
+    CHECK(quads[1].color.g != normalAlpha); // 色が変わった(光った)
+    CHECK(quads[3].color.g == doctest::Approx(0.85f)); // y の軸はふつうの緑のまま
 }
 #endif

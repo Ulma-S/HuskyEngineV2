@@ -142,6 +142,10 @@ namespace husky::engine
         using BeforeSceneDrawCallback = std::function<void(render::RenderDevice&)>;
         void SetBeforeSceneDrawCallback(BeforeSceneDrawCallback callback) { m_beforeSceneDraw = std::move(callback); }
 
+        // 【開発ビルドだけ】シーンのスプライトの後に(手前に)描く関数を渡す。開発用の UI(ImGui)よりは奥。
+        // エディタの移動のギズモ(RS-4)を描くのに使う。中では renderDevice.DrawSprite を呼んでよい。
+        void SetAfterSceneDrawCallback(BeforeSceneDrawCallback callback) { m_afterSceneDraw = std::move(callback); }
+
         // 【開発ビルドだけ】今のシーンを、シーンのファイル(JSON、読みやすい形)に保存する。
         // 保存はエディタの役目なので、製品(Release)にはコードごと入らない。
         // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
@@ -189,6 +193,7 @@ namespace husky::engine
         CameraView m_cameraOverride;      // SetCameraOverride の見え方
         bool m_hasCameraOverride = false; // true の間は、シーンのカメラの代わりに m_cameraOverride で映す
         BeforeSceneDrawCallback m_beforeSceneDraw; // シーンより奥に描くもの(SetBeforeSceneDrawCallback)
+        BeforeSceneDrawCallback m_afterSceneDraw;  // シーンより手前に描くもの(SetAfterSceneDrawCallback)
 #endif
     };
 }

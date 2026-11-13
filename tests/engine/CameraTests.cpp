@@ -149,3 +149,18 @@ TEST_CASE("RS-2: FindSceneCameraView はシーンのカメラの位置と zoom�
     CHECK(view.centerY == 60.0f);
     CHECK(view.zoom == 3.0f);
 }
+
+TEST_CASE("RS-4: WorldToScreen は ScreenToWorld の逆(ワールドの点が映る画面のピクセル)")
+{
+    const CameraMatrices camera = husky::engine::MakeOrthographicCamera(1000.0f, 500.0f, 2.0f, 1280.0f, 720.0f);
+    const husky::core::Vector3 center = husky::engine::WorldToScreen(camera, 1000.0f, 500.0f, 1280.0f, 720.0f);
+    CHECK(center.x == doctest::Approx(640.0f));
+    CHECK(center.y == doctest::Approx(360.0f));
+    const husky::core::Vector3 topLeft = husky::engine::WorldToScreen(camera, 680.0f, 680.0f, 1280.0f, 720.0f);
+    CHECK(topLeft.x == doctest::Approx(0.0f));
+    CHECK(topLeft.y == doctest::Approx(0.0f));
+    const husky::core::Vector3 back = husky::engine::ScreenToWorld(camera, 123.0f, 456.0f, 1280.0f, 720.0f);
+    const husky::core::Vector3 again = husky::engine::WorldToScreen(camera, back.x, back.y, 1280.0f, 720.0f);
+    CHECK(again.x == doctest::Approx(123.0f));
+    CHECK(again.y == doctest::Approx(456.0f));
+}

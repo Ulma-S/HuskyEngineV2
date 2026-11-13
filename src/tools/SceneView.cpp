@@ -9,6 +9,7 @@
 #include "tools/EditorCommands.h"
 #include "tools/EditorPlayMode.h"
 #include "tools/Inspector.h"
+#include "tools/MoveGizmo.h"
 #include "tools/SceneGrid.h"
 
 #include <imgui.h>
@@ -70,6 +71,7 @@ namespace husky::tools
             app.ClearCameraOverride(); // 再生中はゲームのカメラで映す
             m_gridSprites.clear();     // グリッドも描かない
             m_dragging = core::ObjectHandle();
+            m_gizmoSprites.clear();
             return;
         }
 
@@ -83,13 +85,32 @@ namespace husky::tools
             m_initialized = true;
         }
 
-        // マウスの下に映っているワールドの位置(このフレームのエディタのカメラで。パンやズームをした後の値を使う)
+        // マウスの下に映っているワールドの位置と、ワールドの点が映る画面の位置(このフレームのエディタのカメラで。パンやズームの後)
         auto MouseWorld = [this](const ImGuiIO& mouse, float width, float height) {
             const engine::CameraMatrices camera = engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, width, height);
             return engine::ScreenToWorld(camera, mouse.MousePos.x, mouse.MousePos.y, width, height);
         };
+        // 選んでいるアクター(インスペクタと同じもの)。ギズモはこのアクターの位置に出す
+        engine::Actor* selected = app.GetRegistry().Resolve<engine::Actor>(inspector.GetSelected());
+        if (selected != nullptr && selected->IsPendingDestroy())
+        {
+            selected = nullptr;
+        }
+        // マウスがギズモのどの部品の上か(ドラッグしていない間だけ調べる。画面のピクセルで比べる)
+        auto PickAtMouse = [&]() {
+            if (selected == nullptr)
+            {
+                return GizmoHandle::None;
+            }
+            const engine::CameraMatrices camera =
+                engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, screenWidth, screenHeight);
+            const core::Vector3 origin = engine::WorldToScreen(camera, selected->transform.position.x,
+                                                               selected->transform.position.y, screenWidth, screenHeight);
+            return PickGizmoHandle(origin.x, origin.y, io.MousePos.x, io.MousePos.y);
+        };
 
         // マウスが ImGui の窓の上なら、窓の操作を優先する(シーンビューは何もしない)
+        m_hovered = GizmoHandle::None;
         if (!io.WantCaptureMouse)
         {
             // パン: 右か中のボタンを押しながら動かすと、つかんだ世界が一緒に動く(カメラは逆へ動く)。
@@ -104,24 +125,35 @@ namespace husky::tools
             {
                 m_view = ZoomAt(m_view, io.MouseWheel, io.MousePos.x, io.MousePos.y, screenWidth, screenHeight);
             }
-            // 選ぶ・つかむ: 左ボタンを押した所の、いちばん手前のスプライトのアクターを選び、そのままドラッグで動かせるようにする
-            // (無い所なら選択を外す)。つかんだ点とアクターの位置のずれを覚えておくと、動かしても飛ばない。
+            if (m_dragging.IsNull())
+            {
+                m_hovered = PickAtMouse(); // 乗せている部品を光らせる
+            }
+            // 左ボタンを押した: ギズモの上ならつかむ(動かす)。そうでなければ、その下のアクターを選ぶだけ(Unity と同じく、
+            // アクターの本体のドラッグでは動かさない。うっかり動かさないため)。何も無い所なら選択を外す。
+            // ギズモを先に調べるので、ギズモがほかのアクターに重なっていても、ギズモが優先される。
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
                 const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
-                engine::Actor* actor = engine::FindSpriteActorAt(app.GetScene(), world.x, world.y);
-                inspector.Select(actor != nullptr ? actor->GetHandle() : core::ObjectHandle());
-                m_dragging = actor != nullptr ? actor->GetHandle() : core::ObjectHandle();
-                if (actor != nullptr)
+                const GizmoHandle handle = PickAtMouse();
+                if (handle != GizmoHandle::None)
                 {
-                    m_dragFrom = actor->transform.position;
-                    m_dragOffsetX = actor->transform.position.x - world.x;
-                    m_dragOffsetY = actor->transform.position.y - world.y;
+                    m_dragging = selected->GetHandle();
+                    m_dragHandle = handle;
+                    m_dragFrom = selected->transform.position;
+                    m_dragStartX = world.x;
+                    m_dragStartY = world.y;
+                }
+                else
+                {
+                    engine::Actor* actor = engine::FindSpriteActorAt(app.GetScene(), world.x, world.y);
+                    inspector.Select(actor != nullptr ? actor->GetHandle() : core::ObjectHandle());
+                    selected = actor;
                 }
             }
         }
 
-        // ドラッグ中(窓の上へ出ても続ける。押し始めがシーンビューなら、ImGui は窓の操作にしない)
+        // ギズモのドラッグ中(窓の上へ出ても続ける。押し始めがシーンビューなら、ImGui は窓の操作にしない)
         if (!m_dragging.IsNull())
         {
             engine::Actor* actor = app.GetRegistry().Resolve<engine::Actor>(m_dragging);
@@ -131,10 +163,11 @@ namespace husky::tools
             }
             else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
             {
-                // 動かしている間は、値をその場で書き換えて見せる(まだ履歴には積まない)
+                // 動かしている間は、値をその場で書き換えて見せる(まだ履歴には積まない)。
+                // つかんでからマウスが動いた量を、つかんだ部品の軸だけに足す(X なら x だけ、真ん中なら両方)
                 const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
-                actor->transform.position.x = world.x + m_dragOffsetX;
-                actor->transform.position.y = world.y + m_dragOffsetY;
+                actor->transform.position = ApplyGizmoDrag(m_dragHandle, m_dragFrom, world.x - m_dragStartX, world.y - m_dragStartY);
+                m_hovered = m_dragHandle; // つかんでいる部品は光らせたまま
             }
             else
             {
@@ -149,6 +182,12 @@ namespace husky::tools
         app.SetCameraOverride(m_view);
         // グリッドの線を、このカメラに合わせて作り直す(次に描くフレームで、同じカメラと一緒に使われる)
         BuildGridSprites(m_view, screenWidth, screenHeight, m_gridSprites);
+        // 移動のギズモ: 選んでいるアクターの位置に(動かした後の位置に作る)
+        m_gizmoSprites.clear();
+        if (selected != nullptr)
+        {
+            BuildGizmoSprites(m_view, selected->transform.position, m_hovered, m_gizmoSprites);
+        }
     }
 
     void SceneView::DrawGrid(render::RenderDevice& renderDevice) const
@@ -156,6 +195,14 @@ namespace husky::tools
         for (const render::Sprite& line : m_gridSprites)
         {
             renderDevice.DrawSprite(line);
+        }
+    }
+
+    void SceneView::DrawGizmo(render::RenderDevice& renderDevice) const
+    {
+        for (const render::Sprite& quad : m_gizmoSprites)
+        {
+            renderDevice.DrawSprite(quad);
         }
     }
 }

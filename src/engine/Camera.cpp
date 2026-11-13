@@ -55,4 +55,11 @@ namespace husky::engine
         const glm::vec4 world = inverse * glm::vec4(clipX, clipY, 0.5f, 1.0f);
         return core::Vector3{world.x, world.y, 0.0f};
     }
+
+    core::Vector3 WorldToScreen(const CameraMatrices& camera, float worldX, float worldY, float screenWidth, float screenHeight)
+    {
+        const glm::vec4 clip = ToGlm(camera.ViewProjection()) * glm::vec4(worldX, worldY, 0.0f, 1.0f);
+        // クリップ座標(左端 -1、右端 +1、上端 +1)→ 画面のピクセル(左上が 0。y は下が + なので裏返す)
+        return core::Vector3{(clip.x + 1.0f) * 0.5f * screenWidth, (1.0f - clip.y) * 0.5f * screenHeight, 0.0f};
+    }
 }

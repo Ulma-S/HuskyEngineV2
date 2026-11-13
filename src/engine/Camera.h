@@ -48,4 +48,8 @@ namespace husky::engine
     // 描くときの変換(ワールド → ビュー → 射影 → 画面)を逆にたどる: 画面 → クリップ座標(-1〜+1)→ 行列の逆行列 → ワールド。
     // 画面の y は下が + だが、ワールドとクリップ座標は上が + なので、ここで裏返す。z は 0 の面の上の点を返す。
     core::Vector3 ScreenToWorld(const CameraMatrices& camera, float screenX, float screenY, float screenWidth, float screenHeight);
+
+    // ScreenToWorld の逆: ワールドの位置 (worldX, worldY) が、画面のどのピクセル(左上が (0, 0)、下が +y)に映るか(RS-4)。
+    // 描くときと同じ変換(射影 × ビュー)を掛け、クリップ座標(-1〜+1)を画面のピクセルに直す。結果の z は使わない(0)。
+    core::Vector3 WorldToScreen(const CameraMatrices& camera, float worldX, float worldY, float screenWidth, float screenHeight);
 }

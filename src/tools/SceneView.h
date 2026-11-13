@@ -2,7 +2,9 @@
 //   - 右ドラッグか中ドラッグ: 画面を動かす(パン)
 //   - ホイール: マウスの下の点を中心に、寄る・引く(ズーム)
 //   - 左クリック: マウスの下のアクター(いちばん手前のスプライト)を選ぶ。何も無い所なら選択を外す
-//   - 左ドラッグ: 選んだアクターを動かす。離したときに property.set を1回だけ通すので、Ctrl+Z 1回で元の位置へ戻る(RS-3)
+//   - 移動のギズモ(RS-4。tools/MoveGizmo.h): 選んだアクターに出る矢印をドラッグすると、その軸だけ動く。真ん中の四角は x と y を
+//     一気に動かす。離したときに property.set を1回だけ通すので、Ctrl+Z 1回で元の位置へ戻る(RS-3)。
+//     Unity と同じく、アクターの本体をドラッグしても動かさない(左クリックは選ぶだけ。ユーザーが決定)
 //   - グリッド(方眼)をシーンより奥に描く(tools/SceneGrid.h)
 // マウスが ImGui の窓の上にあるときは、窓の操作を優先して何もしない(io.WantCaptureMouse)。
 // 再生中(Play / Pause)は、ゲームのカメラに戻す(エディタのカメラの位置は覚えておき、Stop で戻ると続きから)。
@@ -20,6 +22,7 @@
 #include "core/Vector3.h"
 #include "engine/Camera.h"
 #include "render/RenderDevice.h"
+#include "tools/MoveGizmo.h"
 
 #include <vector>
 
@@ -48,6 +51,9 @@ namespace husky::tools
         // 線は Update で、そのときのエディタのカメラに合わせて作ってある(編集中だけ。再生中は何も描かない)。
         void DrawGrid(render::RenderDevice& renderDevice) const;
 
+        // 移動のギズモ(tools/MoveGizmo.h)を描く。シーンより手前に描くので、Application::SetAfterSceneDrawCallback から呼ぶ。
+        void DrawGizmo(render::RenderDevice& renderDevice) const;
+
         // 今のエディタのカメラ(テストや、ほかの道具が読むため)。
         const engine::CameraView& GetView() const { return m_view; }
 
@@ -55,10 +61,13 @@ namespace husky::tools
         engine::CameraView m_view;  // エディタのカメラ
         bool m_initialized = false; // 最初の1回だけ、ゲームのカメラと同じ見え方から始める
         std::vector<render::Sprite> m_gridSprites; // グリッドの線(使い回す入れ物。毎フレーム作り直すが、確保は最初だけ)
-        core::ObjectHandle m_dragging;   // 左ドラッグで動かしているアクター(弱い参照。動かしていなければ null)
+        std::vector<render::Sprite> m_gizmoSprites; // 移動のギズモの線(使い回す入れ物)
+        GizmoHandle m_hovered = GizmoHandle::None;    // マウスを乗せている(つかんでいる)ギズモの部品(光らせる)
+        GizmoHandle m_dragHandle = GizmoHandle::None; // つかんでいるギズモの部品
+        core::ObjectHandle m_dragging;   // ギズモで動かしているアクター(弱い参照。動かしていなければ null)
         core::Vector3 m_dragFrom;        // つかむ前の位置(離したときに Undo のための「前の値」にする)
-        float m_dragOffsetX = 0.0f;      // つかんだ点からアクターの位置までのずれ(つかんだ所がマウスについてくる)
-        float m_dragOffsetY = 0.0f;
+        float m_dragStartX = 0.0f;       // つかんだときのマウスのワールドの位置(ここからの動いた量を軸に足す)
+        float m_dragStartY = 0.0f;
     };
 
     // ドラッグで動かしたアクターの位置を、property.set で書く(RS-3)。actor は今「動かした後の位置」にいる。
