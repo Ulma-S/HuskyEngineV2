@@ -73,6 +73,7 @@ namespace husky::tools
         std::vector<render::Sprite> m_gridSprites; // グリッドの線(使い回す入れ物。毎フレーム作り直すが、確保は最初だけ)
         std::vector<render::Sprite> m_gizmoSprites;   // ギズモの線(使い回す入れ物)
         std::vector<render::Sprite> m_outlineSprites; // 選んでいるアクターの枠の線(使い回す入れ物)
+        std::vector<render::Sprite> m_colliderSprites; // コライダーの緑の枠の線(使い回す入れ物。COL-3)
         bool m_showGrid = true;                       // グリッドを出すか(view.grid)
         GizmoHandle m_hovered = GizmoHandle::None;    // マウスを乗せている(つかんでいる)ギズモの部品(光らせる)
         GizmoHandle m_dragHandle = GizmoHandle::None; // つかんでいるギズモの部品

@@ -5,6 +5,7 @@
 
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
+#include "engine/Collider2D.h"
 #include "engine/SpriteComponent.h"
 #include "engine/TransformMatrix.h"
 #include "tools/EditorCommands.h"
@@ -82,6 +83,7 @@ namespace husky::tools
             m_dragging = core::ObjectHandle();
             m_gizmoSprites.clear();
             m_outlineSprites.clear();
+            m_colliderSprites.clear();
             return;
         }
 
@@ -258,6 +260,35 @@ namespace husky::tools
         {
             m_gridSprites.clear(); // 隠している(view.grid)
         }
+        // コライダーの緑の枠(編集中だけ。Unity と同じ色)。当たりの形を、描画と同じ道具で求めて描く(COL-3)
+        m_colliderSprites.clear();
+        constexpr render::Color ColliderColor = {0.4f, 0.95f, 0.45f, 0.9f};
+        core::ObjectRegistry& registry = app.GetRegistry();
+        app.GetScene().ForEachActor([&](engine::Actor& actor) {
+            for (const core::ObjectHandle handle : actor.components)
+            {
+                if (const engine::BoxCollider2D* box = registry.Resolve<engine::BoxCollider2D>(handle))
+                {
+                    if (!box->IsPendingDestroy())
+                    {
+                        AppendQuadOutline(engine::ComputeBoxColliderCorners(actor.transform, *box), m_view, ColliderColor,
+                                          m_colliderSprites);
+                    }
+                }
+                else if (const engine::CircleCollider2D* circle = registry.Resolve<engine::CircleCollider2D>(handle))
+                {
+                    if (!circle->IsPendingDestroy())
+                    {
+                        float centerX = 0.0f;
+                        float centerY = 0.0f;
+                        float radius = 0.0f;
+                        engine::ComputeCircleColliderWorld(actor.transform, *circle, centerX, centerY, radius);
+                        AppendCircleOutline(centerX, centerY, radius, m_view, ColliderColor, 32, m_colliderSprites);
+                    }
+                }
+            }
+        });
+
         // 選んでいるアクターの枠(スプライトを持っていれば、その四隅を結ぶ。描くときと同じ形を、同じ道具で作る)
         m_outlineSprites.clear();
         const engine::SpriteComponent* sprite = selected != nullptr ? selected->GetComponent<engine::SpriteComponent>() : nullptr;
@@ -295,7 +326,11 @@ namespace husky::tools
 
     void SceneView::DrawGizmo(render::RenderDevice& renderDevice) const
     {
-        for (const render::Sprite& line : m_outlineSprites) // 先に枠(ギズモがその上に重なる)
+        for (const render::Sprite& line : m_colliderSprites) // いちばん下にコライダーの緑の枠
+        {
+            renderDevice.DrawSprite(line);
+        }
+        for (const render::Sprite& line : m_outlineSprites) // 次に選択の枠(ギズモがその上に重なる)
         {
             renderDevice.DrawSprite(line);
         }

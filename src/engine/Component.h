@@ -19,6 +19,7 @@
 
 #include "core/Guid.h"
 #include "core/Object.h"
+#include "engine/PhysicsTypes.h" // OverlapEvent
 
 #include <cstdint>
 
@@ -54,6 +55,10 @@ namespace husky::engine
         // 子クラスで override して、機能を書く。Destroy 済みのコンポーネントや、
         // Destroy 済みのアクターに付いたコンポーネントでは呼ばれない。
         virtual void Tick(double dt) { (void)dt; }
+
+        // 持ち主のアクターのコライダーが、ほかのアクターのコライダーと重なり始めた・離れたときに呼ばれる(COL-3。Unity の
+        // OnTriggerEnter2D / Exit2D にあたる)。シーンを更新している間だけ(編集中は呼ばれない)。子クラスで override する。
+        virtual void OnOverlap(const OverlapEvent& event) { (void)event; }
 
         // このコンポーネントの実行順(宣言)。既定は TickOrder::Default(0)。
         // 先に、または後に動かしたい子クラスは、override して返す値を変える。

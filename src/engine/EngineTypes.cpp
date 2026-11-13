@@ -3,6 +3,7 @@
 
 #include "engine/Actor.h"
 #include "engine/CameraComponent.h"
+#include "engine/Collider2D.h"
 #include "engine/Component.h"
 #include "engine/Scene.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -18,5 +19,7 @@ namespace husky::engine
         types.Register<SpriteComponent>();
         types.Register<SpriteAnimatorComponent>();
         types.Register<CameraComponent>();
+        types.Register<BoxCollider2D>();    // Collider2D そのものは形が決まらないので登録しない
+        types.Register<CircleCollider2D>();
     }
 }

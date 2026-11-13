@@ -34,6 +34,10 @@ namespace husky::engine
         // 実行順は TickOrder::Default(0)で、このアクターの Default のコンポーネントより先に呼ばれる。
         virtual void Tick(double dt) { (void)dt; }
 
+        // このアクターのコライダーが、ほかのアクターのコライダーと重なり始めた・離れたときに呼ばれる(COL-3)。
+        // 同じイベントは、このアクターの全コンポーネントの Component::OnOverlap にも届く。シーンを更新している間だけ。
+        virtual void OnOverlap(const OverlapEvent& event) { (void)event; }
+
         // T 型のコンポーネントを作り、このアクターに取り付ける。メモリが足りなければ nullptr。
         // アクターをレジストリで作っていない場合も nullptr。
         // 一覧の順番が、コンポーネントの更新の順番になる。

@@ -110,6 +110,14 @@ namespace husky::tools
     void BuildSelectionOutline(const render::SpriteCorners& corners, const engine::CameraView& view,
                                std::vector<render::Sprite>& out);
 
+    // 四隅 corners を結ぶ 4 本の線を、out の後ろに足す(消さない)。太さは画面で一定。コライダーの枠などに使う。
+    void AppendQuadOutline(const render::SpriteCorners& corners, const engine::CameraView& view, const render::Color& color,
+                           std::vector<render::Sprite>& out);
+
+    // 真ん中 (centerX, centerY)、半径 radius の円を、segments 本の短い線で out の後ろに足す(消さない)。太さは画面で一定。
+    void AppendCircleOutline(float centerX, float centerY, float radius, const engine::CameraView& view,
+                             const render::Color& color, int segments, std::vector<render::Sprite>& out);
+
     // ギズモの向きの名前("Global (X)" など。Unity の表示に合わせる)。
     const char* GetGizmoSpaceName(GizmoSpace space);
 }

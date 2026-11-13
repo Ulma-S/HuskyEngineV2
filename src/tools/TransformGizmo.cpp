@@ -264,11 +264,9 @@ namespace husky::tools
         return space == GizmoSpace::Local ? "Local (X)" : "Global (X)";
     }
 
-    void BuildSelectionOutline(const render::SpriteCorners& corners, const engine::CameraView& view,
-                               std::vector<render::Sprite>& out)
+    void AppendQuadOutline(const render::SpriteCorners& corners, const engine::CameraView& view, const render::Color& color,
+                           std::vector<render::Sprite>& out)
     {
-        out.clear();
-        constexpr render::Color OutlineColor = {1.0f, 0.55f, 0.1f, 1.0f}; // Unity の選択の枠と同じ橙色
         const float thickness = GizmoSize::Thickness / (view.zoom > 0.0f ? view.zoom : 1.0f);
         // 角 i から角 i + 1 へ(3 の次は 0)の辺を 1 本ずつ。辺の真ん中に、辺の長さの細い板を、辺の向きに回して置く
         for (int i = 0; i < 4; ++i)
@@ -279,8 +277,30 @@ namespace husky::tools
             const float length = std::hypot(dx, dy);
             const float angle = std::atan2(dy, dx) * 180.0f / Pi; // 辺の向き(度)
             AddQuad(out, (corners.x[i] + corners.x[next]) * 0.5f, (corners.y[i] + corners.y[next]) * 0.5f, length + thickness,
-                    thickness, angle, OutlineColor);
+                    thickness, angle, color);
         }
+    }
+
+    void AppendCircleOutline(float centerX, float centerY, float radius, const engine::CameraView& view,
+                             const render::Color& color, int segments, std::vector<render::Sprite>& out)
+    {
+        // 回転の輪と同じ作り方: 短い線を円に沿って並べる(線の向きは円の接線 = 半径の向き + 90 度)
+        const float thickness = GizmoSize::Thickness / (view.zoom > 0.0f ? view.zoom : 1.0f);
+        const float segment = 2.0f * Pi * radius / static_cast<float>(segments) * 1.1f;
+        for (int i = 0; i < segments; ++i)
+        {
+            const float angle = 2.0f * Pi * (static_cast<float>(i) + 0.5f) / static_cast<float>(segments);
+            AddQuad(out, centerX + radius * std::cos(angle), centerY + radius * std::sin(angle), segment, thickness,
+                    angle * 180.0f / Pi + 90.0f, color);
+        }
+    }
+
+    void BuildSelectionOutline(const render::SpriteCorners& corners, const engine::CameraView& view,
+                               std::vector<render::Sprite>& out)
+    {
+        out.clear();
+        constexpr render::Color OutlineColor = {1.0f, 0.55f, 0.1f, 1.0f}; // Unity の選択の枠と同じ橙色
+        AppendQuadOutline(corners, view, OutlineColor, out);
     }
 }
 

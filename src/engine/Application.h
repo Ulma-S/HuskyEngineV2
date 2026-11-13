@@ -22,6 +22,7 @@
 #include "engine/Camera.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
+#include "engine/PhysicsScene2D.h"
 #include "engine/Scene.h"
 #include "platform/Keyboard.h"
 #include "render/RenderDevice.h"
@@ -73,6 +74,10 @@ namespace husky::engine
         // 型の登録簿(名前からオブジェクトを作る)。engine の型は登録済み。ゲームの型は、Run の前にゲームが登録する。
         core::TypeRegistry& GetTypeRegistry() { return m_types; }
         Scene& GetScene() { return *m_scene; }
+
+        // 2D の当たり判定(COL-3)。ゲームは GetPhysics2D().GetWorld() で問い合わせる(OverlapPoint、Raycast など)。
+        // シーンを更新しているフレームだけ、StepFrame の中で同期と重なりの調べを行う(編集中は止まっている)。
+        PhysicsScene2D& GetPhysics2D() { return m_physics2D; }
         // アセットのデータベース(GUID → ファイルのパス)。中身は、ゲームが Run の前に Scan で作る。
         AssetDatabase& GetAssetDatabase() { return m_assets; }
         // アセットのローダ。Run の前にも読める(GPU のテクスチャは、Run の中で描画の準備ができたときに作られる)。
@@ -175,6 +180,7 @@ namespace husky::engine
         // ローダは、作ったアセット(レジストリの中)より長く生きる必要がある(アセットが回収されるときにローダを呼ぶ)ので、
         // レジストリより先に宣言する(先に作られ、後に壊される)。
         AssetLoader m_loader;
+        PhysicsScene2D m_physics2D; // シーンのコライダーと当たり判定の世界(COL-3)
         core::ObjectRegistry m_registry;
         Scene* m_scene = nullptr; // m_registry が持ち主。ここは借りているだけ
 

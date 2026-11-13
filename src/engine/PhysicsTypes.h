@@ -3,6 +3,8 @@
 // 動作スレッド: どこでもよい(ただの値)
 #pragma once
 
+#include "core/Object.h" // core::ObjectHandle
+
 #include <cstdint>
 
 namespace husky::engine
@@ -18,5 +20,17 @@ namespace husky::engine
     {
         std::uint32_t layer = 1u;               // 既定はグループ 0
         std::uint32_t mask = AllCollisionLayers; // 既定はすべてと当たる
+    };
+
+    // 重なりの始まり・終わりのイベント(COL-3。2D と 3D で同じ形にする)。
+    // 重なった2つのアクターの両方に、それぞれ自分の側から見た形で届く(Actor::OnOverlap と、そのアクターの全コンポーネントの
+    // Component::OnOverlap)。相手はハンドルで渡す(生ポインタを外に出さない。CLAUDE.md「リフレクション」)。
+    // トリガーかどうかに関係なく届く(今は当たり判定だけなので、どれも「重なり」。物理を足したら、押し合うものの接触も別に知らせる)。
+    struct OverlapEvent
+    {
+        bool begin = true;                // true: 重なり始めた、false: 離れた
+        core::ObjectHandle selfCollider;  // 自分の側のコライダー(コンポーネント)
+        core::ObjectHandle otherCollider; // 相手のコライダー
+        core::ObjectHandle otherActor;    // 相手のアクター(相手が消えた後の「離れた」では、もう無いことがある)
     };
 }

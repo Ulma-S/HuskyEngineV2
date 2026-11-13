@@ -54,6 +54,9 @@ namespace husky::engine
         if (m_sceneTickEnabled || m_sceneStepRequested)
         {
             m_scene->Tick(dt);
+            // 当たり判定: アクターが動いた後に、コライダーを当たり判定の世界に伝え、重なりを調べてイベントを届ける。
+            // 受け取った側は同じフレームのうちに反応でき、Destroy などはこの後のフレームの終わりで確定する。
+            m_physics2D.Update(*m_scene, static_cast<float>(dt));
             m_sceneStepRequested = false;
         }
 
