@@ -35,6 +35,10 @@ namespace husky::engine
         bool isTrigger = false;            // 重なりを知らせるだけで、物理では押し合わない(今は覚えておくだけ。物理を足すときに効く)
         std::int32_t layer = 0;            // 属するグループの番号(0〜31)
         std::int32_t collisionMask = -1;   // 当たる相手のグループの印(ビット。-1 = すべてのビットが 1 = すべてと当たる)
+        // 材質(PHY-2b。Rigidbody2D の体に付いて物理で押し合うときに使う。後で材質のアセットにする余地を残す)
+        float density = 1.0f;     // 密度(重さ = 面積 × 密度。面積はワールドの単位: 32 × 32 の四角なら 1024)
+        float friction = 0.6f;    // 摩擦(0 でつるつる)
+        float restitution = 0.0f; // 跳ね返り(0 で跳ねない、1 で同じ速さで跳ね返る)
 
         // 形を、真ん中が center(アクターの位置からのずらし)、大きさ size の四角に合わせる(子クラスが決める。四角はそのまま、
         // 円は大きいほうの辺に合わせた半径)。絵に合わせるとき(FitColliderToSprite)に使う。
@@ -48,6 +52,9 @@ namespace husky::engine
             HUSKY_PROPERTY(isTrigger)
             HUSKY_PROPERTY(layer)
             HUSKY_PROPERTY(collisionMask)
+            HUSKY_PROPERTY(density)
+            HUSKY_PROPERTY(friction)
+            HUSKY_PROPERTY(restitution)
         HUSKY_REFLECTION_END()
 
     protected:

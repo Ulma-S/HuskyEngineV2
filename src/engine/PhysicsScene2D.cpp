@@ -25,7 +25,8 @@ namespace husky::engine
         {
             return a.type == b.type && a.width == b.width && a.height == b.height && a.radius == b.radius &&
                    a.offset == b.offset && a.filter.layer == b.filter.layer && a.filter.mask == b.filter.mask &&
-                   a.isTrigger == b.isTrigger;
+                   a.isTrigger == b.isTrigger && a.density == b.density && a.friction == b.friction &&
+                   a.restitution == b.restitution;
         }
 
         // 体の置き直しが要るか(種類・重力の倍率など、体の決め事が変わった)。
@@ -44,13 +45,15 @@ namespace husky::engine
     void PhysicsScene2D::Update(Scene& scene, double dt)
     {
         HUSKY_PROFILE_SCOPE("Physics2D"); // 全体(下の区間を含む)
+        // このフレームに進める歩数を先に決める(Kinematic を動かす速さに使う)
+        m_pendingSteps = m_stepper.Advance(dt);
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Sync");
             Sync(scene);
         }
         {
             HUSKY_PROFILE_SCOPE("Physics2D.Step");
-            m_lastStepCount = m_stepper.Advance(dt);
+            m_lastStepCount = m_pendingSteps;
             const float stepSeconds = static_cast<float>(m_stepper.GetStepSeconds());
             for (int i = 0; i < m_lastStepCount; ++i)
             {
@@ -181,11 +184,11 @@ namespace husky::engine
     PhysicsBodyHandle2D PhysicsScene2D::SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose)
     {
         // 最初の Rigidbody2D を探す(2 つ目からは使わない)
-        const Rigidbody2D* rigidbody = nullptr;
+        Rigidbody2D* rigidbody = nullptr;
         core::ObjectHandle handle;
         for (const core::ObjectHandle component : actor.components)
         {
-            const Rigidbody2D* found = registry.Resolve<Rigidbody2D>(component);
+            Rigidbody2D* found = registry.Resolve<Rigidbody2D>(component);
             if (found != nullptr && !found->IsPendingDestroy())
             {
                 rigidbody = found;
@@ -206,7 +209,16 @@ namespace husky::engine
         if (entry.rigidbody != handle || !SameBody(entry.desc, desc))
         {
             // 新しい Rigidbody2D(または同じ場所の前の代の控え)か、決め事が変わった: 体を置き直す。
-            // 付いていた形は体と一緒に消えるので、コライダーはこの後の同期で新しい体に付け直される
+            // 付いていた形は体と一緒に消えるので、コライダーはこの後の同期で新しい体に付け直される。
+            // 同じ Rigidbody2D の置き直し(種類を変えたなど)なら、速さは引き継ぐ
+            const bool sameRigidbody = entry.rigidbody == handle && !entry.body.IsNull();
+            core::Vector2 velocity;
+            float angularVelocity = 0.0f;
+            if (sameRigidbody)
+            {
+                velocity = m_world->GetLinearVelocity(entry.body);
+                angularVelocity = m_world->GetAngularVelocity(entry.body);
+            }
             if (!entry.body.IsNull())
             {
                 RemoveBody(entry);
@@ -215,13 +227,36 @@ namespace husky::engine
             entry.body = m_world->AddBody(desc, pose);
             entry.pose = pose;
             entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+            entry.moving = false;
+            if (sameRigidbody)
+            {
+                m_world->SetLinearVelocity(entry.body, velocity);
+                m_world->SetAngularVelocity(entry.body, angularVelocity);
+            }
+            // Rigidbody2D に体を貸す(速度の関数が使えるようになる。体ができる前に頼まれた速度はここで入る)
+            rigidbody->ConnectBody(m_world.get(), entry.body);
         }
         else if (!SamePose(entry.pose, pose))
         {
-            // アクターが、前に伝えた(書き戻した)場所から動いている = コードが動かした: 瞬間移動として伝える
-            m_world->SetBodyPose(entry.body, pose);
-            entry.pose = pose;
-            entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+            // アクターが、前に伝えた(書き戻した)場所から動いている = コードが動かした
+            if (desc.type == BodyType2D::Kinematic && pose.scale == entry.pose.scale)
+            {
+                // Kinematic: 瞬間移動ではなく「このフレームの歩数で着く速さ」で動かす(通り道の Dynamic を押す)。
+                // このフレームに 1 歩も進まないなら、まだ伝えない(次のフレームにまとめて動かす)
+                if (m_pendingSteps > 0)
+                {
+                    m_world->MoveBodyTo(entry.body, pose, static_cast<float>(m_pendingSteps * m_stepper.GetStepSeconds()));
+                    entry.pose = pose;
+                    entry.moving = true; // 進めた後に、ぴったりの場所に合わせて止める(WriteBackBodies)
+                }
+            }
+            else
+            {
+                // Dynamic と Static(と、拡大縮小が変わった Kinematic): 瞬間移動として伝える
+                m_world->SetBodyPose(entry.body, pose);
+                entry.pose = pose;
+                entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+            }
         }
         entry.actor = actor.GetHandle();
         entry.desc = desc;
@@ -257,10 +292,22 @@ namespace husky::engine
         for (const std::uint32_t index : m_bodyOrder)
         {
             BodyEntry& entry = m_bodies[index];
-            if (entry.desc.type != BodyType2D::Dynamic)
+            if (entry.moving)
             {
-                continue; // Kinematic と Static は、アクターが場所を決める(アクター → Box2D だけ)
+                // コードが動かした Kinematic: 着いた場所をぴったりに合わせ、速さを 0 に戻す
+                // (そのままだと、アクターが止まっても体は同じ速さで進み続ける)。アクターはもうその場所にいる
+                m_world->SetBodyPose(entry.body, entry.pose);
+                m_world->SetLinearVelocity(entry.body, core::Vector2{});
+                m_world->SetAngularVelocity(entry.body, 0.0f);
+                entry.bodyRotation = m_world->GetBodyPose(entry.body).rotationDegrees;
+                entry.moving = false;
+                continue;
             }
+            if (entry.desc.type == BodyType2D::Static)
+            {
+                continue; // Static は動かない(アクターが場所を決める)
+            }
+            // Dynamic と、コードが動かしていない Kinematic(速度の関数で動かしたもの)は、体の場所をアクターに戻す
             Actor* actor = registry->Resolve<Actor>(entry.actor);
             if (actor == nullptr)
             {

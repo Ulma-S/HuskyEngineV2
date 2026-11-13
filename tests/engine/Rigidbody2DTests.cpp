@@ -200,3 +200,70 @@ TEST_CASE("PHY-2a: Rigidbody2D の体の種類は名前で保存され、読み�
     CHECK(loaded->gravityScale == 0.5f);
     CHECK(loaded->fixedRotation);
 }
+
+TEST_CASE("PHY-2b: Kinematic をコードで動かすと、通り道の Dynamic を押す。Kinematic は書いた場所でぴったり止まる")
+{
+    Application app;
+    SetupApp(app, 0.0f);
+    Actor* pusher = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Kinematic);
+    Actor* box = SpawnBody(app, 40.0f, 0.0f, BodyType2D::Dynamic); // 少しすき間をあけて右に置く
+    Steps(app, 1);
+    for (int i = 0; i < 30; ++i)
+    {
+        pusher->transform.position.x += 4.0f; // 1 フレームに 4 ずつ右へ(瞬間移動ではなく、速さを付けて動かす)
+        Steps(app, 1);
+    }
+    CHECK(pusher->transform.position.x == 120.0f);
+    // 押された箱は、押す側の右(120 + 32 = 152 くらい)より右にいる
+    CHECK(box->transform.position.x > 145.0f);
+    // 止めると、Kinematic は止まったまま(速さが 0 に戻っている)
+    Steps(app, 5);
+    CHECK(pusher->transform.position.x == 120.0f);
+    CHECK(pusher->GetComponent<Rigidbody2D>()->GetLinearVelocity().x == 0.0f);
+}
+
+TEST_CASE("PHY-2b: 速度の関数。体ができる前に入れた速度は、体ができたときに入る。種類を変えても速さは引き継ぐ")
+{
+    Application app;
+    SetupApp(app, 0.0f);
+    Actor* actor = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    Rigidbody2D* body = actor->GetComponent<Rigidbody2D>();
+    CHECK_FALSE(body->HasBody());
+    body->SetLinearVelocity({120.0f, 0.0f}); // まだ体が無い
+    CHECK(body->GetLinearVelocity().x == 120.0f);
+    Steps(app, 60); // 1 秒
+    CHECK(body->HasBody());
+    CHECK(actor->transform.position.x == doctest::Approx(120.0f).epsilon(0.02));
+
+    body->linearDamping = 0.5f; // 決め事を変えると体は置き直されるが、速さは残る
+    Steps(app, 1);
+    CHECK(body->GetLinearVelocity().x > 100.0f);
+}
+
+TEST_CASE("PHY-2b: 押す力(ApplyImpulse)と重さ。重さは 面積 × 密度(Collider2D::density)")
+{
+    Application app;
+    SetupApp(app, 0.0f);
+    Actor* actor = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    actor->GetComponent<BoxCollider2D>()->density = 2.0f;
+    Rigidbody2D* body = actor->GetComponent<Rigidbody2D>();
+    CHECK(body->GetMass() == 0.0f); // 体が無い
+    Steps(app, 1);
+    CHECK(body->GetMass() == doctest::Approx(32.0f * 32.0f * 2.0f));
+    body->ApplyImpulse({body->GetMass() * 60.0f, 0.0f}); // 速さ 60 にする
+    CHECK(body->GetLinearVelocity().x == doctest::Approx(60.0f));
+}
+
+TEST_CASE("PHY-2b: 跳ね返り(restitution)が 1 なら、床で同じくらいの速さで跳ね返る")
+{
+    Application app;
+    SetupApp(app, 0.0f);
+    Actor* floor = SpawnBody(app, 0.0f, -100.0f, BodyType2D::Static);
+    floor->GetComponent<BoxCollider2D>()->size = {400.0f, 32.0f};
+    Actor* ball = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Dynamic);
+    ball->GetComponent<BoxCollider2D>()->restitution = 1.0f;
+    Rigidbody2D* body = ball->GetComponent<Rigidbody2D>();
+    body->SetLinearVelocity({0.0f, -300.0f});
+    Steps(app, 30);
+    CHECK(body->GetLinearVelocity().y > 250.0f); // 上向きに跳ね返った
+}

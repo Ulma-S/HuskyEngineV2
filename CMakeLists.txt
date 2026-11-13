@@ -259,6 +259,7 @@ add_library(husky_engine STATIC
     src/engine/AssetLoader.cpp
     src/engine/Camera.cpp
     src/engine/Collider2D.cpp
+    src/engine/Rigidbody2D.cpp
     src/engine/PhysicsScene2D.cpp
     src/engine/FixedStepper.cpp
     src/engine/Box2DPhysicsWorld2D.cpp

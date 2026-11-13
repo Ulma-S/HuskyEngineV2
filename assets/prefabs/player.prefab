@@ -72,6 +72,9 @@
         "isTrigger": false,
         "layer": 0,
         "collisionMask": 2,
+        "density": 1.0,
+        "friction": 0.6,
+        "restitution": 0.0,
         "radius": 48.0
       },
       "id": 3

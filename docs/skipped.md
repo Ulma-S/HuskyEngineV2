@@ -82,3 +82,12 @@
 - ObjectRef<T> の中身を T によらず同じ ObjectReference(ハンドル1つ)にする理由: シリアライザ・GC・インスペクタは T を知らずに1つの道(GetValuePtrAt<ObjectReference>)で扱える。T の違いは Property の型の情報(GetObjectRefType。ただの値)として持つ。C++ のテンプレートは実行中にまとめて扱えず、スクリプトは実行中にテンプレートを作れないため(AssetRef<T> と AssetReference も同じ)
 - ArrayInfo が関数のポインタ(大きさ、大きさを変える、i 番目の場所、消す)を持つ理由: シリアライザはエンジンの中で1回だけコンパイルされ、ゲームがどの std::vector<E> を使うかを知らない。型を知っている HUSKY_PROPERTY の場所(ArrayInfoOf<T>)で E 専用の関数を作り、ポインタを Property に渡す。シリアライザは渡された関数と要素1つのプロパティ(element。オフセット 0)を使うだけ
 - 読み込みで ObjectRef の相手の型を確かめる流れ(ObjectSerializer が Object::GetOwnerRegistry で相手を引き、IsA で比べる。違えば null + 警告)
+
+## PHY-2a 以降: 物理(Rigidbody2D と体の同期)(2026-11-14)
+
+ユーザーが「物理も後から復習する」と決め、理解確認をスキップした。PHY-2b からも確認を省いて進める。
+
+後で復習したいこと:
+- コードがアクターを動かしたことの見分け方: 体の控え(BodyEntry::pose)に「最後に伝えた・書き戻した場所」を覚え、次の同期でアクターの transform がそれと違えば、物理ではなくコードが動かしたとして SetBodyPose(瞬間移動)で伝える
+- 角度を差だけ足す理由: Box2D は角度を近似の sin・cos で持つので、行って戻すと 30 度が 30.03 度になる。また -180〜180 度に丸める。そのまま写すと止まっている体でも角度が変わり、370 度が 10 度になる。体から最後に読んだ角度からの差だけを足せば、回っていない体の角度は変わらない
+- 位置の向き: Dynamic は Box2D → アクター、Kinematic・Static・Rigidbody 無しはアクター → Box2D

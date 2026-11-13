@@ -56,6 +56,22 @@ namespace husky::engine
             return desc;
         }
 
+        // ---- 速度と力(PHY-2b。保存しない。物理の世界の体を読み書きする)----
+        // 体がまだ無い(置いた同じフレーム、編集中)ときの速度は控えておき、体ができたときに入れる。
+        // 力・押す力は、体が無ければ何もしない。
+        void SetLinearVelocity(const core::Vector2& velocity); // 単位/秒
+        core::Vector2 GetLinearVelocity() const;
+        void SetAngularVelocity(float degreesPerSecond); // 反時計回りが +
+        float GetAngularVelocity() const;
+        void ApplyForce(const core::Vector2& force);     // 次の 1 歩に掛かる力(押し続けるなら毎フレーム)
+        void ApplyImpulse(const core::Vector2& impulse); // 一瞬で速さを変える力(重さで割った分だけ速さが変わる)
+        float GetMass() const;                           // 面積 × 密度(体が無ければ 0)
+        // 物理の世界に体があるか。
+        bool HasBody() const { return m_physicsWorld != nullptr && !m_physicsBody.IsNull(); }
+
+        // PhysicsScene2D が、体を置いたときに呼ぶ(世界は借りるだけ)。控えていた速度を体に入れる。
+        void ConnectBody(PhysicsWorld2D* world, PhysicsBodyHandle2D body);
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(bodyType)
             HUSKY_PROPERTY(gravityScale)
@@ -63,5 +79,13 @@ namespace husky::engine
             HUSKY_PROPERTY(angularDamping)
             HUSKY_PROPERTY(fixedRotation)
         HUSKY_REFLECTION_END()
+
+    private:
+        // 物理の世界(PhysicsScene2D が持つ。借りるだけ)と、その中の体。体ができるまでは nullptr と null。
+        PhysicsWorld2D* m_physicsWorld = nullptr;
+        PhysicsBodyHandle2D m_physicsBody;
+        // 体ができる前に頼まれた速度(体ができたら入れる)
+        core::Vector2 m_pendingVelocity;
+        float m_pendingAngularVelocity = 0.0f;
     };
 }

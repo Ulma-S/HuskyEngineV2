@@ -16,6 +16,9 @@ namespace husky::engine
         ShapeDesc2D desc;
         desc.offset = offset;
         desc.isTrigger = isTrigger;
+        desc.density = density;
+        desc.friction = friction;
+        desc.restitution = restitution;
         // グループの番号(0〜31)を、ビットの印にする(番号 3 → 1 << 3)
         desc.filter.layer = 1u << static_cast<std::uint32_t>(std::clamp<std::int32_t>(layer, 0, 31));
         // -1 は、ビットで見るとすべてが 1(2 の補数)。整数のまま、ビットの印として読み替える

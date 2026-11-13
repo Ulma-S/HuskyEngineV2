@@ -64,6 +64,7 @@ namespace husky::engine
             // 30 度を渡して読むと 30.03 度のように少しずれる。書き戻しは「この角度からの差」だけを足し、
             // 回っていない体ではアクターの角度を 1 つも変えない
             float bodyRotation = 0.0f;
+            bool moving = false; // このフレームにコードが動かした Kinematic(MoveBodyTo で速さを付けた。進めた後に止める)
             bool seen = false;
         };
 
@@ -102,6 +103,7 @@ namespace husky::engine
         std::unique_ptr<PhysicsWorld2D> m_world;
         FixedStepper m_stepper;
         int m_lastStepCount = 0;
+        int m_pendingSteps = 0; // このフレームに進める歩数(同期の前に決める)
         // 控えは、コライダーのハンドルの場所の番号(handle.index)をそのまま添字にした配列に置く(ハッシュの表より速い)。
         // 同じ場所が、消えた後に別のコライダーへ貸し直されることがあるので、控えのハンドル(世代つき)と比べて見分ける。
         // 空いている場所は collider が null。
