@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace husky::platform
 {
@@ -139,6 +140,10 @@ namespace husky::render
         void DrawSprite(const Sprite& sprite);
 
 #if HUSKY_DEVELOPMENT
+        // 【開発ビルドだけ】開発用の UI(ImGui)のフォント(TTF のファイルの中身)を渡す。Initialize の前に呼ぶ。
+        // 渡さなければ ImGui の既定のフォント(英数字だけ。日本語は ? になる)。日本語の字は、使うときに ImGui が作る。
+        void SetDevUiFont(std::string fontFileData, float sizePixels);
+
         // 【開発ビルドだけ】開発用の UI(ImGui)の1フレームを始める。BeginFrame が成功した後、EndFrame の前に呼ぶ。
         // これを呼んでから EndFrame までの間に、ImGui の関数(ImGui::Begin など)で窓を作れる。
         // 作った UI は、EndFrame でスプライトより手前に描かれる。呼ばなければ、UI は描かれない。

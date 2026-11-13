@@ -16,6 +16,7 @@ namespace husky::render
         InvalidTextureSize = 8,
         NotInitialized = 9,
         SpriteBufferFailed = 10,
+        DevUiFontFailed = 11,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(RenderLog, "Engine.Render")
@@ -33,5 +34,6 @@ namespace husky::render
                           HUSKY_LOG_ARG(function, String))
         HUSKY_LOG_MESSAGE(SpriteBufferFailed, Error, "スプライト用のバッファを作れませんでした: {error}",
                           HUSKY_LOG_ARG(error, String))
+        HUSKY_LOG_MESSAGE(DevUiFontFailed, Warning, "開発用の UI のフォントを読めませんでした。既定のフォント(英数字だけ)で続けます")
     HUSKY_LOG_CHANNEL_END()
 }

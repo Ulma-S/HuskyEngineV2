@@ -3,6 +3,7 @@
 #include "engine/EngineLog.h"
 
 #include <cmath> // std::round
+#include <utility> // std::move
 
 #include "core/Log.h"
 #include "core/Profiler.h"
@@ -181,6 +182,23 @@ namespace husky::engine
                 // renderDevice は window より内側のブロックにあるので、window より先に破棄される。
                 // RenderDevice は Window を使っているので、この順番でないといけない。
                 render::RenderDevice renderDevice;
+#if HUSKY_DEVELOPMENT
+                // 開発用の UI のフォント(日本語の字のあるもの)。Initialize の前に渡す。
+                if (!desc.devUiFont.empty())
+                {
+                    const core::Guid* fontGuid = m_assets.FindGuid(desc.devUiFont);
+                    std::string fontData;
+                    if (fontGuid != nullptr &&
+                        platform::ReadTextFile(m_assets.GetFullPath(*fontGuid).c_str(), fontData)) // 中身はそのままのバイト
+                    {
+                        renderDevice.SetDevUiFont(std::move(fontData), desc.devUiFontSize);
+                    }
+                    else
+                    {
+                        HUSKY_LOG(AssetLog::DevUiFontMissing, desc.devUiFont);
+                    }
+                }
+#endif
 
                 if (renderDevice.Initialize(window))
                 {

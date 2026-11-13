@@ -22,6 +22,7 @@
 #include <cstddef> // std::size_t, offsetof
 #include <cstdint>
 #include <cstring> // std::memcpy
+#include <utility> // std::move
 
 #include <glm/gtc/type_ptr.hpp> // glm::make_mat4(自前の行列の 16 個の float から glm の行列を作る)
 #include <glm/mat4x4.hpp>
@@ -159,6 +160,8 @@ namespace husky::render
         bool devUiReady = false;      // ImGui の準備ができたか
         bool devUiFrameBegun = false; // このフレームで BeginDevUiFrame が呼ばれたか
         bool InitializeDevUi();
+        std::string devUiFontData;   // 開発用の UI のフォント(TTF の中身。SetDevUiFont で渡され、InitializeDevUi で ImGui に渡す)
+        float devUiFontSize = 15.0f;
         void ShutdownDevUi();
 #endif
 
@@ -457,6 +460,23 @@ namespace husky::render
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = nullptr; // 窓の位置を imgui.ini に保存しない(作業フォルダにファイルを作らないため)
         ImGui::StyleColorsDark();
+
+        // 日本語の字のあるフォント(SetDevUiFont で渡されていれば)。ImGui 1.92 は、使う字だけをその場で作るので、
+        // 日本語の字の範囲を前もって指定しなくてよい。
+        if (!devUiFontData.empty())
+        {
+            // ImGui がフォントの中身を持ち、終わるときに自分で解放する(既定の FontDataOwnedByAtlas)。
+            // そのため ImGui の確保の関数(MemAlloc。MemoryTracker を通る)で借りた場所に写して渡す。
+            const int size = static_cast<int>(devUiFontData.size());
+            void* data = ImGui::MemAlloc(devUiFontData.size());
+            std::memcpy(data, devUiFontData.data(), devUiFontData.size());
+            devUiFontData.clear();
+            devUiFontData.shrink_to_fit(); // 手元の写しは要らない(4 MB ほどあるので手放す)
+            if (io.Fonts->AddFontFromMemoryTTF(data, size, devUiFontSize) == nullptr)
+            {
+                HUSKY_LOG(RenderLog::DevUiFontFailed);
+            }
+        }
 
         // 2. 入力(SDL3)と描画(SDL_GPU)につなぐ。
         if (!ImGui_ImplSDL3_InitForSDLGPU(window))
@@ -818,6 +838,12 @@ namespace husky::render
     }
 
 #if HUSKY_DEVELOPMENT
+    void RenderDevice::SetDevUiFont(std::string fontFileData, float sizePixels)
+    {
+        m_impl->devUiFontData = std::move(fontFileData);
+        m_impl->devUiFontSize = sizePixels;
+    }
+
     void RenderDevice::BeginDevUiFrame()
     {
         if (!m_impl->devUiReady || m_impl->commandBuffer == nullptr || m_impl->devUiFrameBegun)

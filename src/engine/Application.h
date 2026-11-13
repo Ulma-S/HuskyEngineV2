@@ -46,6 +46,10 @@ namespace husky::engine
         // アセットの表(AssetDatabase)で GUID を引いて読む。
         // SpriteComponent::texture が何も指していないスプライトは、これを貼る(白い板ではなく、何か見えるように)。
         std::string defaultSpriteTexture = "textures/test_sprite.png";
+        // 【開発ビルドだけ使う】開発用の UI(ImGui)のフォント。assets のフォルダからの相対パスで、アセットの表で引く。
+        // 空なら ImGui の既定のフォント(英数字だけ)。BIZ UDゴシック(SIL OFL。ライセンスは assets/fonts/OFL.txt)。
+        std::string devUiFont = "fonts/BIZUDGothic-Regular.ttf";
+        float devUiFontSize = 15.0f; // ピクセル
     };
 
     // 動作スレッド: ゲームスレッド(= メインスレッド)のみ

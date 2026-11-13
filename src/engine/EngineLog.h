@@ -23,6 +23,7 @@ namespace husky::engine
         ReadOnlyDataModified = 14,
         SpriteSheetNormalized = 15,
         DefaultTextureMissing = 16,
+        DevUiFontMissing = 17,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Engine.Asset")
@@ -56,6 +57,8 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(SpriteSheetNormalized, Info, "スプライトシートを整えました(ID とコマを {count} か所)({path})",
                           HUSKY_LOG_ARG(count, Int), HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(DefaultTextureMissing, Warning, "既定のテクスチャがアセットの表にありません({path})。テクスチャ無しで描きます",
+                          HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(DevUiFontMissing, Warning, "開発用の UI のフォントを読めません({path})。既定のフォント(英数字だけ)で続けます",
                           HUSKY_LOG_ARG(path, String))
     HUSKY_LOG_CHANNEL_END()
 
