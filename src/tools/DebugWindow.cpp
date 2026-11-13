@@ -4,6 +4,7 @@
 #if HUSKY_DEVELOPMENT
 
 #include "core/MemoryTracker.h"
+#include "core/Profiler.h"
 #include "engine/JsonFormat.h" // 型を問わない引数を、打った文字から読み分ける
 
 #include <imgui.h>
@@ -381,6 +382,39 @@ namespace husky::tools
             const core::FreeListAllocator& objects = app.GetRegistry().GetAllocator();
             ImGui::Text("Object heap: %.2f / %.2f MB", static_cast<double>(objects.GetUsedBytes()) / megabyte,
                         static_cast<double>(objects.GetCapacity()) / megabyte);
+
+            // 区間ごとの処理時間(core/Profiler.h)。最初は畳んでおく(窓が大きくなってシーンビューを覆わないように)。
+            // 名前は区間の登録のときの文字列の定数なので、表を作っても毎フレームの確保は無い。
+            if (ImGui::TreeNode("Profiler (ms)"))
+            {
+                const core::Profiler& profiler = core::Profiler::Get();
+                if (ImGui::BeginTable("profiler", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit))
+                {
+                    ImGui::TableSetupColumn("Section");
+                    ImGui::TableSetupColumn("Last");
+                    ImGui::TableSetupColumn("Avg");
+                    ImGui::TableSetupColumn("Max");
+                    ImGui::TableSetupColumn("Calls");
+                    ImGui::TableHeadersRow();
+                    for (int i = 0; i < profiler.GetSectionCount(); ++i)
+                    {
+                        const core::Profiler::SectionStats& section = profiler.GetStats(i);
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(section.name);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", section.lastMs);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", section.averageMs);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", section.maxMs);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", section.lastCalls);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::TreePop();
+            }
 
             if (commands != nullptr)
             {

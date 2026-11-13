@@ -1,6 +1,8 @@
 // PhysicsScene2D.h の実装。
 #include "engine/PhysicsScene2D.h"
 
+#include "core/Profiler.h"
+
 #include "engine/Actor.h"
 #include "engine/Collider2D.h"
 #include "engine/Scene.h"
@@ -31,10 +33,23 @@ namespace husky::engine
 
     void PhysicsScene2D::Update(Scene& scene, float dt)
     {
-        Sync(scene);
-        m_world->Step(dt);
-        DetectOverlaps();
-        Deliver(scene);
+        HUSKY_PROFILE_SCOPE("Physics2D"); // 全体(下の区間を含む)
+        {
+            HUSKY_PROFILE_SCOPE("Physics2D.Sync");
+            Sync(scene);
+        }
+        {
+            HUSKY_PROFILE_SCOPE("Physics2D.Step");
+            m_world->Step(dt);
+        }
+        {
+            HUSKY_PROFILE_SCOPE("Physics2D.Detect");
+            DetectOverlaps();
+        }
+        {
+            HUSKY_PROFILE_SCOPE("Physics2D.Deliver");
+            Deliver(scene);
+        }
     }
 
     void PhysicsScene2D::Sync(Scene& scene)

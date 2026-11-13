@@ -107,6 +107,7 @@
   - ジョブの中では、GC管理のオブジェクトを触らない(ただのデータだけ)。ワーカーの数は`JobSystem`を作るときに決める。0本なら同期実行(`Wait`を呼んだスレッドが積んだ順に実行する。テストの結果が毎回同じになる)。
   - `Application`がジョブシステムを持つ(`GetJobSystem`)。ワーカーの数はコンストラクタの引数で、既定は0(テスト)。ゲームの`main`は`JobSystem::RecommendedWorkerCount()`(コア数 - 1)を渡す。
 - 関数とクラスには、動作するスレッドをコメントで明記する。
+- 処理時間の計測(2026-11-13、ユーザーが勉強のために自作を希望): `core/Profiler.h`。測りたいブロックの最初に`HUSKY_PROFILE_SCOPE("名前")`を書くと、ブロックを抜けるときに時間を足す(RAII の`ProfileScope`。区間の番号は、その行を最初に通ったときに static で1回だけ登録、最大 32 区間、名前は文字列の定数)。`Application::StepFrame`の最初で`EndFrame`(前のフレームの描画まで含む)。結果(前のフレーム・平均・この1秒の最大・回数)は Debug の窓の "Profiler (ms)"(最初は畳む)と毎秒のログ("処理時間 ms(平均/最大)")。製品(Release)ではマクロが何もしない。ゲームスレッドだけ(ジョブの中では測らない)。今測っている所: Assets、Update、Scene.Tick、Physics2D(.Sync / .Step / .Detect / .Deliver)、FrameEnd、Render.Begin(wait)、Render(.Sprites / .Submit)、DevUI、SceneView。
 
 ## アセットとシリアライズ
 

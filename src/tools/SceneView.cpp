@@ -3,6 +3,7 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "core/Profiler.h"
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
 #include "engine/Collider2D.h"
@@ -76,6 +77,7 @@ namespace husky::tools
     void SceneView::Update(engine::Application& app, const EditorPlayMode& playMode, SceneInspector& inspector,
                            EditorCommandRegistry* commands)
     {
+        HUSKY_PROFILE_SCOPE("SceneView"); // DevUI の中の一部(グリッド・枠・ギズモの線づくり)
         if (playMode.GetState() != EditorPlayMode::State::Edit)
         {
             app.ClearCameraOverride(); // 再生中はゲームのカメラで映す

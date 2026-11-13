@@ -212,6 +212,7 @@ endfunction()
 add_library(husky_core STATIC
     src/core/FreeListAllocator.cpp
     src/core/Guid.cpp
+    src/core/Profiler.cpp
     src/core/JobSystem.cpp
     src/core/MemoryTracker.cpp
     src/core/Method.cpp
@@ -478,6 +479,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/core/GuidTests.cpp
+        tests/core/ProfilerTests.cpp
         tests/core/JobSystemTests.cpp
         tests/game/GameTests.cpp
         tests/game/CameraFollowComponentTests.cpp

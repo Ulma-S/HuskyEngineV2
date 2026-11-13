@@ -1,6 +1,8 @@
 // Application.h の実装。
 #include "engine/Application.h"
 
+#include "core/Profiler.h"
+
 #include "core/MemoryTracker.h"
 #include "engine/CameraComponent.h"
 #include "engine/EngineTypes.h"
@@ -33,6 +35,9 @@ namespace husky::engine
 
     double Application::StepFrame(std::uint64_t nowNanoseconds, const std::vector<platform::KeyEvent>& keyEvents)
     {
+        // 0. プロファイラーのフレームの区切り: 前のフレーム(その描画まで)に測った時間をまとめる
+        core::Profiler::Get().EndFrame();
+
         // 1. このフレームの dt を決める(dt を決めるのは FrameClock だけ)
         const double dt = m_clock.Tick(nowNanoseconds);
 
@@ -41,27 +46,35 @@ namespace husky::engine
 
         // 2'. アセット: ワーカーが読み終わったものを、アセットに書く(GPU に送る)。ゲームの処理より前に行い、
         //     このフレームの更新と描画から、読み終わったアセットを使えるようにする。
-        m_loader.Update();
+        {
+            HUSKY_PROFILE_SCOPE("Assets");
+            m_loader.Update();
+        }
 
         // 3. 更新: ゲーム固有の処理 → シーンの全アクターとコンポーネント
         //    std::function は、中身が入っているかを if で確かめられる(空のまま呼ぶとプログラムが止まる)。
         if (m_updateCallback)
         {
+            HUSKY_PROFILE_SCOPE("Update");
             m_updateCallback(*this, dt);
         }
         // シーンの更新を止めている間(エディタの編集中、一時停止中)は、アクターとコンポーネントの Tick を呼ばない。
         // ただし、コマ送りを頼まれたフレームだけは、止めていても 1 回進める。
         if (m_sceneTickEnabled || m_sceneStepRequested)
         {
-            m_scene->Tick(dt);
+            {
+                HUSKY_PROFILE_SCOPE("Scene.Tick");
+                m_scene->Tick(dt);
+            }
             // 当たり判定: アクターが動いた後に、コライダーを当たり判定の世界に伝え、重なりを調べてイベントを届ける。
             // 受け取った側は同じフレームのうちに反応でき、Destroy などはこの後のフレームの終わりで確定する。
-            m_physics2D.Update(*m_scene, static_cast<float>(dt));
+            m_physics2D.Update(*m_scene, static_cast<float>(dt)); // 中で区間 "Physics2D.*" を測る
             m_sceneStepRequested = false;
         }
 
         // 4. フレームの終わり: 破棄の確定と、必要なら GC。
         //    この順番が大事: Destroy 済みのアクターを一覧から外す → 破棄を確定する → (たまに)GC。
+        HUSKY_PROFILE_SCOPE("FrameEnd"); // ここから関数の終わりまで
         m_scene->RemoveDestroyedActors();
         m_registry.FlushDestroyed();
         m_secondsSinceGc += dt;
@@ -244,14 +257,33 @@ namespace husky::engine
                             static_cast<double>(memory.peakBytes) / (1024.0 * 1024.0),
                             static_cast<unsigned long long>(memory.totalAllocations - totalAllocationsAtLastLog));
                 totalAllocationsAtLastLog = memory.totalAllocations;
+#if HUSKY_DEVELOPMENT
+                // 区間ごとの処理時間(平均 / この1秒の最大、ミリ秒)。1行に並べる(文字列を組み立てず、そのまま書き出す)
+                core::Profiler& profiler = core::Profiler::Get();
+                std::printf("処理時間 ms(平均/最大):");
+                for (int i = 0; i < profiler.GetSectionCount(); ++i)
+                {
+                    const core::Profiler::SectionStats& section = profiler.GetStats(i);
+                    std::printf("  %s %.2f/%.2f", section.name, section.averageMs, section.maxMs);
+                }
+                std::printf("\n");
+                profiler.ResetMax();
+#endif
                 std::fflush(stdout); // 出力を溜めずに、すぐ画面(やファイル)へ書き出す
                 framesThisSecond = 0;
                 secondsThisSecond = 0.0;
             }
 
             // 描画: 描きたいスプライトを積んで、EndFrame でまとめて描く。vsync のため BeginFrame の中で待つ。
-            if (renderDevice.BeginFrame(m_clearColor))
+            // 待っている時間も区間にする(ほかの区間が軽いのに FPS が上がらないときは、ここが大きい = 画面の更新を待っている)。
+            bool began = false;
             {
+                HUSKY_PROFILE_SCOPE("Render.Begin(wait)");
+                began = renderDevice.BeginFrame(m_clearColor);
+            }
+            if (began)
+            {
+                HUSKY_PROFILE_SCOPE("Render"); // 描画全体(下の区間を含む)
                 // カメラ: シーンのカメラ(CameraComponent)があればそれで、無ければ画面ちょうどの動かないカメラで映す。
                 // カメラは動き、画面の大きさも窓を広げると変わるので、毎フレーム作り直す。
                 CameraMatrices camera = MakeSceneCamera(*m_scene,
@@ -268,28 +300,35 @@ namespace husky::engine
                 renderDevice.SetViewProjection(camera.ViewProjection());
 
                 // SpriteComponent を持つアクターを、シーンの一覧の順に積む。先に積んだものが奥、後に積んだものが手前。
-#if HUSKY_DEVELOPMENT
-                if (m_beforeSceneDraw) // エディタのグリッドなど、シーンより奥に描くもの
                 {
-                    m_beforeSceneDraw(renderDevice);
-                }
-#endif
-                DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
+                    HUSKY_PROFILE_SCOPE("Render.Sprites");
 #if HUSKY_DEVELOPMENT
-                if (m_afterSceneDraw) // エディタの移動のギズモなど、シーンより手前に描くもの
-                {
-                    m_afterSceneDraw(renderDevice);
-                }
+                    if (m_beforeSceneDraw) // エディタのグリッドなど、シーンより奥に描くもの
+                    {
+                        m_beforeSceneDraw(renderDevice);
+                    }
 #endif
+                    DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
+#if HUSKY_DEVELOPMENT
+                    if (m_afterSceneDraw) // エディタの移動のギズモなど、シーンより手前に描くもの
+                    {
+                        m_afterSceneDraw(renderDevice);
+                    }
+#endif
+                }
 #if HUSKY_DEVELOPMENT
                 // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。
                 if (m_devUiCallback)
                 {
+                    HUSKY_PROFILE_SCOPE("DevUI");
                     renderDevice.BeginDevUiFrame();
                     m_devUiCallback(*this);
                 }
 #endif
-                renderDevice.EndFrame();
+                {
+                    HUSKY_PROFILE_SCOPE("Render.Submit"); // 積んだものを GPU に送る
+                    renderDevice.EndFrame();
+                }
                 m_lastRenderStats = renderDevice.GetLastFrameStats();
             }
         }
