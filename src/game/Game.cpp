@@ -71,17 +71,41 @@ namespace husky::game
             return core::Cast<T>(placed.actor);
         }
 
+        // 設定のデータ(.sdata)を assets の中のパスで探して読み、読み終わった中身を返す。無い・読めないときはログに出して nullptr。
+        // reference は呼んだ側が持つ(持っている間は、データが GC に回収されない)。
+        const BouncerSettings* LoadSettings(engine::Application& app, const char* path,
+                                            core::AssetRef<BouncerSettings>& reference)
+        {
+            const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
+            if (guid == nullptr)
+            {
+                std::printf("設定のデータがアセットの表にありません(%s)。既定の値を使います\n", path);
+                return nullptr;
+            }
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            reference.guid = *guid;
+            loader.Resolve(reference); // 読み始める
+            loader.WaitForAllLoads();
+            const BouncerSettings* settings = loader.Resolve(reference);
+            if (settings == nullptr)
+            {
+                std::printf("設定のデータを読めませんでした(%s)。既定の値を使います\n", path);
+            }
+            return settings;
+        }
+
         // 跳ね回るアクターを count 個、プレハブ(bouncer.prefab: BouncerActor + 32x32 の白い SpriteComponent)から置く。
         // プレハブにあるのは全員に共通の値だけ。1つずつ違う位置、速度、色は、置いた後に書く
         // (Unity でプレハブを置いてから Inspector で値を変えるのと同じ。PF-4 では、この「違い」だけがシーンに保存される)。
         // 乱数の種(seed)を固定しているので、毎回同じ配置になる(CLAUDE.md: 結果が毎回同じになるように)。
         // 乱数は S-2 までと同じ型(double)で、同じ順番に引く。型や順番が変わると乱数の消費のしかたが変わり、配置が変わってしまうため。
-        void SpawnBouncers(engine::Application& app, const engine::PrefabAsset& prefab, int count)
+        // 速さの上限 maxSpeed は設定のデータ(BouncerSettings)から。既定の 200 なら、配置も速度も今までと同じになる。
+        void SpawnBouncers(engine::Application& app, const engine::PrefabAsset& prefab, int count, float maxSpeed)
         {
             std::mt19937 random(12345); // 種を固定した乱数生成器
             std::uniform_real_distribution<double> randomX(0.0, WorldWidth - BouncerSize);
             std::uniform_real_distribution<double> randomY(0.0, WorldHeight - BouncerSize);
-            std::uniform_real_distribution<double> randomSpeed(-200.0, 200.0);
+            std::uniform_real_distribution<double> randomSpeed(-static_cast<double>(maxSpeed), static_cast<double>(maxSpeed));
             std::uniform_real_distribution<float> randomColor(0.4f, 1.0f);
 
             for (int i = 0; i < count; ++i)
@@ -108,6 +132,13 @@ namespace husky::game
     void BouncerActor::Tick(double dt)
     {
         const float step = static_cast<float>(dt);
+        // 設定のデータを引いておく(初めてなら読み始める)。触れた瞬間に初めて引くと、読み終わるまでの数フレームは
+        // 既定の色になってしまうため。引いた後は AssetRef が強い参照で持つので、データは回収されない。
+        // ふつうは表を1回引くだけで軽い(1000 体でも問題ない)。
+        if (engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr)
+        {
+            loader->Resolve(settings);
+        }
         // 位置は真ん中なので、世界の端から大きさの半分だけ内側で跳ね返る。
         const float half = BouncerSize / 2.0f;
         MoveAndBounce(transform.position.x, vx, step, half, WorldWidth - half);
@@ -124,10 +155,15 @@ namespace husky::game
         }
         if (event.begin)
         {
-            if (touching++ == 0) // 触れ始め(0 → 1): 元の色を控えてから赤くする
+            if (touching++ == 0) // 触れ始め(0 → 1): 元の色を控えてから、設定のデータの色にする
             {
                 savedColor = sprite->color;
-                sprite->color = TouchedColor;
+                sprite->color = TouchedColor; // データが読めないときの既定
+                engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr;
+                if (const BouncerSettings* data = loader != nullptr ? loader->Resolve(settings) : nullptr)
+                {
+                    sprite->color = data->touchedColor;
+                }
             }
         }
         else if (touching > 0 && --touching == 0) // 最後の相手から離れた(1 → 0): 元の色に戻す
@@ -169,18 +205,42 @@ namespace husky::game
         types.Register<BouncerActor>();
         types.Register<PlayerActor>();
         types.Register<CameraFollowComponent>();
+        types.Register<BouncerSettings>(); // .sdata の "type" から作れるように(ScriptableData も同じ登録簿)
     }
 
     void SpawnInitialActors(engine::Application& app)
     {
+        // 跳ね回るものの数・速さ・プレハブは、設定のデータ(data/bouncers.sdata)から読む(SD-4)。
+        // コードを直さず、アセットの窓や data.set で調整できる。読めなければ、コードの既定の値を使う。
+        core::AssetRef<BouncerSettings> settingsReference;
+        const BouncerSettings* settings = LoadSettings(app, "data/bouncers.sdata", settingsReference);
+
         // どのプレハブを使うかは、ゲームの決め事なのでここ(ゲームのコード)に書く。パスで探し、GUID で読む。
-        const engine::PrefabAsset* bouncerPrefab = LoadPrefab(app, "prefabs/bouncer.prefab");
+        // 跳ね回るものは、設定のデータがプレハブを指していればそれを使う。
+        const engine::PrefabAsset* bouncerPrefab = nullptr;
+        if (settings != nullptr && !settings->prefab.IsNull())
+        {
+            core::AssetRef<engine::PrefabAsset> prefabReference = settings->prefab; // データは読むだけなので、参照は写して使う
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            loader.Resolve(prefabReference);
+            loader.WaitForAllLoads();
+            bouncerPrefab = loader.Resolve(prefabReference);
+            if (bouncerPrefab != nullptr && !bouncerPrefab->IsLoaded())
+            {
+                bouncerPrefab = nullptr;
+            }
+        }
+        if (bouncerPrefab == nullptr)
+        {
+            bouncerPrefab = LoadPrefab(app, "prefabs/bouncer.prefab");
+        }
         const engine::PrefabAsset* playerPrefab = LoadPrefab(app, "prefabs/player.prefab");
         engine::Scene& scene = app.GetScene();
 
         if (bouncerPrefab != nullptr)
         {
-            SpawnBouncers(app, *bouncerPrefab, BouncerCount);
+            SpawnBouncers(app, *bouncerPrefab, settings != nullptr ? settings->count : BouncerCount,
+                          settings != nullptr ? settings->maxSpeed : 200.0f);
         }
 
         // カメラ: プレイヤーを追いかける(追いかける相手は、プレイヤーを作った後に決める)。

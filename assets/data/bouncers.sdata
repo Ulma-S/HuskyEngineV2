@@ -1,0 +1,14 @@
+{
+  "type": "BouncerSettings",
+  "properties": {
+    "count": 1000,
+    "maxSpeed": 200.0,
+    "touchedColor": {
+      "r": 1.0,
+      "g": 0.25,
+      "b": 0.25,
+      "a": 1.0
+    },
+    "prefab": "19400de9-c85d-4786-b8a2-0a894866a154"
+  }
+}

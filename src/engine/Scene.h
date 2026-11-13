@@ -27,6 +27,7 @@
 namespace husky::engine
 {
     class Input; // 前方宣言: ポインタで持つだけなので、中身(Input.h)は要らない
+    class AssetLoader; // 同じく前方宣言(ポインタで持つだけ)
 
     // 動作スレッド: ゲームスレッドのみ
     class Scene : public core::Object
@@ -88,6 +89,12 @@ namespace husky::engine
         // input はシーンより長く生きていること。外すときは nullptr を渡す。
         void SetInput(const Input* input) { m_input = input; }
 
+        // アセットのローダ(SD-4)。入力と同じく、ゲームループ(Application)が SetAssetLoader で渡す。渡されていなければ nullptr。
+        // アクターやコンポーネントが、プロパティの AssetRef(ScriptableData など)を引くときに GetScene()->GetAssetLoader() で使う。
+        // Resolve は参照(AssetRef)とローダのキャッシュを書き換えるので、const ではない。ゲームスレッドだけ。
+        AssetLoader* GetAssetLoader() const { return m_assetLoader; }
+        void SetAssetLoader(AssetLoader* loader) { m_assetLoader = loader; }
+
         // 全アクターと全コンポーネントの Tick を、実行順(TickOrder)の小さい順に呼ぶ。
         //   - アクター自身の Tick の実行順は TickOrder::Default(0)。
         //   - 実行順が同じものは、シーンの一覧の順(アクターの順。1つのアクターの中では、アクター自身 → 付けた順のコンポーネント)。
@@ -140,6 +147,7 @@ namespace husky::engine
 
         // 借りている入力(SetInput で渡されたもの)。GC 管理の型ではないので、ハンドルではなくポインタ。
         const Input* m_input = nullptr;
+        AssetLoader* m_assetLoader = nullptr; // 借りているだけ(持ち主は Application)
 
         // ハンドルからアクターを引く。もう無いか、レジストリで作っていないシーンなら nullptr。
         Actor* ResolveActor(core::ObjectHandle handle) const

@@ -23,6 +23,7 @@ namespace husky::game
     // 跳ね回るアクターが跳ね返る端と、プレイヤーが出られない端も、これで決まる。
     constexpr int WorldWidth = ScreenWidth * 3;
     constexpr int WorldHeight = ScreenHeight * 3;
+    // 置く数の既定(設定のデータ data/bouncers.sdata の count が読めないときに使う)
     constexpr int BouncerCount = 1000;
 
     // ゲームの型を、名前から作れるように登録する(engine の型は Application が登録済み)。
@@ -30,7 +31,8 @@ namespace husky::game
     // ゲームの exe も、エディタも、シーンを読む前に呼ぶ。
     void RegisterGameTypes(core::TypeRegistry& types);
 
-    // シーンのファイルが無いときの、最初の配置。跳ね回るアクターを BouncerCount 個、プレイヤーを追うカメラ、プレイヤーを置く。
+    // シーンのファイルが無いときの、最初の配置。跳ね回るアクターを設定のデータ(data/bouncers.sdata、BouncerSettings)の
+    // count 個(読めなければ BouncerCount 個)、プレイヤーを追うカメラ、プレイヤーを置く。
     // 一覧の順番が描画の順番なので、プレイヤーを最後に置いて一番手前に描く。
     // 跳ね回るアクターとプレイヤーは、assets のプレハブ(prefabs/bouncer.prefab、prefabs/player.prefab)から置き、
     // 1つずつ違う値(位置、速度、色)だけを置いた後に書く。見た目の決め事(大きさ、スプライトシート、アニメーション)はプレハブの中にある。

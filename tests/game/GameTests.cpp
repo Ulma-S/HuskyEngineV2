@@ -9,9 +9,14 @@
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "platform/FileSystem.h"
+#include "game/BouncerSettings.h"
 #include "game/GameActors.h"
+#include "TestFolder.h"
 
 #include <doctest/doctest.h>
+
+#include <cstddef>
+#include <string>
 
 using husky::engine::Application;
 
@@ -186,4 +191,57 @@ TEST_CASE("COL-4: プレハブのコライダーで、跳ね回るものはプ�
     app.StepFrame(0, {});
     CHECK(bouncer->touching == 0);
     CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->color.g == original.g);
+}
+
+TEST_CASE("SD-4: 跳ね回るものの数・速さ・プレハブは設定のデータ(data/bouncers.sdata)から読み、置いたものは同じデータを指す")
+{
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    husky::game::SpawnInitialActors(app);
+
+    // assets の data/bouncers.sdata が読め、置いたもの全員がプレハブの値としてそれを指す(1体ずつの値ではない)
+    const husky::core::Guid* dataGuid = app.GetAssetDatabase().FindGuid("data/bouncers.sdata");
+    REQUIRE(dataGuid != nullptr);
+    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    REQUIRE(bouncer != nullptr);
+    CHECK(bouncer->settings.guid == *dataGuid);
+    const husky::game::BouncerSettings* settings = app.GetAssetLoader().Resolve(bouncer->settings);
+    REQUIRE(settings != nullptr);
+    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count) + 2); // + カメラ + プレイヤー
+    CHECK(settings->IsReadOnly());
+}
+
+TEST_CASE("SD-4: 設定のデータの count と maxSpeed を変えると、置く数と速さが変わる")
+{
+    // exe の隣の assets から、跳ね回るもののプレハブだけを写した assets を作る(プレイヤーのプレハブは無いので置かない)
+    const std::string built = husky::platform::GetExecutableDirectory() + "assets/";
+    std::string prefabText;
+    std::string prefabMeta;
+    REQUIRE(husky::platform::ReadTextFile((built + "prefabs/bouncer.prefab").c_str(), prefabText));
+    REQUIRE(husky::platform::ReadTextFile((built + "prefabs/bouncer.prefab.meta").c_str(), prefabMeta));
+    husky::core::Guid prefabGuid;
+    REQUIRE(husky::engine::AssetDatabase::ParseMetaText(prefabMeta, prefabGuid));
+    husky::tests::TestFolder folder("husky_test_bouncer_settings");
+    folder.Write("prefabs/bouncer.prefab", prefabText);
+    folder.Write("prefabs/bouncer.prefab.meta", prefabMeta);
+    folder.Write("data/bouncers.sdata", R"({ "type": "BouncerSettings", "properties": { "count": 5, "maxSpeed": 10, "prefab": ")" +
+                                            prefabGuid.ToString() + R"(" } })");
+    folder.Write("data/bouncers.sdata.meta",
+                 husky::engine::AssetDatabase::MakeMetaText(husky::tests::MakeGuid(0x7e1a2b3c4d5e4f60ull, 0x9a9b0c1d2e3f4a01ull)));
+
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    husky::game::SpawnInitialActors(app);
+    REQUIRE(app.GetScene().actors.size() == 5 + 1); // 跳ね回るもの 5 + カメラ(プレイヤーのプレハブは無い)
+    for (std::size_t i = 0; i < 5; ++i)
+    {
+        const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors[i]);
+        REQUIRE(bouncer != nullptr);
+        CHECK(bouncer->vx >= -10.0f);
+        CHECK(bouncer->vx <= 10.0f);
+        CHECK(bouncer->vy >= -10.0f);
+        CHECK(bouncer->vy <= 10.0f);
+    }
 }

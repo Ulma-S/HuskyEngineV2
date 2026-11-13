@@ -31,6 +31,7 @@ namespace husky::engine
         m_scene = m_registry.Create<Scene>();
         m_registry.AddRoot(m_scene->GetHandle());
         m_scene->SetInput(&m_input); // アクターは GetScene()->GetInput() で入力を読む
+        m_scene->SetAssetLoader(&m_loader); // アクターは GetScene()->GetAssetLoader() でアセットの参照を引く
     }
 
     double Application::StepFrame(std::uint64_t nowNanoseconds, const std::vector<platform::KeyEvent>& keyEvents)

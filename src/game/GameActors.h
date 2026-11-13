@@ -2,7 +2,9 @@
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
 
+#include "core/AssetRef.h"
 #include "engine/Actor.h"
+#include "game/BouncerSettings.h"
 #include "render/RenderDevice.h" // render::Color
 
 #include <cstdint>
@@ -16,7 +18,7 @@ namespace husky::game
     // 跳ね回るもの同士は当たらない(数が多いので、プレイヤーとだけ調べる)。
     constexpr int PlayerLayer = 0;  // プレイヤー(collisionMask は跳ね回るものだけ = 1 << 1)
     constexpr int BouncerLayer = 1; // 跳ね回るもの(collisionMask はプレイヤーだけ = 1 << 0)
-    // プレイヤーに触れている間の、跳ね回るものの色
+    // プレイヤーに触れている間の、跳ね回るものの色の既定(設定のデータ BouncerSettings::touchedColor が読めないときに使う)
     constexpr render::Color TouchedColor = {1.0f, 0.25f, 0.25f, 1.0f};
 
     // 画面の中を跳ね回るアクター。見た目は SpriteComponent で足す。
@@ -26,6 +28,8 @@ namespace husky::game
     public:
         float vx = 0.0f; // 速度(ピクセル/秒)
         float vy = 0.0f;
+        // 全員で共有する設定(SD-4。プレハブで指すので、置いたもの1体ずつの違いとしては保存されない)。触れたときの色を読む。
+        core::AssetRef<BouncerSettings> settings;
         // 今、触れているプレイヤーの数(0 なら元の色)。元の色は savedColor に控える。
         // どちらも再生中だけの状態なので、プロパティにしない(保存しない。アニメーションの経った時間と同じ考え方)
         std::int32_t touching = 0;
@@ -44,6 +48,7 @@ namespace husky::game
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(vx)
             HUSKY_PROPERTY(vy)
+            HUSKY_PROPERTY(settings)
         HUSKY_REFLECTION_END()
     };
 
