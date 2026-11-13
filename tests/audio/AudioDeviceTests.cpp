@@ -185,3 +185,51 @@ TEST_CASE("AudioDevice: StopOutput で出す先を止め、鳴っていた音も
     CHECK_FALSE(audio.HasOutput());
     CHECK_FALSE(audio.IsPlaying(id));
 }
+
+TEST_CASE("AudioDevice: 預けたデータを番号で鳴らし、出す先が無ければ手放すとすぐ捨てる")
+{
+    AudioDevice audio;
+    const husky::audio::SoundHandle empty = audio.CreateSound({});
+    CHECK(empty.IsNull());
+
+    const husky::audio::SoundHandle sound = audio.CreateSound(MakeConstant(5, 0.5f));
+    REQUIRE_FALSE(sound.IsNull());
+    CHECK(audio.GetSoundFrameCount(sound) == 5);
+    CHECK(audio.GetSoundCount() == 1);
+    audio.ReleaseSound(sound);
+    CHECK(audio.GetSoundCount() == 0);
+    CHECK(audio.GetSoundFrameCount(sound) == 0);
+}
+
+TEST_CASE("AudioDevice: 鳴っている間に手放すと音が止まり、音のスレッドが当てはめた後の Update で捨てる")
+{
+    AudioDevice audio;
+    ManualOutputState state;
+    REQUIRE(audio.StartOutput(std::make_unique<ManualOutput>(state, true)));
+    const husky::audio::SoundHandle sound = audio.CreateSound(MakeConstant(100, 0.5f));
+    const PlaybackId id = audio.Play(sound, PlayParams{});
+    REQUIRE_FALSE(id.IsNull());
+    CHECK(state.Render(1)[0] == doctest::Approx(0.5f));
+
+    audio.ReleaseSound(sound);
+    CHECK(audio.Play(sound, PlayParams{}).IsNull()); // 手放したものは鳴らせない
+    audio.Update();
+    CHECK(audio.GetSoundCount() == 1); // 音のスレッドがまだ受け取っていないので、捨てない
+
+    CHECK(state.Render(1)[0] == 0.0f); // 止まった
+    CHECK_FALSE(audio.IsPlaying(id));
+    audio.Update();
+    CHECK(audio.GetSoundCount() == 0);
+}
+
+TEST_CASE("AudioDevice: 手放し待ちのデータは、出す先を閉じたときに捨てる")
+{
+    AudioDevice audio;
+    ManualOutputState state;
+    REQUIRE(audio.StartOutput(std::make_unique<ManualOutput>(state, true)));
+    const husky::audio::SoundHandle sound = audio.CreateSound(MakeConstant(10, 0.5f));
+    audio.ReleaseSound(sound);
+    CHECK(audio.GetSoundCount() == 1);
+    audio.StopOutput();
+    CHECK(audio.GetSoundCount() == 0);
+}

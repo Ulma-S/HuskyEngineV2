@@ -70,6 +70,8 @@ namespace husky::audio
         // 止める。もう止まっている・知らない番号なら何もしない。
         void Stop(PlaybackId id);
         void StopAll();
+        // samples のデータを使っている音をすべて止める(データを手放す前に呼ぶ)。
+        void StopUsing(const float* samples);
 
         // 鳴っているか(最後まで行って止まったものは false)。
         bool IsPlaying(PlaybackId id) const;

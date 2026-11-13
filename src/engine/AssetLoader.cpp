@@ -6,6 +6,7 @@
 #include "engine/ObjectSerializer.h"
 #include "platform/FileSystem.h"
 #include "platform/Image.h"
+#include "audio/WavFile.h"
 
 
 #include <utility> // std::move, std::swap
@@ -90,6 +91,14 @@ namespace husky::engine
         if (m_loader != nullptr)
         {
             m_loader->OnTextureDestroyed(*this);
+        }
+    }
+
+    SoundAsset::~SoundAsset()
+    {
+        if (m_loader != nullptr)
+        {
+            m_loader->OnSoundDestroyed(*this);
         }
     }
 
@@ -219,6 +228,10 @@ namespace husky::engine
         if (assetType.IsA(TextureAsset::StaticType()))
         {
             return EndsWith(relativePath, ".png"); // 1段目の ReadTextureSource が PNG を読むため
+        }
+        if (assetType.IsA(SoundAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".wav"); // 読めるのは WAV だけ(audio::DecodeWav)
         }
         if (assetType.IsA(SpriteSheetAsset::StaticType()))
         {
@@ -372,6 +385,127 @@ namespace husky::engine
         if (found != m_textures.end() && found->second == asset.GetHandle())
         {
             m_textures.erase(found);
+        }
+    }
+
+    // ================= 音 =================
+
+    core::ObjectHandle AssetLoader::LoadSound(const core::Guid& guid)
+    {
+        // 流れはテクスチャと同じ: キャッシュにあれば返し、無ければ「読み込み中」で作ってジョブを積む。
+        const auto found = m_sounds.find(guid);
+        if (found != m_sounds.end())
+        {
+            const SoundAsset* cached = ResolveSound(found->second);
+            if (cached != nullptr && !cached->IsPendingDestroy())
+            {
+                return found->second;
+            }
+        }
+
+        SoundAsset* asset = m_registry.Create<SoundAsset>();
+        if (asset == nullptr)
+        {
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "音", guid.ToString());
+            return {};
+        }
+        asset->m_guid = guid;
+        asset->m_loader = this;
+        StartSoundLoad(*asset);
+        m_sounds[guid] = asset->GetHandle();
+        return asset->GetHandle();
+    }
+
+    SoundAsset* AssetLoader::ResolveSound(core::ObjectHandle handle) const
+    {
+        return m_registry.Resolve<SoundAsset>(handle);
+    }
+
+    SoundAsset* AssetLoader::Resolve(core::AssetRef<SoundAsset>& reference)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        SoundAsset* asset = ResolveSound(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        {
+            return asset;
+        }
+        reference.asset = LoadSound(reference.guid);
+        return ResolveSound(reference.asset);
+    }
+
+    void AssetLoader::StartSoundLoad(SoundAsset& asset)
+    {
+        asset.m_state = AssetState::Loading;
+        std::string path = FindPathOrLog(asset.m_guid);
+        if (path.empty())
+        {
+            asset.m_state = AssetState::Failed;
+            return;
+        }
+
+        auto record = std::make_unique<PendingSoundLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): ファイルを読み(1段目)、ミキサーの形に直す(2段目)。結果は記録にだけ書く。
+        Schedule(std::move(record), [](PendingSoundLoad& load) {
+            std::string bytes; // ReadTextFile は中身をそのままのバイトで読む(文字として直さない)
+            if (!platform::ReadTextFile(load.path.c_str(), bytes))
+            {
+                load.error = "could not read the file";
+                return;
+            }
+            audio::DecodedSound decoded;
+            if (!audio::DecodeWav(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), decoded, load.error))
+            {
+                return;
+            }
+            load.samples = audio::ConvertToOutputFormat(decoded);
+            if (load.samples.empty())
+            {
+                load.error = "the sound is empty";
+                return;
+            }
+            load.succeeded = true;
+        });
+    }
+
+    void AssetLoader::FinishSound(PendingSoundLoad& load)
+    {
+        SoundAsset* asset = ResolveSound(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        {
+            return;
+        }
+        if (!load.succeeded)
+        {
+            HUSKY_LOG(AssetLog::LoadWarning, "音", load.path, load.error != nullptr ? load.error : "unknown error");
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        asset->m_frameCount = static_cast<int>(load.samples.size()) / audio::OutputChannels;
+        // 音の層に波を預ける(付いていなければ、長さだけを覚えて「読めた」にする)。
+        if (m_audio != nullptr)
+        {
+            asset->m_sound = m_audio->CreateSound(std::move(load.samples));
+        }
+        asset->m_state = AssetState::Loaded;
+    }
+
+    void AssetLoader::OnSoundDestroyed(SoundAsset& asset)
+    {
+        if (m_audio != nullptr && !asset.m_sound.IsNull())
+        {
+            m_audio->ReleaseSound(asset.m_sound); // 鳴っていれば止め、音のスレッドが手放してから捨てる
+        }
+        const auto found = m_sounds.find(asset.m_guid);
+        if (found != m_sounds.end() && found->second == asset.GetHandle())
+        {
+            m_sounds.erase(found);
         }
     }
 

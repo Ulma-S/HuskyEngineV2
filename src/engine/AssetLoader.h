@@ -47,6 +47,7 @@
 #include "engine/AssetDatabase.h"
 #include "engine/PrefabAsset.h"
 #include "engine/ScriptableData.h"
+#include "engine/SoundAsset.h"
 #include "engine/SpriteSheetAsset.h"
 #include "engine/TextureAsset.h"
 #include "platform/Image.h"
@@ -82,6 +83,10 @@ namespace husky::engine
         // 外すと、すべての GPU のテクスチャを手放す。RenderDevice を壊す前に、必ず nullptr で外すこと。
         void SetRenderDevice(render::RenderDevice* device);
 
+        // 音の層を付ける(nullptr で外す)。付いていれば、読んだ音の波を預ける(SoundAsset::GetSound)。
+        // 付いていない(テストなど)ときは、読んで長さだけを覚える。Application がコンストラクタで付ける。
+        void SetAudioDevice(audio::AudioDevice* audio) { m_audio = audio; }
+
         // テクスチャの読み込みを始め、TextureAsset を指すハンドルを返す(ふつうは「読み込み中」)。
         // 返すハンドルは弱い参照。使い続けるなら、根に加えるか、プロパティ(強い参照)で持つこと。
         // どこからも強く指されていないアセットは、次の GC で回収される。
@@ -104,6 +109,16 @@ namespace husky::engine
         // アセットのハンドルを reference.asset に書く(これで、参照している間は GC に回収されない)。
         // 読み始めたばかりなら「読み込み中」のアセットを返す(状態は IsLoaded で分かる)。
         TextureAsset* Resolve(core::AssetRef<TextureAsset>& reference);
+
+        // ---- 音 ----
+
+        // 音(.wav)の読み込みを始め、SoundAsset を指すハンドル(弱い参照)を返す。使い方はテクスチャと同じ。
+        core::ObjectHandle LoadSound(const core::Guid& guid);
+        SoundAsset* ResolveSound(core::ObjectHandle handle) const;
+        // アセットの参照が指す音を返す(必要なら読み始める)。何も指していなければ nullptr。
+        SoundAsset* Resolve(core::AssetRef<SoundAsset>& reference);
+        // キャッシュにある(まだ回収されていない)音の数。確認とテスト用。
+        std::size_t GetLoadedSoundCount() const { return m_sounds.size(); }
 
         // ---- スプライトシート ----
 
@@ -184,6 +199,7 @@ namespace husky::engine
         friend class SpriteSheetAsset; // 回収されるときに OnSpriteSheetDestroyed を呼べるようにする
         friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
         friend class ScriptableDataAsset; // 回収されるときに OnScriptableDataDestroyed を呼べるようにする
+        friend class SoundAsset;          // 回収されるときに OnSoundDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
         // アセットの種類ごとに、この型を継承して「ジョブが書く結果」を足し、Finish(結果をアセットに書く)を用意する。
@@ -236,6 +252,14 @@ namespace husky::engine
             bool succeeded = false;            // ジョブが書く: 読めたか
         };
 
+        struct PendingSoundLoad final : PendingLoad
+        {
+            void Finish(AssetLoader& loader) override { loader.FinishSound(*this); }
+            std::vector<float> samples;  // ジョブが書く: ミキサーの形に直した波
+            const char* error = nullptr; // ジョブが書く: 読めなかった理由(文字列の定数。Finish がログに出す)
+            bool succeeded = false;      // ジョブが書く: 読めたか
+        };
+
         // 読むファイルのパスを表で引く。無ければ空(呼んだ側が、その場で「失敗」にする)。
         std::string FindPathOrLog(const core::Guid& guid) const;
         // 記録を m_pending に入れてから、job をジョブとして積む(記録の場所は動かない)。
@@ -258,17 +282,23 @@ namespace husky::engine
         void FinishScriptableData(PendingScriptableDataLoad& load);
         void OnScriptableDataDestroyed(ScriptableDataAsset& asset);
 
+        void StartSoundLoad(SoundAsset& asset);
+        void FinishSound(PendingSoundLoad& load);
+        void OnSoundDestroyed(SoundAsset& asset);
+
         const AssetDatabase& m_database;
         core::ObjectRegistry& m_registry;
         const core::TypeRegistry& m_types; // ScriptableData の中身を、ファイルの型の名前から作るため
         core::JobSystem& m_jobs;
         render::RenderDevice* m_device = nullptr; // 借りているだけ(持ち主は Application::Run)
+        audio::AudioDevice* m_audio = nullptr;    // 借りているだけ(持ち主は Application)
 
         // GUID → アセット(弱い参照のキャッシュ)。アセットが回収されると、そのデストラクタから外される。
         std::unordered_map<core::Guid, core::ObjectHandle> m_textures;
         std::unordered_map<core::Guid, core::ObjectHandle> m_spriteSheets;
         std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
         std::unordered_map<core::Guid, core::ObjectHandle> m_scriptableData; // 箱(ScriptableDataAsset)を指す
+        std::unordered_map<core::Guid, core::ObjectHandle> m_sounds;
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。

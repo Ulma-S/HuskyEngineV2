@@ -19,14 +19,25 @@
 
 #include "audio/AudioOutput.h"
 #include "audio/Mixer.h"
+#include "core/Handle.h"
+#include "core/HandleTable.h"
 
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace husky::audio
 {
+    // AudioDevice が持つ音のデータ(ミキサーの形)。外からは SoundHandle で指す。
+    struct SoundBuffer
+    {
+        std::vector<float> samples; // OutputChannels 個ずつ並ぶ。作った後は書き換えない(音のスレッドが読む)
+        bool releasing = false;     // ReleaseSound を呼んだ(音のスレッドが手放すのを待っている)
+    };
+    using SoundHandle = core::Handle<SoundBuffer>;
+
     class AudioDevice
     {
     public:
@@ -45,6 +56,23 @@ namespace husky::audio
         // 出す先を止めて外す。鳴っていた音はすべて止まる。
         void StopOutput();
         bool HasOutput() const { return m_output != nullptr; }
+
+        // 音のデータを預ける(ミキサーの形: OutputChannels・OutputSampleRate・float)。空なら null。
+        // 出す先が無くても預けられる(後で開いたときに鳴らせる)。
+        SoundHandle CreateSound(std::vector<float> samples);
+        // 手放す。鳴っている音は止まる。メモリは、音のスレッドがもう読まないと分かってから(次の Update 以降に)捨てる。
+        // 出す先が無ければ、その場で捨てる。
+        void ReleaseSound(SoundHandle sound);
+        // 預けたデータのフレーム数(無ければ 0)。
+        int GetSoundFrameCount(SoundHandle sound) const;
+        // 預かっているデータの数(手放し待ちも含む)。
+        std::size_t GetSoundCount() const { return m_sounds.Size(); }
+
+        // 毎フレーム呼ぶ。音のスレッドが手放したデータを捨てる。
+        void Update();
+
+        // 預けたデータを鳴らす。手放したもの・無いものなら null。
+        PlaybackId Play(SoundHandle sound, const PlayParams& params);
 
         // 鳴らす。番号はここで振る(音のスレッドを待たずに返せる)。
         // 出す先が無い・データが空・行列がいっぱいなら null の番号。
@@ -74,6 +102,7 @@ namespace husky::audio
                 SetPlaybackVolume,
                 SetBusVolume,
                 SetMasterVolume,
+                StopSound, // sound のデータを使っている音を止める(手放す前)
             };
             Kind kind = Kind::Stop;
             PlaybackId id;
@@ -84,7 +113,9 @@ namespace husky::audio
         };
 
         // 命令を積む。いっぱいなら捨てて false(警告は1回だけ)。出す先が無ければ積まずに false。
-        bool Push(const Command& command);
+        // outSequence: 積めたら、この命令の通し番号(音のスレッドがここまで当てはめたかを比べる)。
+        bool Push(const Command& command, std::uint64_t* outSequence = nullptr);
+        void FreeReleasedSounds(std::uint64_t appliedSequence);
 
         // 出す先から呼ばれる(AudioOutput の RenderCallback)。
         // 動作スレッド: 音のスレッド
@@ -98,6 +129,7 @@ namespace husky::audio
         mutable std::mutex m_mutex;
         Command m_pending[MaxPendingCommands];
         int m_pendingCount = 0;
+        std::uint64_t m_pushedSequence = 0; // 最後に積んだ命令の通し番号
         PlaybackId m_playing[Mixer::MaxVoices]; // 音のスレッドが混ぜた後に書く「鳴っているもの」
         int m_playingCount = 0;
 
@@ -109,7 +141,16 @@ namespace husky::audio
         // ゲームスレッドだけ。
         std::uint32_t m_nextId = 1;
         bool m_queueFullWarned = false;
+        core::HandleTable<SoundBuffer> m_sounds;
+        // 手放し待ち。sequence は StopSound の命令の通し番号(0 なら、行列がいっぱいでまだ積めていない)。
+        struct PendingRelease
+        {
+            SoundHandle sound;
+            std::uint64_t sequence = 0;
+        };
+        std::vector<PendingRelease> m_pendingReleases;
 
         std::atomic<std::uint64_t> m_renderedFrames{0};
+        std::atomic<std::uint64_t> m_appliedSequence{0}; // 音のスレッドが当てはめ終えた命令の通し番号
     };
 }

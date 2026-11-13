@@ -260,11 +260,12 @@ add_library(husky_audio STATIC
     src/audio/AudioDevice.cpp
     src/audio/Mixer.cpp
     src/audio/SdlAudioOutput.cpp # SDL を触るのはこのファイルだけ
+    src/audio/WavFile.cpp
 )
 husky_set_compile_options(husky_audio)
 target_include_directories(husky_audio PUBLIC src)
 # SDL3 は外に出さないので PRIVATE(render と同じ)。core はログ(.cpp の中だけ)に使う。
-target_link_libraries(husky_audio PRIVATE SDL3::SDL3 husky_core)
+target_link_libraries(husky_audio PUBLIC husky_core PRIVATE SDL3::SDL3)
 
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
@@ -517,6 +518,8 @@ if(HUSKY_BUILD_TESTS)
         tests/core/TypeRegistryTests.cpp
         tests/core/StructReflectionTests.cpp
         tests/audio/AudioDeviceTests.cpp
+        tests/audio/WavFileTests.cpp
+        tests/engine/SoundAssetTests.cpp
         tests/audio/MixerTests.cpp
         tests/core/GuidTests.cpp
         tests/core/JsonLinesLogSinkTests.cpp

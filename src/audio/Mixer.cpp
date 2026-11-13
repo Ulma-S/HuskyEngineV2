@@ -63,6 +63,17 @@ namespace husky::audio
         }
     }
 
+    void Mixer::StopUsing(const float* samples)
+    {
+        for (Voice& voice : m_voices)
+        {
+            if (!voice.id.IsNull() && voice.sound.samples == samples)
+            {
+                voice = Voice{};
+            }
+        }
+    }
+
     bool Mixer::IsPlaying(PlaybackId id) const
     {
         return FindVoice(id) != nullptr;

@@ -41,6 +41,12 @@ namespace husky::audio
         m_output->Stop();
         m_output.reset();
         m_mixer.StopAll();
+        // 音のスレッドはもう動かないので、手放し待ちのデータはすぐ捨ててよい。
+        for (const PendingRelease& release : m_pendingReleases)
+        {
+            m_sounds.Remove(release.sound);
+        }
+        m_pendingReleases.clear();
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_pendingCount = 0;
@@ -153,7 +159,7 @@ namespace husky::audio
         return playing;
     }
 
-    bool AudioDevice::Push(const Command& command)
+    bool AudioDevice::Push(const Command& command, std::uint64_t* outSequence)
     {
         if (m_output == nullptr)
         {
@@ -164,6 +170,11 @@ namespace husky::audio
             if (m_pendingCount < MaxPendingCommands)
             {
                 m_pending[m_pendingCount++] = command;
+                ++m_pushedSequence;
+                if (outSequence != nullptr)
+                {
+                    *outSequence = m_pushedSequence;
+                }
                 return true;
             }
         }
@@ -185,11 +196,13 @@ namespace husky::audio
     {
         // 1. 積まれた命令を手元へ写す(鍵を持つのは写す間だけ)。
         int commandCount = 0;
+        std::uint64_t sequence = 0; // 写した最後の命令の通し番号
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             commandCount = m_pendingCount;
             std::copy(m_pending, m_pending + commandCount, m_applying);
             m_pendingCount = 0;
+            sequence = m_pushedSequence;
         }
 
         // 2. 鍵の外で当てはめて、混ぜる。
@@ -197,6 +210,9 @@ namespace husky::audio
         {
             ApplyCommand(m_applying[i]);
         }
+        // ここまでの命令は当てはめ終えた: StopSound で止めた音のデータは、もう読まない。
+        // release: この前の書き込み(ミキサーが音を止めたこと)が、acquire で読んだゲームスレッドから見えるようにする。
+        m_appliedSequence.store(sequence, std::memory_order_release);
         m_mixer.Mix(out, frameCount);
 
         // 3. 鳴っているものの一覧を、ゲームスレッドの IsPlaying 用に書く。
@@ -231,6 +247,103 @@ namespace husky::audio
         case Command::Kind::SetMasterVolume:
             m_mixer.SetMasterVolume(command.volume);
             break;
+        case Command::Kind::StopSound:
+            m_mixer.StopUsing(command.sound.samples);
+            break;
         }
+    }
+
+    // ================= 音のデータ =================
+
+    SoundHandle AudioDevice::CreateSound(std::vector<float> samples)
+    {
+        if (samples.size() < static_cast<std::size_t>(OutputChannels))
+        {
+            return SoundHandle{};
+        }
+        SoundBuffer buffer;
+        buffer.samples = std::move(samples);
+        // 表の中で場所が引っ越しても、vector の中身(ヒープの上の波)は動かないので、ミキサーに渡したポインタは壊れない。
+        return m_sounds.Add(std::move(buffer));
+    }
+
+    void AudioDevice::ReleaseSound(SoundHandle sound)
+    {
+        SoundBuffer* buffer = m_sounds.Get(sound);
+        if (buffer == nullptr || buffer->releasing)
+        {
+            return;
+        }
+        if (m_output == nullptr)
+        {
+            m_sounds.Remove(sound); // 音のスレッドが無いので、すぐ捨ててよい
+            return;
+        }
+        buffer->releasing = true;
+        PendingRelease release;
+        release.sound = sound;
+        Command command;
+        command.kind = Command::Kind::StopSound;
+        command.sound = SoundData{buffer->samples.data(), static_cast<int>(buffer->samples.size()) / OutputChannels};
+        Push(command, &release.sequence); // 積めなければ sequence は 0 のまま。Update で積み直す
+        m_pendingReleases.push_back(release);
+    }
+
+    int AudioDevice::GetSoundFrameCount(SoundHandle sound) const
+    {
+        const SoundBuffer* buffer = m_sounds.Get(sound);
+        return buffer != nullptr ? static_cast<int>(buffer->samples.size()) / OutputChannels : 0;
+    }
+
+    PlaybackId AudioDevice::Play(SoundHandle sound, const PlayParams& params)
+    {
+        const SoundBuffer* buffer = m_sounds.Get(sound);
+        if (buffer == nullptr || buffer->releasing)
+        {
+            return PlaybackId{};
+        }
+        return Play(SoundData{buffer->samples.data(), static_cast<int>(buffer->samples.size()) / OutputChannels}, params);
+    }
+
+    void AudioDevice::Update()
+    {
+        if (m_pendingReleases.empty())
+        {
+            return;
+        }
+        // 行列がいっぱいで積めなかった StopSound を積み直す。
+        for (PendingRelease& release : m_pendingReleases)
+        {
+            if (release.sequence == 0)
+            {
+                if (const SoundBuffer* buffer = m_sounds.Get(release.sound))
+                {
+                    Command command;
+                    command.kind = Command::Kind::StopSound;
+                    command.sound = SoundData{buffer->samples.data(), static_cast<int>(buffer->samples.size()) / OutputChannels};
+                    Push(command, &release.sequence);
+                }
+            }
+        }
+        FreeReleasedSounds(m_appliedSequence.load(std::memory_order_acquire));
+    }
+
+    void AudioDevice::FreeReleasedSounds(std::uint64_t appliedSequence)
+    {
+        // 音のスレッドが StopSound を当てはめ終えた(通し番号が appliedSequence 以下の)ものだけ捨てる。
+        // 当てはめた後は、そのデータを使う音は鳴っておらず、新しく鳴らす命令も積まれない(releasing なので Play が断る)。
+        std::size_t kept = 0;
+        for (const PendingRelease& release : m_pendingReleases)
+        {
+            if (release.sequence != 0 && release.sequence <= appliedSequence)
+            {
+                m_sounds.Remove(release.sound);
+            }
+            else
+            {
+                m_pendingReleases[kept++] = release;
+            }
+        }
+        m_pendingReleases.resize(kept);
     }
 }

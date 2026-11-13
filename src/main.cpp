@@ -101,6 +101,9 @@ int main()
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
     // 試しの音を鳴らす(audio.testTone)。音の出す先が動いているかを耳で確かめる。
     commands.Register(tools::MakeAudioTestToneCommand());
+    // 音のアセットを鳴らす(audio.play)、すべて止める(audio.stopAll)。
+    commands.Register(tools::MakeAudioPlayCommand());
+    commands.Register(tools::MakeAudioStopAllCommand());
     commands.Register(tools::MakeLogCatalogCommand());
     // シーンの保存(scene.save、F5)。開発ビルドは読むのもソースの assets なので、書く先はそこ1か所だけ
     // (次の起動からそのまま読まれ、次のビルドで exe の隣にもコピーされる)。

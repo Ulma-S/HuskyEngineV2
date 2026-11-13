@@ -5,7 +5,10 @@
 
 #include "audio/AudioDevice.h"
 #include "engine/Application.h"
+#include "engine/AssetLoader.h"
+#include "engine/SoundAsset.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -65,6 +68,102 @@ namespace husky::tools
                 return EditorCommandResult::Failure("Could not play the test tone");
             }
             return EditorCommandResult::Success("Playing test tone");
+        };
+        return command;
+    }
+
+    EditorCommand MakeAudioPlayCommand()
+    {
+        EditorCommand command;
+        command.name = "audio.play";
+        command.label = "Play sound";
+        command.description = "Play a sound asset (.wav). The last sound played this way is kept loaded (so it is not collected while it plays).";
+        command.whyUnavailable = [](engine::Application& app) -> const char* {
+            return app.GetAudio().HasOutput() ? nullptr : "No audio output (the device could not be opened)";
+        };
+        EditorCommandArg soundArg{"sound", EditorArgType::String,
+                                  "Sound asset: its GUID or its path in the assets folder, like \"sounds/hit.wav\"", true};
+        soundArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
+            std::vector<EditorArgChoice> choices;
+            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
+                if (engine::AssetLoader::CanLoadAs(engine::SoundAsset::StaticType(), path))
+                {
+                    choices.push_back({guid.ToString(), path});
+                }
+            });
+            std::sort(choices.begin(), choices.end(),
+                      [](const EditorArgChoice& a, const EditorArgChoice& b) { return a.label < b.label; });
+            return choices;
+        };
+        EditorCommandArg loopArg{"loop", EditorArgType::Bool, "Loop the sound (default: false)", false};
+        loopArg.defaultValue = engine::ArchiveValue(false);
+        EditorCommandArg volumeArg{"volume", EditorArgType::Float, "Volume of this play, 0 or more (default: 1)", false};
+        volumeArg.defaultValue = engine::ArchiveValue(1.0);
+        command.args = {soundArg, loopArg, volumeArg};
+
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            const std::string text = context.args.Find("sound")->AsString();
+            core::Guid guid;
+            if (!core::Guid::Parse(text, guid))
+            {
+                const core::Guid* found = app.GetAssetDatabase().FindGuid(text);
+                if (found == nullptr)
+                {
+                    return EditorCommandResult::Failure("No asset: " + text);
+                }
+                guid = *found;
+            }
+            engine::AssetLoader& loader = app.GetAssetLoader();
+            const core::ObjectHandle handle = loader.LoadSound(guid);
+            loader.WaitForAllLoads(); // 試し聞きなので、読み終わるまで待つ(ふつうのゲームでは待たない)
+            const engine::SoundAsset* sound = loader.ResolveSound(handle);
+            if (sound == nullptr || !sound->IsLoaded())
+            {
+                return EditorCommandResult::Failure("Could not load the sound: " + text);
+            }
+            // 鳴っている間に回収されないよう、最後に鳴らしたものを根に入れておく(前のものは根から外す)。
+            static core::ObjectHandle s_kept;
+            if (s_kept != handle)
+            {
+                if (!s_kept.IsNull())
+                {
+                    app.GetRegistry().RemoveRoot(s_kept);
+                }
+                app.GetRegistry().AddRoot(handle);
+                s_kept = handle;
+            }
+
+            audio::PlayParams params;
+            const engine::ArchiveValue* loop = context.args.Find("loop");
+            params.loop = loop != nullptr && loop->AsBool();
+            const engine::ArchiveValue* volume = context.args.Find("volume");
+            params.volume = volume != nullptr ? static_cast<float>(volume->AsFloat()) : 1.0f;
+            params.bus = params.loop ? audio::Bus::Music : audio::Bus::Effect;
+            const audio::PlaybackId id = app.GetAudio().Play(sound->GetSound(), params);
+            if (id.IsNull())
+            {
+                return EditorCommandResult::Failure("Could not play the sound: " + text);
+            }
+            EditorCommandResult result = EditorCommandResult::Success(
+                "Playing " + text + " (" + std::to_string(sound->GetDurationSeconds()) + " s" + (params.loop ? ", loop)" : ")"));
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeAudioStopAllCommand()
+    {
+        EditorCommand command;
+        command.name = "audio.stopAll";
+        command.label = "Stop all sounds";
+        command.description = "Stop every sound that is playing.";
+        command.whyUnavailable = [](engine::Application& app) -> const char* {
+            return app.GetAudio().HasOutput() ? nullptr : "No audio output (the device could not be opened)";
+        };
+        command.execute = [](EditorCommandContext& context) {
+            context.app.GetAudio().StopAll();
+            return EditorCommandResult::Success("Stopped all sounds");
         };
         return command;
     }
