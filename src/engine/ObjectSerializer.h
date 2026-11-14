@@ -56,4 +56,10 @@ namespace husky::engine::ObjectSerializer
     //   - "type" が object の型と違っても、名前が合うものは読み込み、warnings に残す
     //   - toHandle を渡すと、ハンドルのプロパティも番号から読む(null はどこも指さないハンドル)。渡さなければ、飛ばして warnings に残す
     ReadReport ReadProperties(const ArchiveValue& value, core::Object& object, const IdToHandle& toHandle = {});
+
+    // object の今の値が、前に Write(object) で書いた値の木 written と同じか(対応表なしの Write と同じく、ハンドルは比べない)。
+    // Write して Equals で比べるのと同じ答えを、値の木を作らずに出す(メモリを確保しない)。毎秒のような頻度で
+    // 「書き換えられていないか」を確かめるため(AssetLoader::CheckScriptableDataUnchanged)。
+    // 動作スレッド: ゲームスレッド
+    bool Matches(const core::Object& object, const ArchiveValue& written);
 }

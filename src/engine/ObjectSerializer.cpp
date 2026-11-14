@@ -136,6 +136,138 @@ namespace husky::engine::ObjectSerializer
             return properties;
         }
 
+        // ---- 値の木を作らずに比べる(Matches)。PropertyToValue と同じ値を、ArchiveValue::Equals と同じ決まりで比べる ----
+
+        // 数を比べる(ArchiveValue::Equals と同じ決まり: 整数どうしはそのまま、どちらかが float の精度なら float で比べる)。
+        bool NumberMatches(double value, bool isInteger, std::int64_t integer, bool singlePrecision, const ArchiveValue& expected)
+        {
+            const ArchiveValue::Type type = expected.GetType();
+            if (type != ArchiveValue::Type::Int && type != ArchiveValue::Type::Float)
+            {
+                return false;
+            }
+            if (isInteger && type == ArchiveValue::Type::Int)
+            {
+                return expected.AsInt() == integer;
+            }
+            if (singlePrecision || expected.IsSinglePrecision())
+            {
+                return static_cast<float>(value) == static_cast<float>(expected.AsFloat());
+            }
+            return value == expected.AsFloat();
+        }
+
+        // GUID(null か文字列)を比べる。文字列にせず、相手の文字列を GUID として読んで比べる(確保しない)。
+        bool GuidMatches(const core::Guid& guid, const ArchiveValue& expected)
+        {
+            if (guid.IsNull())
+            {
+                return expected.IsNull();
+            }
+            core::Guid parsed;
+            return expected.GetType() == ArchiveValue::Type::String && core::Guid::Parse(expected.AsString(), parsed) &&
+                   parsed == guid;
+        }
+
+        bool PropertiesMatch(const core::TypeInfo& type, const void* container, const ArchiveValue& expected);
+
+        // プロパティ1つの値が expected と同じか(PropertyToValue で書くものだけ。ハンドルは呼ぶ側が飛ばす)。
+        bool PropertyMatches(const Property& property, const void* container, const ArchiveValue& expected)
+        {
+            switch (property.GetType())
+            {
+            case PropertyType::Bool:
+                return expected.GetType() == ArchiveValue::Type::Bool && expected.AsBool() == *property.GetValuePtrAt<bool>(container);
+            case PropertyType::Int32:
+            {
+                const std::int64_t value = *property.GetValuePtrAt<std::int32_t>(container);
+                return NumberMatches(static_cast<double>(value), true, value, false, expected);
+            }
+            case PropertyType::Int64:
+            {
+                const std::int64_t value = *property.GetValuePtrAt<std::int64_t>(container);
+                return NumberMatches(static_cast<double>(value), true, value, false, expected);
+            }
+            case PropertyType::Float:
+                return NumberMatches(*property.GetValuePtrAt<float>(container), false, 0, true, expected);
+            case PropertyType::Double:
+                return NumberMatches(*property.GetValuePtrAt<double>(container), false, 0, false, expected);
+            case PropertyType::Enum:
+            {
+                const core::EnumInfo& info = *property.GetEnumInfo();
+                const std::int64_t number = info.get(property.GetEnumAddressAt(container));
+                const char* name = info.FindName(number);
+                if (name != nullptr)
+                {
+                    return expected.GetType() == ArchiveValue::Type::String && expected.AsString() == name;
+                }
+                return NumberMatches(static_cast<double>(number), true, number, false, expected);
+            }
+            case PropertyType::String:
+                return expected.GetType() == ArchiveValue::Type::String &&
+                       expected.AsString() == *property.GetValuePtrAt<std::string>(container);
+            case PropertyType::Struct:
+                return PropertiesMatch(*property.GetStructType(), property.GetStructAddressAt(container), expected);
+            case PropertyType::Array:
+            {
+                const core::ArrayInfo& array = *property.GetArrayInfo();
+                const void* address = property.GetArrayAddressAt(container);
+                const std::size_t count = array.size(address);
+                if (expected.GetType() != ArchiveValue::Type::Array || expected.GetArraySize() != count)
+                {
+                    return false;
+                }
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    if (array.IsProxy())
+                    {
+                        bool temporary = false;
+                        array.load(address, i, &temporary);
+                        if (!PropertyMatches(array.element, &temporary, expected.At(i)))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!PropertyMatches(array.element, array.atConst(address, i), expected.At(i)))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case PropertyType::AssetRef:
+            {
+                const core::AssetReference& assetRef = *property.GetValuePtrAt<core::AssetReference>(container);
+                return assetRef.IsNull() ? expected.IsNull() : GuidMatches(assetRef.guid, expected);
+            }
+            case PropertyType::Guid:
+                return GuidMatches(*property.GetValuePtrAt<core::Guid>(container), expected);
+            default:
+                return false; // ハンドルなど(呼ぶ側が飛ばす)
+            }
+        }
+
+        // 型の全プロパティ(書くものだけ)が、expected(名前 → 値のオブジェクト)と同じか。数も同じでなければならない。
+        bool PropertiesMatch(const core::TypeInfo& type, const void* container, const ArchiveValue& expected)
+        {
+            if (expected.GetType() != ArchiveValue::Type::Object)
+            {
+                return false;
+            }
+            std::size_t count = 0;
+            bool same = true;
+            type.ForEachProperty([&](const Property& property) {
+                if (!same || property.IsReference())
+                {
+                    return; // 対応表なしの Write はハンドルを書かないので、比べない
+                }
+                ++count;
+                const ArchiveValue* value = expected.Find(property.GetName());
+                same = value != nullptr && PropertyMatches(property, container, *value);
+            });
+            return same && count == expected.GetMemberCount();
+        }
+
         // 番号(Int)か null を、ハンドルにする。読めなければ理由を返す(空なら成功)。
         std::string ValueToHandle(const ArchiveValue& value, const IdToHandle& toHandle, core::ObjectHandle& outHandle)
         {
@@ -461,5 +593,17 @@ namespace husky::engine::ObjectSerializer
 
         ReadMembers(*properties, type, &object, toHandle, object.GetOwnerRegistry(), "", report);
         return report;
+    }
+
+    bool Matches(const core::Object& object, const ArchiveValue& written)
+    {
+        const ArchiveValue* type = written.Find("type");
+        const ArchiveValue* properties = written.Find("properties");
+        if (type == nullptr || properties == nullptr || type->GetType() != ArchiveValue::Type::String ||
+            type->AsString() != object.GetType().GetName())
+        {
+            return false;
+        }
+        return PropertiesMatch(object.GetType(), &object, *properties);
     }
 }

@@ -15,6 +15,9 @@ namespace husky::engine
 {
     namespace
     {
+        // コライダーを置くときに先に確保しておく、重なっている相手の数(これを超えたときだけ、その入れ物が育つ)。
+        constexpr std::size_t InitialContactCapacity = 4;
+
         // 場所・回転・拡大縮小が前のフレームとまったく同じか(同じなら、当たり判定の世界に伝えなくてよい)。
         bool SamePose(const Pose2D& a, const Pose2D& b)
         {
@@ -140,6 +143,9 @@ namespace husky::engine
                     }
                     entry.collider = handle;
                     entry.contacts.clear();
+                    // 重なりの入れ物を、置くときに少し先に確保しておく(再生中に初めて重なったときに確保しないように。
+                    // 跳ね回るものは、ふつう同時に 1〜2 個としか重ならない)
+                    entry.contacts.reserve(InitialContactCapacity);
                     place(); // 新しいコライダー: 置く
                 }
                 else if (entry.body != body || !SameShape(entry.desc, desc))
@@ -442,7 +448,11 @@ namespace husky::engine
                     m_events.push_back(OverlapEvent{false, entry.collider, old.collider, old.actor});
                 }
             }
-            entry.contacts.swap(m_current); // swap: 中身を入れ替える(コピーしない。前の入れ物は次のフレームで使い回す)
+            // 中身を写す(assign は、入れ物に入りきれば確保しない)。swap で入れ物ごと入れ替えると、確保した領域(容量)が
+            // コライダーの間を回り、重なっていないコライダーの「容量 0 の入れ物」が m_current に来た後に重なりを積むたびに
+            // 確保が起きていた(跳ね回るもの 1000 体で、再生中に毎秒数百回)。写せば、各コライダーの入れ物は
+            // 自分のいちばん多い重なりの数まで育った後は確保しない。
+            entry.contacts.assign(m_current.begin(), m_current.end());
         }
     }
 

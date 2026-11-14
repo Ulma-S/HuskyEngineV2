@@ -1,5 +1,6 @@
 // ゲームのコード(src/game)のテスト。ゲームの exe とエディタが使う「型の登録」と「最初の配置」を確かめる。
 #include "game/Game.h"
+#include "core/MemoryTracker.h"
 
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
@@ -511,4 +512,26 @@ TEST_CASE("Game: プレイヤーのスコアは、跳ね回るものが触れ始
     event.otherActor = other->GetHandle(); // 跳ね回るもの以外
     player->OnOverlap(event);
     CHECK(player->score == 1);
+}
+
+TEST_CASE("Game: 温まった後の再生のフレームは、メモリを確保しない")
+{
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    husky::game::SpawnInitialActors(app);
+    husky::game::SpawnHudIfMissing(app);
+    app.GetClock().SetFixedDelta(1.0 / 60.0);
+    for (int i = 0; i < 180; ++i) // 温める(入れ物が大きくなり切るまで)
+    {
+        app.StepFrame(0, {});
+    }
+    const std::uint64_t before = husky::core::GetMemoryStats().totalAllocations;
+    for (int i = 0; i < 120; ++i)
+    {
+        app.StepFrame(0, {});
+    }
+    const std::uint64_t allocations = husky::core::GetMemoryStats().totalAllocations - before;
+    MESSAGE("2 秒(120 フレーム)の確保の回数: " << allocations);
+    CHECK(allocations == 0);
 }

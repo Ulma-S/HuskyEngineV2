@@ -1223,11 +1223,12 @@ namespace husky::engine
             {
                 continue;
             }
-            const ArchiveValue current = ObjectSerializer::Write(*data);
-            if (current.Equals(asset->m_snapshot))
+            // 先に、値の木を作らずに比べる(変わっていなければ確保しない。毎秒呼ばれるため)
+            if (ObjectSerializer::Matches(*data, asset->m_snapshot))
             {
                 continue;
             }
+            const ArchiveValue current = ObjectSerializer::Write(*data);
             // どのプロパティが変わったかを、名前で出す(構造体は、中のどこが変わったかまでは見ない)。
             const ArchiveValue* now = current.Find("properties");
             const ArchiveValue* before = asset->m_snapshot.Find("properties");
