@@ -15,6 +15,8 @@ namespace husky::platform
         ImageLoadFailed = 7,
         MemoryHooksMissing = 8,
         WindowAlreadyOpen = 9,
+        LibraryLoadFailed = 10,
+        LibraryFunctionMissing = 11,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(PlatformLog, "Engine.Platform")
@@ -35,5 +37,9 @@ namespace husky::platform
         HUSKY_LOG_MESSAGE(MemoryHooksMissing, Warning,
                           "InstallMemoryHooks が呼ばれていません。SDL のメモリは集計に入りません")
         HUSKY_LOG_MESSAGE(WindowAlreadyOpen, Warning, "ウィンドウはすでに開いています")
+        HUSKY_LOG_MESSAGE(LibraryLoadFailed, Error, "ライブラリを読めませんでした({path}): {error}",
+                          HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(error, String))
+        HUSKY_LOG_MESSAGE(LibraryFunctionMissing, Error, "ライブラリ({path})に関数 {name} がありません",
+                          HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(name, String))
     HUSKY_LOG_CHANNEL_END()
 }

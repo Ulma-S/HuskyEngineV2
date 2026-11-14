@@ -6,9 +6,11 @@
 // ゲームループ、ウィンドウ、描画、フレームの終わりの処理(破棄の確定と GC)は Application の中にある。
 
 #include "engine/Application.h"
+#include "engine/GameModule.h"
 #include "engine/Input.h"
 #include "game/Game.h"
 #include "game/GameLog.h"
+#include "platform/DynamicLibrary.h"
 #include "platform/FileSystem.h"
 #include "core/JsonLinesLogSink.h"
 #include "core/Log.h"
@@ -75,13 +77,34 @@ int main(int argc, char** argv)
     if (!logFileOpened)
         HUSKY_LOG_TEXT(Warning, "Game", "ログのファイルを開けませんでした(%s/husky.log)", logDirectory.c_str());
 
+    // ゲームのコード(HR-2)。exe はゲームの関数を、関数の表(engine::GameModule)を通して呼ぶ。
+    //   開発ビルド(エンジンを DLL にした構成): ゲームのコードは HuskyGame.dll。起動してから読み込み、入口の関数から表をもらう。
+    //   製品(静的リンク): ゲームのコードは exe の中なので、表を直接作る。
+    engine::GameModule gameModule;
+#if HUSKY_GAME_DLL
+    // app より先に作る。C++ のローカル変数は作った順の逆に壊れるので、app(ゲームの型のオブジェクトを持つ)が
+    // 先に壊れ、その後で DLL が外れる。逆だと、外れた DLL の中の vtable やデストラクタを呼んでしまう。
+    platform::DynamicLibrary gameLibrary;
+    const std::string gameLibraryPath =
+        platform::GetExecutableDirectory() + "HuskyGame" + platform::DynamicLibrary::GetFileSuffix();
+    if (!engine::LoadGameModule(gameLibrary, gameLibraryPath, gameModule))
+    {
+        return 1; // 理由はログに出ている
+    }
+#else
+    game::FillGameModule(gameModule);
+#endif
+
     // ゲームループ、レジストリ、シーン、入力、時計は、すべて Application が持つ。
     // ジョブシステムのワーカーは「コア数 - 1」本(1 本はゲームスレッドの分)。テクスチャの読み込みなどに使う。
     engine::Application app(husky::core::ObjectRegistry::DefaultCapacityBytes, husky::core::JobSystem::RecommendedWorkerCount());
 
     // ゲームの型を、名前から作れるように登録する(engine の型は Application が登録済み)。
     // シーンをファイルから読み込むときに、"type": "BouncerActor" から本物のオブジェクトを作るのに使う。
-    game::RegisterGameTypes(app.GetTypeRegistry());
+    if (gameModule.registerTypes != nullptr)
+    {
+        gameModule.registerTypes(app.GetTypeRegistry());
+    }
 
     // アセットのフォルダ(GUID → パスの表、シーンのファイル、すべての読み書きの起点)。
     //   開発ビルド: ソースの assets を直接読み書きする(Unity のエディタが、プロジェクトの Assets を直接読むのと同じ)。
@@ -218,10 +241,16 @@ int main(int argc, char** argv)
     if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
     {
         HUSKY_LOG(game::GameLog::NoSceneFile, scenePath);
-        game::SpawnInitialActors(app);
+        if (gameModule.spawnInitialActors != nullptr)
+        {
+            gameModule.spawnInitialActors(app);
+        }
     }
     // シーンに UI(Canvas)が無ければ、HUD(スコア・残り時間・リセットのボタン)を置く(UI-7)
-    game::SpawnHudIfMissing(app);
+    if (gameModule.onSceneReady != nullptr)
+    {
+        gameModule.onSceneReady(app);
+    }
 
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】編集の状態で始める(Unity と同じ)。置いたものは、Play を押すまで動かない。

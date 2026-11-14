@@ -298,3 +298,27 @@ TEST_CASE("LogChannelFilter は、決めていないチャンネルに、いち�
     record.level = LogLevel::Verbose;
     CHECK_FALSE(filter.Passes(record));
 }
+
+TEST_CASE("HR-2: 同じ番号・同じ名前のメッセージの登録し直しは受け付ける(exe と DLL の両方が登録するため)")
+{
+    Log& log = Log::Get();
+    const int channel = log.RegisterChannel("Test.Reregister");
+
+    CaptureSink sink;
+    ScopedLogSink attach(sink);
+
+    LogMessageDef message;
+    message.id = 1;
+    message.name = "Loaded";
+    message.level = LogLevel::Info;
+    message.format = "読みました";
+    CHECK(log.RegisterMessage(channel, message));
+    message.format = "読みました(直した文)"; // ゲームの DLL を読み直すと、直した文で登録し直されることがある
+    CHECK(log.RegisterMessage(channel, message));
+    CHECK(sink.records.empty()); // エラーは出ない
+
+    LogMessageDef other = message;
+    other.name = "Other"; // 同じ番号に別の名前は、今までどおり断る
+    CHECK_FALSE(log.RegisterMessage(channel, other));
+    CHECK(sink.records.size() == 1);
+}

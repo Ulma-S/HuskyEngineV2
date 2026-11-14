@@ -14,6 +14,7 @@
 
 #include "core/TypeRegistry.h"
 #include "engine/Application.h"
+#include "engine/GameModule.h"
 
 namespace husky::game
 {
@@ -44,4 +45,8 @@ namespace husky::game
     // シーンのファイルを読んだ後も、コードで最初の配置をした後も呼ぶ(F5 で保存すれば、次からはファイルの HUD が使われる)。
     // 先にアセットの表が要る。
     void SpawnHudIfMissing(engine::Application& app);
+
+    // エンジンに渡す関数の表(HR-2。engine/GameModule.h)。開発ビルドの exe は DLL の入口(GameModuleExport.cpp)から、
+    // 製品(静的リンク)の exe はこの関数を直接呼んで受け取る。
+    void FillGameModule(engine::GameModule& module);
 }

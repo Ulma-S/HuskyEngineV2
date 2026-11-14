@@ -261,6 +261,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
 # STATIC は「.lib を作り、使う側の exe に丸ごと組み込む」という意味。
 add_library(husky_platform ${HUSKY_MODULE_TYPE}
+    src/platform/DynamicLibrary.cpp
     src/platform/FileSystem.cpp
     src/platform/Image.cpp
     src/platform/LogFileWriter.cpp
@@ -309,6 +310,7 @@ add_library(husky_engine ${HUSKY_MODULE_TYPE}
     src/engine/Rigidbody2D.cpp
     src/engine/PhysicsScene2D.cpp
     src/engine/FixedStepper.cpp
+    src/engine/GameModule.cpp
     src/engine/Box2DPhysicsWorld2D.cpp
     src/engine/PhysicsMemory.cpp
     src/engine/TransformMatrix.cpp
@@ -468,7 +470,9 @@ endif()
 # --- ゲームのコード(このゲームの型、型の登録、最初の配置。src/game) ---
 # エンジンの部品(付け外しするもの)ではなく、エンジンを使う側(アプリケーション)の本体。engine に依存する。
 # 起動する exe(HuskyEngineV2)と、エディタ(HuskyEditorCli)の両方がリンクする(エディタもゲームの型を知る必要があるため)。
-add_library(husky_game STATIC
+# エンジンを DLL にした構成では OBJECT ライブラリ(.obj の集まり)にし、同じ .obj をゲームの DLL と、
+# テスト・CLI(ゲームのコードを直接リンクする)の両方で使う(コンパイルは1回で済む)。
+add_library(husky_game ${HUSKY_MODULE_TYPE}
     src/game/CameraFollowComponent.cpp
     src/game/HudComponent.cpp
     src/game/Game.cpp
@@ -476,6 +480,20 @@ add_library(husky_game STATIC
 husky_set_compile_options(husky_game)
 target_include_directories(husky_game PUBLIC src)
 target_link_libraries(husky_game PUBLIC ${HUSKY_ENGINE_LINK})
+
+# --- ゲームの DLL(HuskyGame.dll。HR-2) ---
+# 開発ビルドの exe はゲームのコードをリンクせず、起動してから読み込む(後でビルドし直したものに差し替える。HR-4)。
+# 外に見せるのは入口の関数 HuskyGetGameModule だけ(GameModuleExport.cpp の __declspec(dllexport))。
+if(HUSKY_ENGINE_SHARED)
+    add_library(husky_game_dll SHARED
+        $<TARGET_OBJECTS:husky_game>
+        src/game/GameModuleExport.cpp
+        ${HUSKY_GLOBAL_NEW_SOURCE} # DLL の中の new も MemoryTracker に通す(エンジンの DLL と同じ)
+    )
+    set_target_properties(husky_game_dll PROPERTIES OUTPUT_NAME HuskyGame)
+    husky_set_compile_options(husky_game_dll)
+    target_link_libraries(husky_game_dll PRIVATE ${HUSKY_ENGINE_LINK})
+endif()
 
 # --- tools モジュール(開発用の UI とエディタの機能。開発ビルドだけ) ---
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
@@ -526,7 +544,15 @@ husky_copy_asan_runtime(HuskyEngineV2)
 target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
-target_link_libraries(HuskyEngineV2 PRIVATE husky_game ${HUSKY_ENGINE_LINK})
+if(HUSKY_ENGINE_SHARED)
+    # ゲームのコードはリンクせず、HuskyGame.dll を読み込む(main.cpp の HUSKY_GAME_DLL)。
+    # add_dependencies: リンクはしないが、exe をビルドするときに DLL も作る(作る順番だけの依存)。
+    target_link_libraries(HuskyEngineV2 PRIVATE ${HUSKY_ENGINE_LINK})
+    target_compile_definitions(HuskyEngineV2 PRIVATE HUSKY_GAME_DLL=1)
+    add_dependencies(HuskyEngineV2 husky_game_dll)
+else()
+    target_link_libraries(HuskyEngineV2 PRIVATE husky_game ${HUSKY_ENGINE_LINK})
+endif()
 # tools(開発用の UI)は、開発ビルドだけリンクする。製品(Release)には入らない。
 target_link_libraries(HuskyEngineV2 PRIVATE ${HUSKY_TOOLS_LINK})
 
@@ -553,6 +579,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/InputTests.cpp
         tests/engine/FontFaceTests.cpp
         tests/engine/ModuleBoundaryTests.cpp
+        tests/engine/GameModuleTests.cpp
         tests/engine/FontAtlasTests.cpp
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp
@@ -638,6 +665,11 @@ if(HUSKY_BUILD_TESTS)
     # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。
     target_link_libraries(HuskyTests PRIVATE ${HUSKY_TOOLS_LINK} ${HUSKY_IMGUI_LINK})
     target_include_directories(HuskyTests SYSTEM PRIVATE ${HUSKY_IMGUI_INCLUDES})
+    if(HUSKY_ENGINE_SHARED)
+        # ゲームの DLL を読むテスト(GameModuleTests.cpp)のために、DLL も作る
+        target_compile_definitions(HuskyTests PRIVATE HUSKY_GAME_DLL=1)
+        add_dependencies(HuskyTests husky_game_dll)
+    endif()
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
     # _BUT_WITH_ALL_ASSERTS: 例外なしでも REQUIRE(失敗したら打ち切る確認)を使えるようにする。
     #   例外で「そのテストだけ」を抜けられないので、REQUIRE が失敗するとテストの実行全体がそこで止まる

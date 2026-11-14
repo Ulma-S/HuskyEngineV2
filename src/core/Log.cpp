@@ -406,12 +406,17 @@ namespace husky::core
                 {
                     error = LogLog::BadMessage;
                 }
-                else if (message.id < info.messages.size() && info.messages[message.id].registered)
+                else if (message.id < info.messages.size() && info.messages[message.id].registered &&
+                         info.messages[message.id].name != messageName)
                 {
+                    // 同じ番号に別の名前のメッセージ: 番号の振り間違いなので断る
                     error = LogLog::DuplicateMessage;
                 }
                 else
                 {
+                    // 初めての番号か、同じ番号・同じ名前の登録し直し(HR-2)。登録し直しは、後の定義で上書きする。
+                    // 同じヘッダのメッセージを exe と DLL の両方が登録する(ヘッダの inline の static がモジュールごとに
+                    // あるため)ことと、ゲームの DLL を読み直すと、直した文で登録し直されることがあるため。
                     if (message.id >= info.messages.size())
                         info.messages.resize(static_cast<std::size_t>(message.id) + 1);
                     MessageInfo& entry = info.messages[message.id];

@@ -124,4 +124,19 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(Profile, Verbose, "処理時間 {section}: 平均 {averageMs} ms / 最大 {maxMs} ms",
                           HUSKY_LOG_ARG(section, String), HUSKY_LOG_ARG(averageMs, Float), HUSKY_LOG_ARG(maxMs, Float))
     HUSKY_LOG_CHANNEL_END()
+
+    // ゲームのコード(モジュール)の読み込み(HR-2。engine/GameModule.h)。
+    enum class ModuleLog : std::uint16_t
+    {
+        Loaded = 1,
+        EntryFailed = 2,
+        VersionMismatch = 3,
+    };
+
+    HUSKY_LOG_CHANNEL_BEGIN(ModuleLog, "Engine.Module")
+        HUSKY_LOG_MESSAGE(Loaded, Info, "ゲームのモジュールを読み込みました({path})", HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(EntryFailed, Error, "ゲームのモジュールの入口が失敗を返しました({path})", HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(VersionMismatch, Error, "ゲームのモジュールの版が違います({path}: {found}、エンジンは {expected})。ビルドし直してください",
+                          HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(found, Int), HUSKY_LOG_ARG(expected, Int))
+    HUSKY_LOG_CHANNEL_END()
 }

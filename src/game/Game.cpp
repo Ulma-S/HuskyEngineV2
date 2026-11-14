@@ -442,4 +442,12 @@ namespace husky::game
             PlacePrefab<engine::Actor>(app, *hudPrefab);
         }
     }
+
+    void FillGameModule(engine::GameModule& module)
+    {
+        module.version = engine::GameModuleVersion;
+        module.registerTypes = &RegisterGameTypes;
+        module.spawnInitialActors = &SpawnInitialActors;
+        module.onSceneReady = &SpawnHudIfMissing;
+    }
 }
