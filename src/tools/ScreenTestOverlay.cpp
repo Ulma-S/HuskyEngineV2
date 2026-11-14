@@ -5,7 +5,7 @@
 
 #include "engine/AssetLoader.h"
 #include "engine/FontAsset.h"
-#include "engine/Utf8.h"
+#include "engine/TextLayout.h"
 
 #include <cstddef> // std::size_t
 #include <cstdint>
@@ -18,7 +18,9 @@ namespace husky::tools
         const char* const TestFontPath = "fonts/BIZUDGothic-Regular.ttf"; // assets の中のパス
         constexpr float TestFontSize = 32.0f;
         // 試しの文字: 日本語(ひらがな・カタカナ・漢字)、英数字、記号、カーニングのある組(AV)
-        const char* const TestText = "日本語のテスト AVATAR 123 ゲーム用UI!";
+        // 1行目は改行で終え、2行目は箱の幅で折り返す
+        const char* const TestText = "日本語のテスト AVATAR 123 ゲーム用UI!\n折り返しと中寄せの確かめです。長い文は箱の幅で次の行へ送ります。";
+        constexpr float TestBoxWidth = 520.0f;
     }
 
     ScreenTestOverlay::~ScreenTestOverlay()
@@ -122,11 +124,10 @@ namespace husky::tools
         renderDevice.DrawSprite(center);
 
         // 真ん中の上: 試しの文字(左端は真ん中より少し左)
-        DrawTestText(app, renderDevice, width * 0.5f - 280.0f, height * 0.5f + 120.0f);
+        DrawTestText(app, renderDevice, (width - TestBoxWidth) * 0.5f, height * 0.5f + 230.0f);
     }
 
-    void ScreenTestOverlay::DrawTestText(engine::Application& app, render::RenderDevice& renderDevice, float x,
-                                         float baselineY)
+    void ScreenTestOverlay::DrawTestText(engine::Application& app, render::RenderDevice& renderDevice, float left, float top)
     {
         engine::AssetLoader& loader = app.GetAssetLoader();
         // 最初の1回: パスで GUID を引いて読み始め、根に入れる(読み終わるまで数フレームかかる。その間は描かない)
@@ -150,54 +151,14 @@ namespace husky::tools
             return; // 読み込み中か、読めなかった
         }
 
-        // 1. 先に全部の字をアトラスに置き(初めての字だけ絵にする)、まとめて GPU に送る(最初の1回はテクスチャも作る)
-        const std::string_view text = TestText;
-        std::size_t index = 0;
-        char32_t codepoint = 0;
-        while (engine::NextCodepoint(text, index, codepoint))
-        {
-            atlas->FindOrAdd(codepoint);
-        }
+        // 箱の幅で折り返し、中寄せで並べる(UI-4 の LayoutText)。並べる途中で初めての字はアトラスに置かれるので、
+        // その後でまとめて GPU に送ってから積む(最初の1回はテクスチャも作る)。
+        engine::TextLayoutOptions options;
+        options.maxWidth = TestBoxWidth;
+        options.align = engine::TextAlign::Center;
+        engine::LayoutText(*atlas, TestText, options, m_layout);
         atlas->Upload(renderDevice);
-
-        // 2. 左から並べる。ペン(字の基準点)はベースラインの上を右へ進む。
-        //    字の絵の左上は「ペン + (offsetX, offsetY)」。フォントの offsetY は下が + だが、画面のカメラは上が + なので引く。
-        float penX = x;
-        char32_t previous = 0;
-        index = 0;
-        while (engine::NextCodepoint(text, index, codepoint))
-        {
-            const engine::AtlasGlyph* glyph = atlas->FindOrAdd(codepoint);
-            if (glyph == nullptr)
-            {
-                previous = 0;
-                continue; // フォントに無い字は飛ばす(後で「豆腐」を出すかは UI-4 で決める)
-            }
-            if (previous != 0)
-            {
-                penX += font->GetFace()->GetKerning(previous, codepoint, TestFontSize);
-            }
-            if (glyph->hasImage)
-            {
-                render::Sprite sprite;
-                // ピクセルの境目に合わせる(点で読むサンプラーなので、半端な位置だと字がにじまずに欠ける)
-                sprite.model.m[12] = static_cast<float>(static_cast<int>(penX + 0.5f)) + static_cast<float>(glyph->offsetX);
-                sprite.model.m[13] = baselineY - static_cast<float>(glyph->offsetY);
-                sprite.width = static_cast<float>(glyph->width);
-                sprite.height = static_cast<float>(glyph->height);
-                sprite.pivotX = 0.0f; // 左上の角を位置に合わせる
-                sprite.pivotY = 1.0f;
-                sprite.color = {1.0f, 1.0f, 1.0f, 1.0f};
-                sprite.texture = atlas->GetTexture();
-                sprite.u0 = glyph->u0;
-                sprite.v0 = glyph->v0;
-                sprite.u1 = glyph->u1;
-                sprite.v1 = glyph->v1;
-                renderDevice.DrawSprite(sprite);
-            }
-            penX += glyph->advance;
-            previous = codepoint;
-        }
+        engine::DrawTextLayout(renderDevice, *atlas, m_layout, left, top, render::Color{1.0f, 1.0f, 1.0f, 1.0f});
     }
 }
 

@@ -3,7 +3,7 @@
 // (Application::SetScreenDrawCallback から呼ぶ)。ゲームのカメラやエディタのカメラを動かしても、四角は動かない。
 // 真ん中の四角(128 ピクセル)には 64 × 64 の試しのテクスチャを貼り、30 フレームごとに 8 × 8 のます目を1つずつ
 // 色を変えて書き換える(UI-2b の RenderDevice::UpdateTexture。字のアトラスに字を書き足すのと同じ使い方)。
-// 真ん中の上には、日本語のフォントで試しの文字を1行出す(UI-3b のフォントのアセットと字のアトラス)。
+// 真ん中の上には、日本語のフォントで試しの文字を出す(UI-3b のフォントのアセットと字のアトラス、UI-4 の折り返しと中寄せ)。
 // ゲーム用 UI(UI-5〜)ができたら要らなくなる。
 // 動作スレッド: ゲームスレッド
 #pragma once
@@ -13,6 +13,7 @@
 #include "core/Handle.h"
 #include "core/ObjectRegistry.h"
 #include "engine/Application.h"
+#include "engine/TextLayout.h"
 #include "platform/Image.h"
 #include "render/RenderDevice.h"
 #include "tools/EditorCommands.h"
@@ -37,8 +38,8 @@ namespace husky::tools
         void Draw(engine::Application& app, render::RenderDevice& renderDevice);
 
     private:
-        // 試しの文字を、左端 x・ベースライン baselineY(画面のピクセル、上が +y)から1行で積む(並べ方は UI-4 で作る)。
-        void DrawTestText(engine::Application& app, render::RenderDevice& renderDevice, float x, float baselineY);
+        // 試しの文字を、左上が (left, top)(画面のピクセル、上が +y)の箱に、折り返しと中寄せで並べて積む(UI-4)。
+        void DrawTestText(engine::Application& app, render::RenderDevice& renderDevice, float left, float top);
 
         bool m_visible = false;
         render::TextureHandle m_texture; // 試しのテクスチャ(64 × 64)。RenderDevice が壊れると一緒に消える
@@ -49,6 +50,7 @@ namespace husky::tools
         // 試しの文字のフォント(FontAsset)。ローダが返すハンドルは弱い参照なので、根に入れて回収させない。
         core::ObjectHandle m_font;
         core::ObjectRegistry* m_rootRegistry = nullptr; // 根に入れたレジストリ(外すため。借りているだけ)
+        engine::TextLayoutResult m_layout;              // 並べた結果(入れ物を毎フレーム使い回す)
     };
 }
 

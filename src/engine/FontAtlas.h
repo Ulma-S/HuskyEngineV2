@@ -80,6 +80,8 @@ namespace husky::engine
         render::TextureHandle GetTexture() const { return m_texture; }
         float GetPixelHeight() const { return m_pixelHeight; }
         const FontLineMetrics& GetLineMetrics() const { return m_lineMetrics; }
+        // left の次に right を並べるときの詰め(FontFace::GetKerning をこのアトラスの大きさで)。
+        float GetKerning(char32_t left, char32_t right) const { return m_face->GetKerning(left, right, m_pixelHeight); }
         int GetTextureSize() const { return m_textureSize; }
         // 置いた字の数(絵の無い空白も数える。フォントに無い字・置けなかった字は数えない)と、送る予定の数。テスト用。
         std::size_t GetGlyphCount() const { return m_glyphCount; }
