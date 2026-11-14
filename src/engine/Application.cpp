@@ -376,11 +376,13 @@ namespace husky::engine
                     // 画面のパス(UI-2a): 行列を画面ちょうどのカメラ(左下が原点、1 単位 = 1 ピクセル)に替えてから積む。
                     // 替えた後に積んだものだけが新しい行列で描かれ、シーンはワールドのカメラのまま。積む順なので、シーンより手前。
                     // ゲームのカメラが動いても、エディタのカメラで見ていても、画面の同じ所に出る(後のゲーム用 UI の Canvas)。
+                    // Canvas の下の UIActor(UI-5b)は、ここで描く(ワールドの行列がそのまま画面のピクセルになっている)。
+                    renderDevice.SetViewProjection(MakeScreenCamera(static_cast<float>(renderDevice.GetScreenWidth()),
+                                                                    static_cast<float>(renderDevice.GetScreenHeight()))
+                                                       .ViewProjection());
+                    DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture, SpritePass::Screen);
                     if (m_screenDraw)
                     {
-                        renderDevice.SetViewProjection(MakeScreenCamera(static_cast<float>(renderDevice.GetScreenWidth()),
-                                                                        static_cast<float>(renderDevice.GetScreenHeight()))
-                                                           .ViewProjection());
                         m_screenDraw(renderDevice);
                     }
                 }

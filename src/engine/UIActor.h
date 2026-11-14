@@ -61,6 +61,7 @@ namespace husky::engine
         RectTransform rectTransform;
 
         bool IsTransformDriven() const override { return true; }
+        bool IsDrawnOnScreen() const override { return m_inCanvas; }
 
         // 最後の LayoutCanvases で求めた自分の四角(Canvas の単位、Canvas の左下が原点)。保存しない。
         const UIRect& GetRect() const { return m_rect; }

@@ -73,11 +73,23 @@ namespace husky::engine
     // sprite のテクスチャは空のまま渡す(アセットから描画層のテクスチャを引くのは、DrawSprites の役目)。
     // 1つのアクターが SpriteComponent を複数持っていても、使うのは最初の1つだけ。
     // 描画(DrawSprites)とテストの両方で使うために、「何を描くか」の部分だけを取り出している。
+    // pass: World なら、ワールドのカメラで描くアクター(ふつうのアクター)だけ。Screen なら、画面の座標で描くアクター
+    //       (Canvas の下の UIActor。UI-5b)だけ。transform が計算の結果でも Canvas の外にある UIActor は、どちらにも入らない。
     // 動作スレッド: ゲームスレッドのみ
+    enum class SpritePass
+    {
+        World,
+        Screen,
+    };
     template <typename Function>
-    void ForEachSprite(Scene& scene, Function&& function)
+    void ForEachSprite(Scene& scene, Function&& function, SpritePass pass = SpritePass::World)
     {
         scene.ForEachActor([&](Actor& actor) {
+            const bool onScreen = actor.IsDrawnOnScreen();
+            if (pass == SpritePass::Screen ? !onScreen : (onScreen || actor.IsTransformDriven()))
+            {
+                return;
+            }
             SpriteComponent* spriteComponent = actor.GetComponent<SpriteComponent>();
             if (spriteComponent == nullptr) // 持っていない(GetComponent は Destroy 済みのものも返さない)
             {
@@ -119,6 +131,7 @@ namespace husky::engine
     // まだ読んでいないテクスチャは、ここで読む(loader.Resolve)ので、コンポーネントを書き換えることがある。
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
     // 動作スレッド: ゲームスレッドのみ
+    // pass は ForEachSprite と同じ(Screen は、画面ちょうどのカメラにしてから呼ぶ)。
     void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
-                     core::ObjectHandle defaultTexture);
+                     core::ObjectHandle defaultTexture, SpritePass pass = SpritePass::World);
 }

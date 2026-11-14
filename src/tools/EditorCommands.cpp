@@ -1149,6 +1149,13 @@ namespace husky::tools
                 error = "Use actor.setParent to change the parent";
                 return false;
             }
+            // transform が計算の結果のアクター(UIActor。UI-5b)は、transform を書けない(直すのは rectTransform)
+            if (componentValue == nullptr && !path.empty() && path[0] == "transform" && actorOut != nullptr &&
+                actorOut->IsTransformDriven())
+            {
+                error = "The transform of this actor is computed from rectTransform; change rectTransform instead";
+                return false;
+            }
 
             if (property->GetType() == core::PropertyType::ObjectHandle || property->GetType() == core::PropertyType::ObjectRef ||
                 IsReferenceArray(*property))

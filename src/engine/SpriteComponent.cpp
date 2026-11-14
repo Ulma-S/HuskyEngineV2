@@ -99,7 +99,7 @@ namespace husky::engine
     }
 
     void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
-                     core::ObjectHandle defaultTexture)
+                     core::ObjectHandle defaultTexture, SpritePass pass)
     {
         // 既定のテクスチャは、スプライトごとに引き直さず、最初に1回だけ引く。
         const TextureAsset* fallback = DrawableOrNull(LoadedOrNull(loader.ResolveTexture(defaultTexture)));
@@ -117,6 +117,6 @@ namespace husky::engine
                 sprite.texture = fallback->GetTexture();
             }
             renderDevice.DrawSprite(sprite);
-        });
+        }, pass);
     }
 }

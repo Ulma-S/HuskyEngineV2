@@ -106,7 +106,9 @@ namespace husky::tools
         };
         // 選んでいるアクター(インスペクタと同じもの)。ギズモはこのアクターの位置に出す
         engine::Actor* selected = app.GetRegistry().Resolve<engine::Actor>(inspector.GetSelected());
-        if (selected != nullptr && selected->IsPendingDestroy())
+        // transform が計算の結果のアクター(UIActor。UI-5b)は、ギズモで動かせないので、ギズモも枠も出さない
+        // (直すのは rectTransform。UI の枠は画面の座標の重ね描きで出す)
+        if (selected != nullptr && (selected->IsPendingDestroy() || selected->IsTransformDriven()))
         {
             selected = nullptr;
         }

@@ -255,6 +255,9 @@ namespace husky::tools
 
         // 参照の相手を選べるシーン(SceneInspector::Draw が描く間だけ設定する。無ければ、参照は表示だけ)。
         engine::Scene* g_pickScene = nullptr;
+        // transform が計算の結果のアクター(UIActor。UI-5b)。このアクターの transform は、灰色で読むだけにする。
+        // SceneInspector::Draw の間だけ入れる(g_pickScene と同じ)。
+        const void* g_drivenTransformOwner = nullptr;
 
         // 参照(ObjectHandle / ObjectRef。REF-1)を、相手を選ぶ箱(コンボボックス)で描く。
         // allowed: 選べる型(ObjectRef<T> の T。nullptr ならアクターなら何でも)。コンポーネントの型なら、各アクターのその型のものを並べる。
@@ -663,9 +666,20 @@ namespace husky::tools
                                                               IM_COL32(70, 150, 255, 255));
                 }
                 // 差し替えが登録されていれば、そちらで表示する。無ければ、型に合った標準の部品で表示する。
+                // 計算の結果の transform(UIActor)は、読むだけ(直すのは RectTransform)
+                const bool readOnly = container == g_drivenTransformOwner && std::strcmp(property.GetName(), "transform") == 0;
+                if (readOnly)
+                {
+                    ImGui::TextDisabled("transform is computed from rectTransform (read only)");
+                    ImGui::BeginDisabled();
+                }
                 const PropertyDrawer drawer = FindDrawer(property);
                 const bool propertyChanged = drawer != nullptr ? drawer(property, container, registry, assets)
                                                                : DrawProperty(property, container, registry, assets, recorder, marks);
+                if (readOnly)
+                {
+                    ImGui::EndDisabled();
+                }
                 if (recorder != nullptr)
                 {
                     // IsItemActive: 直前の部品が操作中(ドラッグ中、文字の入力中など)か。手を離すと false になる。
@@ -964,7 +978,9 @@ namespace husky::tools
                                         world.scale.y);
                 }
                 m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
+                g_drivenTransformOwner = selected->IsTransformDriven() ? selected : nullptr;
                 DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
+                g_drivenTransformOwner = nullptr;
                 if (g_parentRequest.pending)
                 {
                     g_parentRequest.pending = false;

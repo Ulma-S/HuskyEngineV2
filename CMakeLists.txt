@@ -438,6 +438,7 @@ add_library(husky_tools STATIC
     src/tools/AudioCommands.cpp
     src/tools/SceneView.cpp
     src/tools/ScreenTestOverlay.cpp
+    src/tools/UIRectOverlay.cpp
 )
 husky_set_compile_options(husky_tools)
 target_include_directories(husky_tools PUBLIC src)
@@ -535,6 +536,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/SceneViewTests.cpp
         tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
+        tests/tools/UIEditorTests.cpp
         tests/tools/DataCommandsTests.cpp
         tests/tools/AssetBrowserTests.cpp
         tests/tools/LogCatalogTests.cpp

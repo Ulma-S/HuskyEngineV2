@@ -46,6 +46,9 @@ namespace husky::engine
         // UI のアクター(UIActor)は RectTransform が元の値で、transform はその計算の結果なので true を返す。
         // true のアクターの transform は、保存しない(シーン・プレハブのファイルに書かない)。
         virtual bool IsTransformDriven() const { return false; }
+        // ワールドのカメラではなく、画面の座標(画面のパス)で描くなら true(UI-5b)。Canvas の下に置かれた UIActor が true。
+        // ワールドの行列が、そのまま画面のピクセルになっているアクター。
+        virtual bool IsDrawnOnScreen() const { return false; }
 
         // T 型のコンポーネントを作り、このアクターに取り付ける。メモリが足りなければ nullptr。
         // アクターをレジストリで作っていない場合も nullptr。

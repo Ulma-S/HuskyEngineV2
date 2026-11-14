@@ -27,10 +27,12 @@
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
 #include "tools/ScreenTestOverlay.h" // 画面の座標で描く試し(view.screenTest。UI-2a)
+#include "tools/UIRectOverlay.h"     // ゲーム用 UI の四角の枠(UI-5b)
 #endif
 
 
 #include <string>
+#include <string_view>
 #include <utility> // std::move
 
 namespace
@@ -43,7 +45,7 @@ namespace
 #endif
 }
 
-int main()
+int main(int argc, char** argv)
 {
     // 一番最初に: SDL のメモリの確保を、エンジンの入口(MemoryTracker)に通す。
     // SDL が何かを確保するより前でないといけない(platform/MemoryHooks.h)。
@@ -91,7 +93,21 @@ int main()
     const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
 #endif
     HUSKY_LOG(game::GameLog::AssetsDirectory, assetsDirectory);
-    const std::string scenePath = assetsDirectory + "/scenes/main.json";
+    std::string scenePath = assetsDirectory + "/scenes/main.json";
+#if HUSKY_DEVELOPMENT
+    // 開発ビルドだけ: 起動の引数 --scene <ファイル> で、main.json の代わりに開くシーンを選べる
+    // (確かめ用のシーンを、手元の main.json を書き換えずに開くため。F5 の保存もそのファイルへ)。
+    for (int i = 1; i + 1 < argc; ++i)
+    {
+        if (std::string_view(argv[i]) == "--scene")
+        {
+            scenePath = argv[i + 1];
+        }
+    }
+#else
+    (void)argc; // 製品は引数を使わない
+    (void)argv;
+#endif
 
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】エディタのコマンド。ボタン、ショートカットのキー(将来は CLI や AI も)は、どれも名前で呼ぶだけ。
@@ -223,7 +239,14 @@ int main()
     // 画面の座標で描く試し(UI-2a): 出している間、四隅に四角。カメラを動かしても動かないことを目で確かめる
     tools::ScreenTestOverlay screenTest;
     screenTest.RegisterCommands(commands); // view.screenTest
-    app.SetScreenDrawCallback([&app, &screenTest](husky::render::RenderDevice& renderDevice) { screenTest.Draw(app, renderDevice); });
+    // ゲーム用 UI の四角の枠(編集中だけ。選んでいる UIActor は橙色)。UI そのものは Application が先に描いている
+    tools::UIRectOverlay uiRects;
+    app.SetScreenDrawCallback([&app, &inspector, &playMode, &screenTest, &uiRects](husky::render::RenderDevice& renderDevice) {
+        uiRects.Draw(app.GetScene(), inspector.GetSelected(), playMode.GetState() == tools::EditorPlayMode::State::Edit,
+                     renderDevice);
+        screenTest.Draw(app, renderDevice);
+    });
+
     app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く
