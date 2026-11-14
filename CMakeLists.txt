@@ -127,6 +127,20 @@ FetchContent_Declare(box2d
 )
 FetchContent_MakeAvailable(box2d)
 
+# --- 依存ライブラリ: stb_truetype(フォントの字を絵にする。2026-11-14 にユーザーと相談して追加。UI-3a) ---
+# ヘッダ1つのライブラリ(パブリックドメインか MIT を選べる)。使うのは engine の StbFontFace.cpp の中だけで、
+# ほかのコードは自前の窓口 engine::FontFace だけを使う(別のライブラリに替えるときは StbFontFace.cpp だけを書き直す)。
+# リポジトリに版の番号(タグ)が無いので、コミットで固定する(2026-10-22 のもの。stb_truetype は v1.26)。
+# CMakeLists.txt が無いので、ソースを取ってくるだけにして、ヘッダの場所を教える入れ物(husky_stb)を作る。
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        003501f6d7a8668ce8b6d875e34dd97ad0d5d5b5
+)
+FetchContent_MakeAvailable(stb)
+add_library(husky_stb INTERFACE)
+# SYSTEM: stb のヘッダを外部のヘッダとして扱い、その中の警告は出さない(実装もヘッダの中にあるため)。
+target_include_directories(husky_stb SYSTEM INTERFACE ${stb_SOURCE_DIR})
+
 # --- 依存ライブラリ: Dear ImGui(開発用の UI。2026-11-12 にユーザーと相談して追加) ---
 # 開発ビルド(Debug)だけでリンクし、製品(Release)には入れない(CLAUDE.md: ImGui のコードをリリースビルドに含めない)。
 # ImGui のリポジトリには CMakeLists.txt が無いので、FetchContent でソースを取ってくるだけにして、
@@ -297,6 +311,7 @@ add_library(husky_engine STATIC
     src/engine/SpriteAnimatorComponent.cpp
     src/engine/SpriteComponent.cpp
     src/engine/SpriteSheetData.cpp
+    src/engine/StbFontFace.cpp
 )
 husky_set_compile_options(husky_engine)
 target_include_directories(husky_engine PUBLIC src)
@@ -316,6 +331,8 @@ target_link_libraries(husky_engine PUBLIC husky_core husky_platform husky_render
 target_link_libraries(husky_engine PRIVATE yyjson)
 # Box2D も物理の中身の .cpp の中だけで使うので PRIVATE(設計メモ「当たり判定と物理」)。
 target_link_libraries(husky_engine PRIVATE box2d)
+# stb_truetype もフォントの中身の .cpp(StbFontFace.cpp)の中だけで使うので PRIVATE(UI-3a)。
+target_link_libraries(husky_engine PRIVATE husky_stb)
 
 # --- シェーダの変換 ---
 # HLSL で書いたシェーダを、ビルドの途中で DXC(Vulkan SDK に付属)に変換させる。
@@ -474,6 +491,7 @@ if(HUSKY_BUILD_TESTS)
         ${HUSKY_GLOBAL_NEW_SOURCE} # ゲームと同じく、すべての new を MemoryTracker に通す
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
+        tests/engine/FontFaceTests.cpp
         tests/engine/SceneTests.cpp
         tests/engine/HierarchyTests.cpp
         tests/engine/ComponentTests.cpp
