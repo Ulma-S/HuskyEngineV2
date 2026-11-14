@@ -72,6 +72,8 @@ namespace husky::engine::SceneSerializer
         // 「シーンの中のこの1体」を表す値(Actor::guid と、元のプレハブ Actor::prefab)を書くか。プレハブ(Prefab.h)は書かない
         // (置くたびに新しいアクターになるので新しい guid を振り、元のプレハブは置いたときに書くため)。
         bool writeActorIdentity = true;
+        // 書くものの外を指していても、null と書くだけで警告に数えないハンドル(HIER-2b。プレハブの根の親など)。
+        core::ObjectHandle allowedOutside;
     };
 
     // scene の中の、指定したアクター(と、その生きているコンポーネント)だけを、シーンと同じ形で保存する。
@@ -96,4 +98,8 @@ namespace husky::engine::SceneSerializer
     // 渡さなければ、ファイルの値だけで作る(プレハブそのものを読むときなど)。
     ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types,
                     const PrefabFinder& findPrefab = {});
+
+    // プレハブの値の木 prefab の中で、Actor::prefabActorId が prefabActorId のアクターの記録の番号(HIER-2b)。
+    // prefabActorId が空なら根("actors" の最初)。見つからなければ -1。
+    std::int64_t FindPrefabActorNumber(const ArchiveValue& prefab, const core::Guid& prefabActorId);
 }

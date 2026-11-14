@@ -615,7 +615,10 @@ namespace husky::tools
             // Undo は guid で消す。Redo は「置き直す」ではなく、置いた直後のアクターの控えから同じ guid で戻す
             // (置き直すと新しい guid になり、この後の履歴(property.set など)が指す guid と食い違うため)。
             result.undo = MakeDestroyCall(actor->guid);
-            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(scene, {actor}).value, std::string()); // 置いた直後は親なし
+            // 控えには子孫も入れる(子を含むプレハブ。HIER-2b。子も同じ guid で戻り、この後の履歴とつながる)
+            std::vector<engine::Actor*> placedActors = {actor};
+            actor->GetDescendants(placedActors);
+            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(scene, placedActors).value, std::string()); // 置いた直後は親なし
             return result;
         };
         return command;
@@ -2024,8 +2027,8 @@ namespace husky::tools
                                                      const engine::Actor& actor)
         {
             engine::ArchiveValue references = engine::ArchiveValue::MakeArray();
-            const engine::ArchiveValue* actors = prefabData.Find("actors");
-            const std::int64_t actorId = actors != nullptr && actors->GetArraySize() == 1 ? actors->At(0).AsInt(-1) : -1;
+            // 置いたものに当たる、プレハブの中のアクターの番号(HIER-2b。子なら子の番号)
+            const std::int64_t actorId = engine::SceneSerializer::FindPrefabActorNumber(prefabData, actor.prefabActorId);
             for (std::int64_t id = 0; id <= actorId; ++id)
             {
                 references.Append(id == actorId ? engine::ArchiveValue(actor.guid.ToString()) : engine::ArchiveValue());
@@ -2247,7 +2250,7 @@ namespace husky::tools
                 changes.push_back({item->component, item->path, item->prefabValue, item->value, item->componentId});
             }
             engine::ArchiveValue newData;
-            if (!engine::Prefab::WriteChanges(found.prefab->GetData(), changes, newData, error))
+            if (!engine::Prefab::WriteChanges(found.prefab->GetData(), changes, newData, error, actor->prefabActorId))
             {
                 return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
             }
@@ -2264,7 +2267,8 @@ namespace husky::tools
             app.GetScene().ForEachActor([&](engine::Actor& other) {
                 if (other.prefab.guid == guid)
                 {
-                    if (engine::Prefab::FollowChanges(other, changes) > 0)
+                    // プレハブの中の同じアクター(根なら根、子なら同じ ID の子)にだけ伝える(HIER-2b)
+                    if (other.prefabActorId == actor->prefabActorId && engine::Prefab::FollowChanges(other, changes) > 0)
                     {
                         ++followed;
                     }
@@ -2379,7 +2383,8 @@ namespace husky::tools
                 componentId = core::Guid::Generate();
                 const engine::ArchiveValue entry =
                     engine::Prefab::MakeComponentEntry(*applied, found.prefab->GetData(), componentId, warnings);
-                if (!engine::Prefab::AddComponentToData(found.prefab->GetData(), entry, added->prefabIndex, newData, error))
+                if (!engine::Prefab::AddComponentToData(found.prefab->GetData(), entry, added->prefabIndex, newData, error,
+                                                        actor->prefabActorId))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
                 }
@@ -2400,7 +2405,8 @@ namespace husky::tools
                 {
                     return EditorCommandResult::Failure(who + " has no removed component with id " + removedValue->AsString());
                 }
-                if (!engine::Prefab::RemoveComponentFromData(found.prefab->GetData(), componentId, newData, error))
+                if (!engine::Prefab::RemoveComponentFromData(found.prefab->GetData(), componentId, newData, error,
+                                                             actor->prefabActorId))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
                 }

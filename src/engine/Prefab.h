@@ -41,18 +41,21 @@ namespace husky::engine::Prefab
         bool ok = false;                   // 作れたか(アクターがシーンに入っていない、Destroy 済みなら false)
     };
 
-    // シーンにいるアクターと、その生きているコンポーネントから、プレハブの値を作る。
+    // シーンにいるアクターと、その子孫(HIER-2b)と、それぞれの生きているコンポーネントから、プレハブの値を作る。
+    // "actors" は根(actor)が最初で、子孫は親が先の順。アクターごとにプレハブの中の ID(Actor::prefabActorId)を新しく振る。
+    // 根の親は書かない(プレハブの外なので。置いたものは親なしになる)。
     // アクターの外を指すハンドル(カメラの追う相手など)は、プレハブの中に相手がいないので null と書き、warnings に残す。
     WriteResult Write(Actor& actor);
 
     struct InstantiateResult
     {
-        Actor* actor = nullptr;            // 置いたアクター。置けなければ nullptr
+        Actor* actor = nullptr;            // 置いたアクター(根)。置けなければ nullptr
+        std::vector<Actor*> actors;        // 置いたアクターすべて(根が最初、子孫は親が先の順。HIER-2b)
         std::vector<std::string> warnings; // 知らない型、読めなかったプロパティなど(置けても出ることがある)
     };
 
     // プレハブの値から、アクターとコンポーネントを新しく作り、scene の一覧の末尾に置く。guid は新しく振られる。
-    // "actors" がちょうど1つでなければ、何も作らずに失敗する(actor が nullptr、理由は warnings)。
+    // "actors" が無い・空なら、何も作らずに失敗する(actor が nullptr、理由は warnings)。子孫も一緒に作り、親子もつながる。
     InstantiateResult Instantiate(const ArchiveValue& prefab, Scene& scene, const core::TypeRegistry& types);
 
     // プレハブのアセットから置き、置いたアクターに元のプレハブ(Actor::prefab)を覚えさせる。
@@ -120,8 +123,9 @@ namespace husky::engine::Prefab
 
     // プレハブの値の木 data に changes を書き込んだ、新しい値の木を out に作る(data は変えない)。
     // 指すコンポーネントがプレハブに無ければ false と error。
+    // prefabActorId: 書き込む先のプレハブの中のアクター(Actor::prefabActorId。空なら根。HIER-2b)。
     bool WriteChanges(const ArchiveValue& data, const std::vector<ValueChange>& changes, ArchiveValue& out,
-                      std::string& error);
+                      std::string& error, const core::Guid& prefabActorId = {});
 
     // プレハブが changes のとおりに変わったことを、置いたもの actor に伝える。
     // 値がプレハブの古い値のまま(違いでない)ものだけを新しい値にし、違い(上書き)はそのまま残す。書き換えた値の数を返す。
@@ -137,10 +141,12 @@ namespace husky::engine::Prefab
 
     // プレハブの値の木 data に、コンポーネントの記録 componentEntry を足した新しい値の木を out に作る(data は変えない)。
     // 番号は今あるもののいちばん大きいもの + 1。アクターの components の position 番目(長さ以上なら末尾)に入れる。
+    // prefabActorId: 足す先のプレハブの中のアクター(空なら根。HIER-2b)。
     bool AddComponentToData(const ArchiveValue& data, const ArchiveValue& componentEntry, std::size_t position,
-                            ArchiveValue& out, std::string& error);
+                            ArchiveValue& out, std::string& error, const core::Guid& prefabActorId = {});
 
     // プレハブの値の木 data から、ID が componentId のコンポーネントを消した新しい値の木を out に作る。無ければ false と error。
+    // prefabActorId: 消す先のプレハブの中のアクター(空なら根。HIER-2b)。
     bool RemoveComponentFromData(const ArchiveValue& data, const core::Guid& componentId, ArchiveValue& out,
-                                 std::string& error);
+                                 std::string& error, const core::Guid& prefabActorId = {});
 }

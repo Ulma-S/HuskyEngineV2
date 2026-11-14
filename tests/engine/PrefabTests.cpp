@@ -222,6 +222,8 @@ namespace
     // プレハブのコンポーネントの ID(テストでは決まった値にする。プレハブを書き直しても、同じコンポーネントは同じ ID のまま)。
     const husky::core::Guid SpriteId = husky::tests::MakeGuid(0x1111111111114111ull, 0x8111111111111111ull);
     const husky::core::Guid AnimatorId = husky::tests::MakeGuid(0x2222222222224222ull, 0x8222222222222222ull);
+    // 箱のアクターのプレハブの中の ID(HIER-2b。書き直しても同じ ID にして、置いたものと組になるようにする)
+    const husky::core::Guid BoxActorId = husky::tests::MakeGuid(0x3333333333334333ull, 0x8333333333333333ull);
 
     // 値の木を写す。名前が key のメンバーは make(元の値) の値に置き換え、make が Null を返せば取り除く(中まですべて)。
     ArchiveValue Rewrite(const ArchiveValue& value, std::string_view key,
@@ -279,9 +281,11 @@ namespace
         const Prefab::WriteResult written = Prefab::Write(*actor);
         REQUIRE(written.ok);
         std::size_t count = 0; // コンポーネントは並んだ順に出てくる
-        const ArchiveValue fixedIds = Rewrite(written.value, "prefabComponentId", [&count](const ArchiveValue&) {
+        const ArchiveValue fixedComponentIds = Rewrite(written.value, "prefabComponentId", [&count](const ArchiveValue&) {
             return ArchiveValue((count++ == 0 ? SpriteId : AnimatorId).ToString());
         });
+        const ArchiveValue fixedIds = Rewrite(fixedComponentIds, "prefabActorId",
+                                              [](const ArchiveValue&) { return ArchiveValue(BoxActorId.ToString()); });
         std::string text;
         REQUIRE(JsonFormat::Write(fixedIds, text));
         folder.Write("prefabs/box.prefab", text);
@@ -644,4 +648,185 @@ TEST_CASE("SD-4 の修正: プレハブのファイルに無いプロパティ�
     const Prefab::InstantiateResult again = Prefab::Instantiate(written, app.GetScene(), types);
     REQUIRE(again.actor != nullptr);
     CHECK(again.actor->GetComponent<SpriteComponent>()->color.g == 0.5f);
+}
+
+namespace
+{
+    const husky::core::Guid TreeGuid = husky::tests::MakeGuid(0x4444444444444444ull, 0x8444444444444444ull);
+
+    // 子を含むプレハブ(HIER-2b): Car → Wheel(Car から見て (10, 0))→ Bolt((1, 0))。withLight なら Car の子に Light も。
+    // プレハブの中の ID は名前から決まった値にする(書き直しても、置いたものと組になるように)。
+    void WriteTreePrefab(husky::tests::TestFolder& folder, bool withLight)
+    {
+        husky::engine::Application maker;
+        Actor* car = maker.GetScene().Spawn<Actor>();
+        car->name = "Car";
+        car->AddComponent<SpriteComponent>()->width = 40.0f;
+        Actor* wheel = maker.GetScene().Spawn<Actor>();
+        wheel->name = "Wheel";
+        wheel->transform.position = {10.0f, 0.0f, 0.0f};
+        REQUIRE(wheel->SetParent(car, false));
+        if (withLight)
+        {
+            Actor* light = maker.GetScene().Spawn<Actor>();
+            light->name = "Light";
+            REQUIRE(light->SetParent(car, false));
+        }
+        Actor* bolt = maker.GetScene().Spawn<Actor>();
+        bolt->name = "Bolt";
+        bolt->transform.position = {1.0f, 0.0f, 0.0f};
+        REQUIRE(bolt->SetParent(wheel, false));
+
+        const Prefab::WriteResult written = Prefab::Write(*car);
+        REQUIRE(written.ok);
+        CHECK(written.warnings.empty());
+        // アクターの記録ごとに、名前から ID を決め直す
+        ArchiveValue fixed = written.value;
+        ArchiveValue objects = ArchiveValue::MakeArray();
+        const ArchiveValue& original = *written.value.Find("objects");
+        for (std::size_t i = 0; i < original.GetArraySize(); ++i)
+        {
+            ArchiveValue entry = original.At(i);
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* name = properties->Find("name");
+            if (properties->Find("prefabActorId") != nullptr && name != nullptr)
+            {
+                const std::string& text = name->AsString();
+                const std::uint64_t high = text == "Car"     ? 0x5555555555554555ull
+                                           : text == "Wheel" ? 0x6666666666664666ull
+                                           : text == "Light" ? 0x7777777777774777ull
+                                                             : 0x9999999999994999ull;
+                ArchiveValue newProperties = *properties;
+                newProperties.Set("prefabActorId", ArchiveValue(husky::tests::MakeGuid(high, 0x8000000000000001ull).ToString()));
+                entry.Set("properties", std::move(newProperties));
+            }
+            else if (properties->Find("prefabComponentId") != nullptr)
+            {
+                ArchiveValue newProperties = *properties; // Car のスプライト(コンポーネントは1つだけ)
+                newProperties.Set("prefabComponentId", ArchiveValue(SpriteId.ToString()));
+                entry.Set("properties", std::move(newProperties));
+            }
+            objects.Append(std::move(entry));
+        }
+        fixed.Set("objects", std::move(objects));
+        std::string text;
+        REQUIRE(JsonFormat::Write(fixed, text));
+        folder.Write("prefabs/car.prefab", text);
+        folder.Write("prefabs/car.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(TreeGuid));
+    }
+
+    Actor* FindByName(husky::engine::Scene& scene, const char* name)
+    {
+        Actor* found = nullptr;
+        scene.ForEachActor([&](Actor& actor) {
+            if (actor.name == name)
+            {
+                found = &actor;
+            }
+        });
+        return found;
+    }
+}
+
+TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプレハブとの違いだけを保存し、読み直すとつながる")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_tree");
+    WriteTreePrefab(folder, false);
+
+    ArchiveValue saved;
+    {
+        husky::engine::Application app;
+        REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+        const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(TreeGuid);
+        REQUIRE(prefab != nullptr);
+        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetScene(), app.GetTypeRegistry());
+        CHECK(placed.warnings.empty());
+        REQUIRE(placed.actor != nullptr);
+        REQUIRE(placed.actors.size() == 3);
+        Actor* car = placed.actor;
+        Actor* wheel = FindByName(app.GetScene(), "Wheel");
+        Actor* bolt = FindByName(app.GetScene(), "Bolt");
+        REQUIRE(wheel != nullptr);
+        REQUIRE(bolt != nullptr);
+        CHECK(car->GetParent() == nullptr);
+        CHECK(wheel->GetParent() == car);
+        CHECK(bolt->GetParent() == wheel);
+        for (const Actor* actor : placed.actors)
+        {
+            CHECK(actor->prefab.guid == TreeGuid);
+            CHECK_FALSE(actor->prefabActorId.IsNull());
+        }
+
+        car->transform.position.x = 100.0f;
+        wheel->transform.position.y = 5.0f; // 子の違い
+        CHECK(wheel->GetWorldPosition().x == doctest::Approx(110.0f));
+        // 子の位置もプレハブとの違い(1体ずつ違うのが当たり前の値、perInstance ではない)
+        const Prefab::OverridesResult overrides = Prefab::FindOverrides(*wheel);
+        CHECK(overrides.error.empty());
+        REQUIRE(overrides.overrides.size() == 1);
+        CHECK(overrides.overrides[0].path == "transform.position.y");
+        CHECK_FALSE(overrides.overrides[0].perInstance);
+
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        CHECK(written.warnings.empty());
+        saved = ThroughJson(written.value);
+    }
+    // 子の記録も違いだけ(名前はプレハブと同じなので書かない)
+    bool sawChild = false;
+    const ArchiveValue& objects = *saved.Find("objects");
+    for (std::size_t i = 0; i < objects.GetArraySize(); ++i)
+    {
+        const ArchiveValue& properties = *objects.At(i).Find("properties");
+        const ArchiveValue* parent = properties.Find("parent");
+        if (properties.Find("prefabActorId") != nullptr && parent != nullptr && parent->GetType() == ArchiveValue::Type::Int)
+        {
+            sawChild = true;
+            CHECK(properties.Find("name") == nullptr);
+        }
+    }
+    CHECK(sawChild);
+
+    // 読み直す: プレハブの値に違いが重なり、親子もつながる。Bolt を消して保存する
+    ArchiveValue savedWithoutBolt;
+    {
+        husky::engine::Application app;
+        REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+        const husky::engine::SceneSerializer::ReadReport report =
+            husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        CHECK(report.warnings.empty());
+        CHECK(report.addedActorCount == 3);
+        Actor* car = FindByName(app.GetScene(), "Car");
+        Actor* wheel = FindByName(app.GetScene(), "Wheel");
+        Actor* bolt = FindByName(app.GetScene(), "Bolt");
+        REQUIRE(car != nullptr);
+        REQUIRE(wheel != nullptr);
+        REQUIRE(bolt != nullptr);
+        CHECK(wheel->GetParent() == car);
+        CHECK(bolt->GetParent() == wheel);
+        CHECK(wheel->transform.position.x == 10.0f); // プレハブから
+        CHECK(wheel->transform.position.y == 5.0f);  // ファイルの違いから
+        CHECK(car->GetComponent<SpriteComponent>()->width == 40.0f);
+
+        bolt->Destroy();
+        app.GetScene().RemoveDestroyedActors();
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        CHECK(written.warnings.empty());
+        savedWithoutBolt = ThroughJson(written.value);
+    }
+
+    // プレハブに Light を足す。読み直すと、消した Bolt は戻らず、プレハブに足した Light は増える
+    WriteTreePrefab(folder, true);
+    {
+        husky::engine::Application app;
+        REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+        const husky::engine::SceneSerializer::ReadReport report =
+            husky::engine::SceneSerializer::Read(savedWithoutBolt, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        CHECK(report.warnings.empty());
+        CHECK(FindByName(app.GetScene(), "Bolt") == nullptr);
+        Actor* light = FindByName(app.GetScene(), "Light");
+        REQUIRE(light != nullptr);
+        CHECK(light->GetParent() == FindByName(app.GetScene(), "Car"));
+        CHECK(light->prefab.guid == TreeGuid);
+        CHECK(app.GetScene().actors.size() == 3);
+    }
 }

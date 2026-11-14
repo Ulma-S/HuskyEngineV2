@@ -23,7 +23,10 @@ namespace husky::engine::Prefab
 
         SceneSerializer::WriteOptions options;
         options.writeActorIdentity = false; // 置くたびに新しい guid を振り、元のプレハブは置いたときに書くため
-        SceneSerializer::WriteResult saved = SceneSerializer::WriteActors(*scene, {&actor}, options);
+        options.allowedOutside = actor.GetParentHandle(); // 根の親はプレハブの外: null と書くだけ(置いたものは親なし)
+        std::vector<Actor*> targets = {&actor};
+        actor.GetDescendants(targets); // 子孫も一緒に(親が先の順。HIER-2b)
+        SceneSerializer::WriteResult saved = SceneSerializer::WriteActors(*scene, targets, options);
         result.value = std::move(saved.value);
         result.warnings = std::move(saved.warnings);
         result.ok = true;
@@ -37,18 +40,26 @@ namespace husky::engine::Prefab
         // 先に形を確かめる。読み始めてから断ると、作りかけのオブジェクトが残ってしまうため
         // (シーンに入らないので GC で回収はされるが、黙って作らないほうが分かりやすい)。
         const ArchiveValue* actors = prefab.Find("actors");
-        if (actors == nullptr || actors->GetType() != ArchiveValue::Type::Array || actors->GetArraySize() != 1)
+        if (actors == nullptr || actors->GetType() != ArchiveValue::Type::Array || actors->GetArraySize() == 0)
         {
-            result.warnings.push_back("プレハブの \"actors\" は、ちょうど1つのアクターを指してください");
+            result.warnings.push_back("プレハブの \"actors\" に、アクターがありません");
             return result;
         }
 
         SceneSerializer::ReadReport report = SceneSerializer::Read(prefab, scene, types);
         result.warnings = std::move(report.warnings);
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
-        if (registry != nullptr && report.addedActors.size() == 1)
+        // 読んだ順("actors" の順)に並ぶので、最初が根
+        for (std::size_t i = 0; registry != nullptr && i < report.addedActors.size(); ++i)
         {
-            result.actor = registry->Resolve<Actor>(report.addedActors[0]);
+            if (Actor* placed = registry->Resolve<Actor>(report.addedActors[i]))
+            {
+                result.actors.push_back(placed);
+            }
+        }
+        if (!result.actors.empty() && report.addedActors.size() == actors->GetArraySize())
+        {
+            result.actor = result.actors[0];
         }
         return result;
     }
@@ -64,8 +75,12 @@ namespace husky::engine::Prefab
         InstantiateResult result = Instantiate(prefab.GetData(), scene, types);
         if (result.actor != nullptr)
         {
-            result.actor->prefab.guid = prefab.GetGuid();
-            result.actor->prefab.asset = prefab.GetHandle(); // 強い参照: 置いたアクターがいる間、アセットも残る
+            // 子孫も、同じプレハブから置いたものとして覚える(HIER-2b。シーンには、それぞれプレハブの中の同じ ID のものとの違いを書く)
+            for (Actor* placed : result.actors)
+            {
+                placed->prefab.guid = prefab.GetGuid();
+                placed->prefab.asset = prefab.GetHandle(); // 強い参照: 置いたアクターがいる間、アセットも残る
+            }
         }
         return result;
     }
@@ -182,9 +197,12 @@ namespace husky::engine::Prefab
 
         // プレハブのアクターと、そのコンポーネントの記録(並んだ順)
         const ArchiveValue& data = prefab->GetData();
-        const ArchiveValue* actors = data.Find("actors");
-        const ArchiveValue* actorEntry =
-            actors != nullptr && actors->GetArraySize() == 1 ? FindPrefabEntry(data, actors->At(0).AsInt(-1)) : nullptr;
+        const std::int64_t actorNumber = SceneSerializer::FindPrefabActorNumber(data, actor.prefabActorId);
+        const ArchiveValue* actorEntry = actorNumber >= 0 ? FindPrefabEntry(data, actorNumber) : nullptr;
+        // プレハブの根から置いたものか(子は、位置や名前もプレハブとの違いとして扱う。perInstance にしない)
+        const ArchiveValue* prefabActors = data.Find("actors");
+        const bool isRoot = prefabActors != nullptr && prefabActors->GetArraySize() > 0 &&
+                            prefabActors->At(0).AsInt(-1) == actorNumber;
         const ArchiveValue* actorProperties = actorEntry != nullptr ? actorEntry->Find("properties") : nullptr;
         if (actorProperties == nullptr)
         {
@@ -281,6 +299,14 @@ namespace husky::engine::Prefab
         };
         CompareMembers(*ObjectSerializer::Write(actor).Find("properties"), *actorProperties, defaultsOf(actor.GetType()),
                        actor.GetType(), std::string(), std::string(), result.overrides);
+        if (!isRoot)
+        {
+            // 子の位置・回転・名前は親から見た値で、プレハブに決まった値がある。1体ずつ違うのが当たり前の値ではない
+            for (Override& item : result.overrides)
+            {
+                item.perInstance = false;
+            }
+        }
         for (std::size_t c = 0; c < components.size(); ++c)
         {
             if (pairOf[c] == none)
@@ -381,11 +407,11 @@ namespace husky::engine::Prefab
     }
 
     bool WriteChanges(const ArchiveValue& data, const std::vector<ValueChange>& changes, ArchiveValue& out,
-                      std::string& error)
+                      std::string& error, const core::Guid& prefabActorId)
     {
         const ArchiveValue* objects = data.Find("objects");
-        const ArchiveValue* actors = data.Find("actors");
-        if (objects == nullptr || actors == nullptr || actors->GetArraySize() != 1)
+        const std::int64_t actorNumber = SceneSerializer::FindPrefabActorNumber(data, prefabActorId);
+        if (objects == nullptr || actorNumber < 0)
         {
             error = "the prefab has no actor";
             return false;
@@ -408,7 +434,7 @@ namespace husky::engine::Prefab
             return entries.size();
         };
 
-        const std::size_t actorIndex = indexOf(actors->At(0).AsInt(-1));
+        const std::size_t actorIndex = indexOf(actorNumber);
         const ArchiveValue* actorProperties = actorIndex < entries.size() ? entries[actorIndex].Find("properties") : nullptr;
         if (actorProperties == nullptr)
         {
@@ -500,17 +526,16 @@ namespace husky::engine::Prefab
     {
         // プレハブの値の木を、書き換えられる部品に分ける: objects の写し、アクターの記録の位置、components の番号の並び。
         // 読めなければ false と error。
-        bool SplitPrefabData(const ArchiveValue& data, std::vector<ArchiveValue>& entries, std::size_t& actorIndex,
-                             std::vector<std::int64_t>& componentIds, std::string& error)
+        bool SplitPrefabData(const ArchiveValue& data, const core::Guid& prefabActorId, std::vector<ArchiveValue>& entries,
+                             std::size_t& actorIndex, std::vector<std::int64_t>& componentIds, std::string& error)
         {
             const ArchiveValue* objects = data.Find("objects");
-            const ArchiveValue* actors = data.Find("actors");
-            if (objects == nullptr || actors == nullptr || actors->GetArraySize() != 1)
+            const std::int64_t actorId = SceneSerializer::FindPrefabActorNumber(data, prefabActorId);
+            if (objects == nullptr || actorId < 0)
             {
                 error = "the prefab has no actor";
                 return false;
             }
-            const std::int64_t actorId = actors->At(0).AsInt(-1);
             actorIndex = objects->GetArraySize();
             for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
             {
@@ -559,9 +584,10 @@ namespace husky::engine::Prefab
     ArchiveValue MakeComponentEntry(const Component& component, const ArchiveValue& data, const core::Guid& componentId,
                                     std::vector<std::string>& warnings)
     {
-        const ArchiveValue* actors = data.Find("actors");
-        const std::int64_t actorId = actors != nullptr && actors->GetArraySize() == 1 ? actors->At(0).AsInt(-1) : -1;
         const Actor* owner = component.GetOwner();
+        // 持ち主のプレハブの中のアクターの番号(HIER-2b。子のコンポーネントなら、その子の番号)
+        const std::int64_t actorId =
+            SceneSerializer::FindPrefabActorNumber(data, owner != nullptr ? owner->prefabActorId : core::Guid{});
         const Scene* scene = owner != nullptr ? owner->GetScene() : nullptr;
         const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
         // ハンドルは、持ち主のアクターを指すものだけを、プレハブのアクターの番号にする(Prefab::Write と同じ決まり)。
@@ -589,12 +615,12 @@ namespace husky::engine::Prefab
     }
 
     bool AddComponentToData(const ArchiveValue& data, const ArchiveValue& componentEntry, std::size_t position,
-                            ArchiveValue& out, std::string& error)
+                            ArchiveValue& out, std::string& error, const core::Guid& prefabActorId)
     {
         std::vector<ArchiveValue> entries;
         std::size_t actorIndex = 0;
         std::vector<std::int64_t> componentIds;
-        if (!SplitPrefabData(data, entries, actorIndex, componentIds, error))
+        if (!SplitPrefabData(data, prefabActorId, entries, actorIndex, componentIds, error))
         {
             return false;
         }
@@ -618,12 +644,12 @@ namespace husky::engine::Prefab
     }
 
     bool RemoveComponentFromData(const ArchiveValue& data, const core::Guid& componentId, ArchiveValue& out,
-                                 std::string& error)
+                                 std::string& error, const core::Guid& prefabActorId)
     {
         std::vector<ArchiveValue> entries;
         std::size_t actorIndex = 0;
         std::vector<std::int64_t> componentIds;
-        if (!SplitPrefabData(data, entries, actorIndex, componentIds, error))
+        if (!SplitPrefabData(data, prefabActorId, entries, actorIndex, componentIds, error))
         {
             return false;
         }

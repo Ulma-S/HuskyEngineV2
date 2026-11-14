@@ -109,6 +109,12 @@ namespace husky::engine
         // 保存される(GUID)。強い参照なので、置いたアクターがいる間は、プレハブのアセットも回収されない。
         // 今は「どこから来たか」を覚えるだけ。PF-4 で、プレハブとの違いだけを保存し、プレハブを直すと伝わるようにする。
         core::AssetRef<PrefabAsset> prefab;
+        // プレハブの中のどのアクターから置いたか(HIER-2b。コンポーネントの prefabComponentId と同じ考え)。
+        // Prefab::Write がプレハブの中のアクター(根と子孫)ごとに振り、置いたものは写して覚える。保存される。
+        // 空なら、プレハブの根("actors" の最初。ID の無い古いプレハブから置いたもの)。
+        core::Guid prefabActorId;
+        // 親のハンドル(読むだけ。保存の道具が使う)。
+        core::ObjectHandle GetParentHandle() const { return parent; }
 
         // 取り付けたコンポーネントのハンドルの一覧。プロパティとして登録しているので、GC がたどる(強い参照)。
         // アクターが生きている間は、そのコンポーネントも生きている。
@@ -172,6 +178,7 @@ namespace husky::engine
             HUSKY_PROPERTY(transform)
             HUSKY_PROPERTY(parent)
             HUSKY_PROPERTY(prefab)
+            HUSKY_PROPERTY(prefabActorId)
             HUSKY_PROPERTY(components)
         HUSKY_REFLECTION_END()
 

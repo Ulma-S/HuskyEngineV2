@@ -106,12 +106,24 @@ namespace husky::engine::SceneSerializer
             return true;
         }
 
-        // プレハブの値の木の中の、ただ1体のアクターの記録を集める。
-        bool GetPrefabEntries(const ArchiveValue& prefab, ActorEntries& out)
+        // プレハブの値の木の中の、Actor::prefabActorId が prefabActorId のアクター(空なら根)の記録を集める(HIER-2b)。
+        bool GetPrefabEntries(const ArchiveValue& prefab, const core::Guid& prefabActorId, ActorEntries& out)
         {
-            const ArchiveValue* actors = prefab.Find("actors");
-            return actors != nullptr && actors->GetArraySize() == 1 &&
-                   GetActorEntries(IndexEntries(prefab), actors->At(0).AsInt(-1), out);
+            const std::int64_t number = FindPrefabActorNumber(prefab, prefabActorId);
+            return number >= 0 && GetActorEntries(IndexEntries(prefab), number, out);
+        }
+
+        // 記録(アクターかコンポーネント)のプロパティの、GUID の文字列の値 name を読む。無い・読めなければ空の Guid。
+        core::Guid GuidPropertyOf(const ArchiveValue& entry, std::string_view name)
+        {
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* value = properties != nullptr ? properties->Find(name) : nullptr;
+            core::Guid guid;
+            if (value == nullptr || value->GetType() != ArchiveValue::Type::String || !core::Guid::Parse(value->AsString(), guid))
+            {
+                return core::Guid{};
+            }
+            return guid;
         }
 
         // instance(置いたものの値)のうち、base(プレハブの値)と違うものだけを残した値を返す。type は持ち主の型。
@@ -273,16 +285,29 @@ namespace husky::engine::SceneSerializer
             }
         }
 
-        // プレハブの値の木から、アクター1体とそのコンポーネントを作って値を読む(シーンにはまだ入れない)。作れなければ nullptr。
-        Actor* CreateFromPrefab(const PrefabAsset& prefab, core::ObjectRegistry& registry, const core::TypeRegistry& types,
-                                ReadReport& report)
+        // プレハブの値の木から、アクター1体(prefabActorId。空なら根)とそのコンポーネントを作って値を読む(シーンにはまだ入れない)。
+        // ほかのアクター(子など)は作らない。親を指すハンドルは null になる(呼ぶ側が付け直す)。作れなければ nullptr。
+        Actor* CreateFromPrefab(const PrefabAsset& prefab, const core::Guid& prefabActorId, core::ObjectRegistry& registry,
+                                const core::TypeRegistry& types, ReadReport& report)
         {
-            const ArchiveValue* objectArray = prefab.GetData().Find("objects");
-            const ArchiveValue* actors = prefab.GetData().Find("actors");
-            if (objectArray == nullptr || actors == nullptr || actors->GetArraySize() != 1)
+            ActorEntries base;
+            if (!GetPrefabEntries(prefab.GetData(), prefabActorId, base))
             {
                 return nullptr;
             }
+            const std::int64_t actorNumber = base.actor->Find("id")->AsInt(-1);
+            // このアクターとコンポーネントの記録だけを並べ直す(プレハブは小さいので写してよい)
+            ArchiveValue subset = ArchiveValue::MakeArray();
+            ArchiveValue actorEntry = *base.actor;
+            ArchiveValue actorProperties = *actorEntry.Find("properties");
+            actorProperties.Remove("parent"); // 親はここでは作らないので読まない(呼ぶ側が付け直す。「番号が無い」の警告も出さない)
+            actorEntry.Set("properties", std::move(actorProperties));
+            subset.Append(std::move(actorEntry));
+            for (const ArchiveValue* component : base.components)
+            {
+                subset.Append(*component);
+            }
+            const ArchiveValue* objectArray = &subset;
             std::unordered_map<std::int64_t, core::ObjectHandle> handleOf;
             std::vector<std::pair<const ArchiveValue*, core::Object*>> created;
             std::unordered_set<std::int64_t> noSkip;
@@ -294,7 +319,7 @@ namespace husky::engine::SceneSerializer
             {
                 report.warnings.push_back(prefix + warning);
             }
-            const auto found = handleOf.find(actors->At(0).AsInt(-1));
+            const auto found = handleOf.find(actorNumber);
             return found != handleOf.end() ? registry.Resolve<Actor>(found->second) : nullptr;
         }
     }
@@ -333,7 +358,10 @@ namespace husky::engine::SceneSerializer
             const auto found = idOf.find(ToKey(handle));
             if (found == idOf.end())
             {
-                ++missingCount;
+                if (handle.IsNull() || handle != options.allowedOutside)
+                {
+                    ++missingCount;
+                }
                 return -1;
             }
             return found->second;
@@ -351,6 +379,9 @@ namespace husky::engine::SceneSerializer
         //    ID の無い古いプレハブは、今までどおり並び順で組にする(並びが違えば、全部の値を書く)。
         std::vector<const ArchiveValue*> baseOf(objects.size(), nullptr);
         std::unordered_map<std::size_t, ArchiveValue> removedOf; // アクターの番号 → 外したコンポーネントの ID の配列
+        // アクターの番号 → 消した子の ID(prefabActorId)の配列(HIER-2b)。プレハブの根から置いたアクターにだけ書く。
+        // 「無い子は消した」と推し量らずに書くのは、プレハブに後から足した子(これも置いたものに無い)と見分けるため。
+        std::unordered_map<std::size_t, ArchiveValue> removedChildrenOf;
         for (std::size_t k = 0; options.writeActorIdentity && k < actorIds.size(); ++k)
         {
             const std::size_t actorIndex = static_cast<std::size_t>(actorIds[k]);
@@ -364,7 +395,7 @@ namespace husky::engine::SceneSerializer
             const PrefabAsset* prefab = registry->Resolve<PrefabAsset>(actor.prefab.asset);
             ActorEntries base;
             if (prefab == nullptr || !prefab->IsLoaded() || prefab->GetGuid() != actor.prefab.guid ||
-                !GetPrefabEntries(prefab->GetData(), base))
+                !GetPrefabEntries(prefab->GetData(), actor.prefabActorId, base))
             {
                 result.warnings.push_back("アクター " + actor.name + ": プレハブ " + actor.prefab.guid.ToString() +
                                           " が読み込まれていないので、違いではなく全部の値を書きます");
@@ -427,6 +458,37 @@ namespace husky::engine::SceneSerializer
                 }
             }
             baseOf[actorIndex] = base.actor->Find("properties");
+
+            // プレハブの根から置いたものなら、プレハブの子孫のうち、置いたものの子孫に無いもの(消したもの)を書く(HIER-2b)
+            const ArchiveValue* prefabActors = prefab->GetData().Find("actors");
+            if (prefabActors != nullptr && prefabActors->GetArraySize() > 1 &&
+                base.actor->Find("id")->AsInt(-1) == prefabActors->At(0).AsInt(-1))
+            {
+                std::vector<Actor*> descendants;
+                actor.GetDescendants(descendants);
+                const EntryIndex prefabEntries = IndexEntries(prefab->GetData());
+                ArchiveValue removedChildren = ArchiveValue::MakeArray();
+                for (std::size_t p = 1; p < prefabActors->GetArraySize(); ++p)
+                {
+                    const ArchiveValue* childEntry = FindEntry(prefabEntries, prefabActors->At(p).AsInt(-1));
+                    const core::Guid childId = childEntry != nullptr ? GuidPropertyOf(*childEntry, "prefabActorId") : core::Guid{};
+                    if (childId.IsNull())
+                    {
+                        continue;
+                    }
+                    const bool present = std::any_of(descendants.begin(), descendants.end(), [&](const Actor* d) {
+                        return d->prefabActorId == childId && d->prefab.guid == actor.prefab.guid;
+                    });
+                    if (!present)
+                    {
+                        removedChildren.Append(ArchiveValue(childId.ToString()));
+                    }
+                }
+                if (removedChildren.GetArraySize() > 0)
+                {
+                    removedChildrenOf.emplace(actorIndex, std::move(removedChildren));
+                }
+            }
         }
 
         // 4. オブジェクトを1つずつ書く。読みやすいように、"id" を先頭に置く。
@@ -447,7 +509,7 @@ namespace husky::engine::SceneSerializer
             {
                 // アクターの guid、prefab、components は、同じでも書く(この1体であること、元のプレハブ、番号の対応に要る)。
                 // コンポーネントの prefabComponentId も、同じでも書く(読むときに、プレハブのどれと組にするかに要る)。
-                static const std::vector<std::string_view> actorKeep = {"guid", "prefab", "components"};
+                static const std::vector<std::string_view> actorKeep = {"guid", "prefab", "prefabActorId", "components"};
                 static const std::vector<std::string_view> componentKeep = {"prefabComponentId"};
                 properties = DiffMembers(properties, *baseOf[i], objects[i]->GetType(), isActor ? actorKeep : componentKeep);
             }
@@ -455,6 +517,8 @@ namespace husky::engine::SceneSerializer
             {
                 properties.Remove("guid");
                 properties.Remove("prefab");
+                // プレハブを書く: アクターに、プレハブの中の新しい ID を振る(HIER-2b。置いたものが、これで組になる)
+                properties.Set("prefabActorId", ArchiveValue(core::Guid::Generate().ToString()));
             }
             if (!options.writeActorIdentity && !isActor)
             {
@@ -465,6 +529,11 @@ namespace husky::engine::SceneSerializer
             if (removed != removedOf.end())
             {
                 entry.Set("removedComponents", removed->second);
+            }
+            const auto removedChildren = removedChildrenOf.find(i);
+            if (removedChildren != removedChildrenOf.end())
+            {
+                entry.Set("removedChildren", removedChildren->second);
             }
         }
 
@@ -480,6 +549,34 @@ namespace husky::engine::SceneSerializer
                                       std::to_string(missingCount) + " 個)");
         }
         return result;
+    }
+
+    std::int64_t FindPrefabActorNumber(const ArchiveValue& prefab, const core::Guid& prefabActorId)
+    {
+        const ArchiveValue* actors = prefab.Find("actors");
+        if (actors == nullptr || actors->GetType() != ArchiveValue::Type::Array || actors->GetArraySize() == 0)
+        {
+            return -1;
+        }
+        if (prefabActorId.IsNull())
+        {
+            return actors->At(0).AsInt(-1); // 根
+        }
+        const EntryIndex index = IndexEntries(prefab);
+        bool anyId = false;
+        for (std::size_t i = 0; i < actors->GetArraySize(); ++i)
+        {
+            const std::int64_t number = actors->At(i).AsInt(-1);
+            const ArchiveValue* entry = FindEntry(index, number);
+            const core::Guid id = entry != nullptr ? GuidPropertyOf(*entry, "prefabActorId") : core::Guid{};
+            anyId = anyId || !id.IsNull();
+            if (id == prefabActorId)
+            {
+                return number;
+            }
+        }
+        // アクターに ID の無い古いプレハブ(HIER-2b の前に書いたもの、手で書いたもの)は、根と組にする
+        return anyId ? -1 : actors->At(0).AsInt(-1);
     }
 
     ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types,
@@ -514,6 +611,14 @@ namespace husky::engine::SceneSerializer
         //        2回目で、その上にファイルの値(プレハブとの違い)を重ねる。ファイルの番号とは、並んだ順で組にする。
         std::unordered_set<std::int64_t> fromPrefab;                          // プレハブから作った番号(1回目で作らない)
         std::vector<std::pair<core::ObjectHandle, core::ObjectHandle>> linked; // (アクター、プレハブのアセット)
+        // プレハブの根から置いたアクター(子を持つプレハブだけ)。3. の後で、ファイルに無いプレハブの子を足す(HIER-2b)。
+        struct PrefabRoot
+        {
+            core::ObjectHandle actor;
+            const PrefabAsset* prefab = nullptr;
+            const ArchiveValue* removedChildren = nullptr; // ファイルの "removedChildren"(無ければ nullptr)
+        };
+        std::vector<PrefabRoot> prefabRoots;
         // (アクター、コンポーネント): プレハブに後から足されたコンポーネント。2回目の後で、アクターの components の末尾に足す。
         std::vector<std::pair<core::ObjectHandle, core::ObjectHandle>> addedByPrefab;
         const EntryIndex index = findPrefab ? IndexEntries(value) : EntryIndex{};
@@ -535,7 +640,8 @@ namespace husky::engine::SceneSerializer
             const std::string where = "番号 " + std::to_string(id) + ": プレハブ " + guid.ToString();
             const PrefabAsset* prefab = findPrefab(guid);
             ActorEntries base;
-            if (prefab == nullptr || !prefab->IsLoaded() || !GetPrefabEntries(prefab->GetData(), base))
+            const core::Guid prefabActorId = GuidPropertyOf(*file.actor, "prefabActorId");
+            if (prefab == nullptr || !prefab->IsLoaded() || !GetPrefabEntries(prefab->GetData(), prefabActorId, base))
             {
                 report.warnings.push_back(where + " を読めないので、ファイルにある値だけで作ります(書いていない値は型の既定値になります)");
                 continue;
@@ -563,7 +669,7 @@ namespace husky::engine::SceneSerializer
                 report.warnings.push_back(where + " とコンポーネントの並びが違うので、ファイルにある値だけで作ります");
                 continue;
             }
-            Actor* actor = CreateFromPrefab(*prefab, *registry, types, report);
+            Actor* actor = CreateFromPrefab(*prefab, prefabActorId, *registry, types, report);
             if (actor == nullptr || actor->components.size() != base.components.size())
             {
                 // 作りかけのものはシーンに入らないので、GC で回収される
@@ -575,6 +681,13 @@ namespace husky::engine::SceneSerializer
             fromPrefab.insert(id);
             report.createdCount += 1 + actor->components.size();
             linked.emplace_back(actor->GetHandle(), prefab->GetHandle());
+            // プレハブの根から置いたもの: 3. の後で、ファイルに無いプレハブの子を足す(HIER-2b)
+            const ArchiveValue* prefabActors = prefab->GetData().Find("actors");
+            if (prefabActors != nullptr && prefabActors->GetArraySize() > 1 &&
+                base.actor->Find("id")->AsInt(-1) == prefabActors->At(0).AsInt(-1))
+            {
+                prefabRoots.push_back({actor->GetHandle(), prefab, file.actor->Find("removedChildren")});
+            }
 
             // ファイルの c 番目のコンポーネントを、プレハブから作った i 番目と組にする(2回目で、その上にファイルの値を重ねる)。
             std::vector<bool> used(actor->components.size(), false);
@@ -696,6 +809,83 @@ namespace husky::engine::SceneSerializer
             ++report.addedActorCount;
             report.addedActors.push_back(actor->GetHandle());
         }
+        // プレハブの根から置いたアクターに、ファイルに無いプレハブの子孫を足す(HIER-2b)。
+        // ファイルに無いのは「置いた後に消した」か「プレハブに後から足した」のどちらかで、消したものは根の "removedChildren" にある。
+        // 足したものは、プレハブの値で作り、プレハブの中の親(置いたものの中で同じ ID のもの)に付ける。
+        for (const PrefabRoot& root : prefabRoots)
+        {
+            Actor* rootActor = registry->Resolve<Actor>(root.actor);
+            if (rootActor == nullptr || rootActor->GetScene() != &scene)
+            {
+                continue;
+            }
+            std::unordered_set<core::Guid> removedChildren;
+            for (std::size_t r = 0; root.removedChildren != nullptr && r < root.removedChildren->GetArraySize(); ++r)
+            {
+                core::Guid removedId;
+                if (core::Guid::Parse(root.removedChildren->At(r).AsString(), removedId))
+                {
+                    removedChildren.insert(removedId);
+                }
+            }
+            // 置いたものの中の「プレハブの中の ID → アクター」(根と、同じプレハブから来た子孫)
+            std::unordered_map<core::Guid, Actor*> present;
+            std::vector<Actor*> descendants;
+            rootActor->GetDescendants(descendants);
+            present[rootActor->prefabActorId] = rootActor;
+            for (Actor* descendant : descendants)
+            {
+                if (descendant->prefab.guid == rootActor->prefab.guid && !descendant->prefabActorId.IsNull())
+                {
+                    present.emplace(descendant->prefabActorId, descendant);
+                }
+            }
+            const ArchiveValue& data = root.prefab->GetData();
+            const ArchiveValue* prefabActors = data.Find("actors");
+            const EntryIndex prefabEntries = IndexEntries(data);
+            const core::Guid rootId = rootActor->prefabActorId;
+            // "actors" は親が先の順(Prefab::Write)なので、前から作れば親はもういる
+            for (std::size_t p = 1; prefabActors != nullptr && p < prefabActors->GetArraySize(); ++p)
+            {
+                const ArchiveValue* entry = FindEntry(prefabEntries, prefabActors->At(p).AsInt(-1));
+                const core::Guid childId = entry != nullptr ? GuidPropertyOf(*entry, "prefabActorId") : core::Guid{};
+                if (childId.IsNull() || present.count(childId) > 0 || removedChildren.count(childId) > 0)
+                {
+                    continue;
+                }
+                // プレハブの中の親の ID(親の記録の prefabActorId。根なら、置いた根の ID)
+                const ArchiveValue* parentNumber = entry->Find("properties")->Find("parent");
+                const ArchiveValue* parentEntry =
+                    parentNumber != nullptr && parentNumber->GetType() == ArchiveValue::Type::Int
+                        ? FindEntry(prefabEntries, parentNumber->AsInt())
+                        : nullptr;
+                core::Guid parentId = parentEntry != nullptr ? GuidPropertyOf(*parentEntry, "prefabActorId") : core::Guid{};
+                if (parentEntry != nullptr && parentEntry->Find("id")->AsInt(-1) == prefabActors->At(0).AsInt(-1))
+                {
+                    parentId = rootId; // プレハブの根 = 置いた根
+                }
+                const auto parentFound = present.find(parentId);
+                if (parentFound == present.end())
+                {
+                    continue; // 親を消した(親の子孫も、もう要らない)
+                }
+                Actor* child = CreateFromPrefab(*root.prefab, childId, *registry, types, report);
+                if (child == nullptr || !scene.AddLoadedActor(*child))
+                {
+                    report.warnings.push_back("プレハブ " + root.prefab->GetGuid().ToString() + " の子 " + childId.ToString() +
+                                              " を作れません");
+                    continue;
+                }
+                child->prefab.guid = root.prefab->GetGuid();
+                child->prefab.asset = root.prefab->GetHandle();
+                child->SetParent(parentFound->second, false); // プレハブの中の値は、親から見た値
+                present.emplace(childId, child);
+                report.createdCount += 1 + child->components.size();
+                ++report.addedActorCount;
+                report.addedActors.push_back(child->GetHandle());
+            }
+        }
+
         // 親子が輪になっている(手で直したファイルなど)アクターは、親なしにする(HIER-2a)。
         // 輪のままだと、親をたどる計算が上限の段数まで回り、見える場所も意味をなさない。
         for (const core::ObjectHandle handle : report.addedActors)
