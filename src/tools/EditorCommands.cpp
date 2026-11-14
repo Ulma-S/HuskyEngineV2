@@ -12,6 +12,7 @@
 #include "platform/FileSystem.h"    // prefab.create: ファイルを書く
 #include "engine/JsonFormat.h"       // property.set: 値を人に見せる
 #include "engine/ObjectSerializer.h" // property.set: 値の確かめと書き込み
+#include "engine/Scene.h"            // scene.save: 子のシーンもそれぞれのファイルへ(SC-4)
 #include "engine/SceneSerializer.h"  // actor.destroy / actor.restore: アクター1体を控える・作り直す
 #include "engine/AssetDatabase.h"   // CreateMissingMetaFiles、Scan
 #include "engine/SpriteSheetData.h" // NormalizeSpriteSheetsInFolder
@@ -344,34 +345,64 @@ namespace husky::tools
         EditorCommand command;
         command.name = "scene.save";
         command.label = "Save scene";
-        command.description = "Write the current scene to the scene file (source assets and next to the exe).";
+        command.description = "Write the open scene (the root scene) and every loaded child scene to their own scene files.";
         command.shortcut = engine::Key::F5;
         // paths はラムダ式にコピーではなく移して持たせる(コマンドが生きている間ずっと使う)。
+        // ルートシーンをファイルから開いていればそのファイルへ、開いていなければ(新しいシーン)paths へ書く(SC-4)。
         command.execute = [paths = std::move(paths)](EditorCommandContext& context) {
-            if (paths.empty())
+            engine::Application& app = context.app;
+            const std::string& rootPath = app.GetRootScenePath();
+            const std::vector<std::string> rootPaths = rootPath.empty() ? paths : std::vector<std::string>{rootPath};
+            if (rootPaths.empty())
             {
                 return EditorCommandResult::Failure("No scene file to write");
             }
+            std::vector<std::string> written;
             std::vector<std::string> failed;
-            for (const std::string& path : paths)
+            const engine::Scene* root = app.GetWorld().GetRootScene();
+            for (const std::string& path : rootPaths)
             {
-                if (!context.app.SaveSceneFile(path))
+                (root != nullptr && app.SaveScene(*root, path) ? written : failed).push_back(path);
+            }
+            // 読んでいる子のシーン(子孫も)を、それぞれのファイルへ
+            std::vector<const engine::Scene*> stack;
+            if (root != nullptr)
+            {
+                stack.push_back(root);
+            }
+            while (!stack.empty())
+            {
+                const engine::Scene* current = stack.back();
+                stack.pop_back();
+                for (const core::ObjectHandle handle : current->children)
                 {
-                    failed.push_back(path);
+                    const engine::Scene* child = app.GetRegistry().Resolve<engine::Scene>(handle);
+                    if (child == nullptr || child->IsPendingDestroy())
+                    {
+                        continue;
+                    }
+                    stack.push_back(child);
+                    const std::string childPath = app.GetScenePath(*child);
+                    if (childPath.empty())
+                    {
+                        failed.push_back("(no file for scene " + child->name + ")");
+                        continue;
+                    }
+                    (app.SaveScene(*child, childPath) ? written : failed).push_back(childPath);
                 }
             }
-            const std::size_t actorCount = context.app.GetWorld().actors.size();
+            const std::size_t actorCount = app.GetWorld().actors.size();
             EditorCommandResult result;
             if (failed.empty())
             {
                 result = EditorCommandResult::Success("Saved scene (" + std::to_string(actorCount) + " actors) to " +
-                                                      std::to_string(paths.size()) + " file(s)");
-                result.details = paths;
+                                                      std::to_string(written.size()) + " file(s)");
+                result.details = written;
             }
             else
             {
                 result = EditorCommandResult::Failure("Could not write " + std::to_string(failed.size()) + " of " +
-                                                      std::to_string(paths.size()) + " scene file(s)");
+                                                      std::to_string(written.size() + failed.size()) + " scene file(s)");
                 for (const std::string& path : failed)
                 {
                     result.details.push_back("failed: " + path);

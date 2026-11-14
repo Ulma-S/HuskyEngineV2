@@ -516,6 +516,7 @@ add_library(husky_tools ${HUSKY_MODULE_TYPE}
     src/tools/EditorCommands.cpp
     src/tools/EditorPlayMode.cpp
     src/tools/GameModuleCommands.cpp
+    src/tools/SceneCommands.cpp
     src/tools/Inspector.cpp
     src/tools/PropertyEditRecorder.cpp
     src/tools/TransformGizmo.cpp
@@ -639,6 +640,7 @@ if(HUSKY_BUILD_TESTS)
         tests/tools/SceneViewTests.cpp
         tests/tools/EditorCliTests.cpp
         tests/tools/EditorCommandsTests.cpp
+        tests/tools/SceneCommandsTests.cpp
         tests/tools/UIEditorTests.cpp
         tests/tools/DataCommandsTests.cpp
         tests/tools/AssetBrowserTests.cpp

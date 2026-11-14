@@ -27,6 +27,7 @@
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
 #include "tools/GameModuleCommands.h" // game.reload(ホットリロード。同じく開発ビルドだけ)
+#include "tools/SceneCommands.h"      // scene.open / load / unload / addChild / removeChild / list(SC-4)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
 #include "tools/ScreenTestOverlay.h" // 画面の座標で描く試し(view.screenTest。UI-2a)
@@ -154,6 +155,22 @@ int main(int argc, char** argv)
     tools::EditorCommand saveScene = tools::MakeSaveSceneCommand({scenePath});
     saveScene.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(saveScene));
+    // 入れ物のシーン(SC-4)。開く・記録を書き換えるのは編集中だけ(再生中の変更は Stop で消えるため)。
+    // 子のシーンを読む・下ろすのは、再生中も使える(ゲームの LoadScene / UnloadScene と同じ)。
+    {
+        tools::EditorCommand openScene = tools::MakeOpenSceneCommand(commands);
+        openScene.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+        commands.Register(std::move(openScene));
+        commands.Register(tools::MakeLoadSceneCommand());
+        commands.Register(tools::MakeUnloadSceneCommand());
+        tools::EditorCommand addChild = tools::MakeAddChildSceneCommand();
+        addChild.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+        commands.Register(std::move(addChild));
+        tools::EditorCommand removeChild = tools::MakeRemoveChildSceneCommand();
+        removeChild.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+        commands.Register(std::move(removeChild));
+        commands.Register(tools::MakeListScenesCommand());
+    }
     // アクターを置く(actor.spawn)。引数が要るので、画面に入力欄ができるまでは CLI から使う(ボタンは灰色)。
     // 再生中に置いても Stop で消えるので、編集中だけにする。
     tools::EditorCommand spawnActor = tools::MakeSpawnActorCommand();

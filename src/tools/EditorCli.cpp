@@ -8,6 +8,7 @@
 #include "engine/JsonFormat.h"
 #include "platform/FileSystem.h"
 #include "tools/EditorCommands.h"
+#include "tools/SceneCommands.h"
 
 #include <cstdio>  // std::fputs
 #include <utility> // std::move
@@ -110,6 +111,9 @@ namespace husky::tools
             commands.Register(MakeSetPropertyCommand());
             commands.Register(MakeSetManyPropertiesCommand());
             commands.Register(MakeListOverridesCommand());
+            commands.Register(MakeAddChildSceneCommand());    // ルートシーンの子のシーンの記録(SC-4)
+            commands.Register(MakeRemoveChildSceneCommand());
+            commands.Register(MakeListScenesCommand());
             commands.Register(MakeRevertPrefabCommand());
             commands.Register(MakeRevertRemovedComponentCommand());
             commands.Register(MakeApplyPrefabCommand(assetsDirectory));
@@ -285,6 +289,11 @@ namespace husky::tools
         // アセットの表(GUID → パス)を、シーンを読む前に作る。シーンのプレハブから置いたアクターは、読むときにプレハブを GUID で探し、
         // actor.spawn の prefab も GUID やパスでアセットを指すため。ファイルは直さない(直すのは asset.refresh の役目)。
         app.GetAssetDatabase().Scan(assetsDirectory);
+        // シーンの一覧があれば読む(scene.addChild などがシーンを名前で指せるように。SC-4)
+        if (const core::Guid* sceneList = app.GetAssetDatabase().FindGuid("settings/scenes.sdata"))
+        {
+            app.LoadSceneList(*sceneList);
+        }
 
         // --scene: シーンのファイルを読んでから実行する(無ければ、空のシーンから始めて新しく作る)。
         const bool newScene = !options.scenePath.empty() && !platform::FileExists(options.scenePath.c_str());

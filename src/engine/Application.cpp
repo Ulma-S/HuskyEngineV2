@@ -257,6 +257,27 @@ namespace husky::engine
         return true;
     }
 
+    std::string Application::GetScenePath(const Scene& scene) const
+    {
+        if (scene.IsRoot())
+        {
+            return m_rootScenePath;
+        }
+        const std::string* relative = scene.asset.IsNull() ? nullptr : m_assets.FindPath(scene.asset);
+        return relative != nullptr ? MakeAssetPath(*relative) : std::string();
+    }
+
+    std::string Application::MakeAssetPath(const std::string& relativePath) const
+    {
+        const std::string& root = m_assets.GetRootDirectory();
+        if (root.empty())
+        {
+            return relativePath;
+        }
+        const char last = root.back();
+        return last == '/' || last == '\\' ? root + relativePath : root + "/" + relativePath;
+    }
+
     const core::Guid* Application::FindSceneGuid(std::string_view sceneName) const
     {
         for (const SceneListEntry& entry : m_sceneList)
@@ -480,6 +501,8 @@ namespace husky::engine
         // 中身を写してから開く(開く途中の GC でアセットが回収されても壊れないように)。
         const ArchiveValue data = asset->GetData();
         OpenRootSceneData(data, sceneName, found, std::string(sceneName), loadChildren);
+        const std::string* relative = m_assets.FindPath(found);
+        m_rootScenePath = relative != nullptr ? MakeAssetPath(*relative) : std::string();
         return true;
     }
 
@@ -497,7 +520,18 @@ namespace husky::engine
             HUSKY_LOG(SceneLog::ReadFailed, path, error);
             return false;
         }
-        OpenRootSceneData(file, SceneNameFromPath(path), core::Guid(), path, loadChildren);
+        // アセットの表にあるファイルなら GUID も付ける(assets のフォルダの中の相対パスで引く)
+        core::Guid asset;
+        const std::string prefix = MakeAssetPath(std::string()); // assets のフォルダ + "/"
+        if (prefix.size() > 1 && path.size() > prefix.size() && path.compare(0, prefix.size(), prefix) == 0)
+        {
+            if (const core::Guid* found = m_assets.FindGuid(std::string_view(path).substr(prefix.size())))
+            {
+                asset = *found;
+            }
+        }
+        OpenRootSceneData(file, SceneNameFromPath(path), asset, path, loadChildren);
+        m_rootScenePath = path;
         return true;
     }
 
@@ -618,14 +652,20 @@ namespace husky::engine
 #if HUSKY_DEVELOPMENT
     bool Application::SaveSceneFile(const std::string& path)
     {
-        // オブジェクト → 値の木 → 文字列 → ファイル、の順に変換する(LoadSceneFile の逆)。
         // 書くのはルートシーン(開いているシーン)に直接いるアクターと、子のシーンの記録だけ(SC-3)。
-        Scene* root = m_world->GetRootScene();
-        if (root == nullptr)
+        const Scene* root = m_world->GetRootScene();
+        return root != nullptr && SaveScene(*root, path);
+    }
+
+    bool Application::SaveScene(const Scene& scene, const std::string& path)
+    {
+        // オブジェクト → 値の木 → 文字列 → ファイル、の順に変換する(LoadSceneFile の逆)。
+        // 読み込んだシーンのアセットは変わらないデータなので、書いたら控え(キャッシュ)を捨て、次に開くときにファイルから読み直す。
+        if (!scene.asset.IsNull())
         {
-            return false;
+            m_loader.ForgetCached(SceneAsset::StaticType(), scene.asset);
         }
-        const SceneSerializer::WriteResult saved = SceneSerializer::WriteScene(*m_world, *root);
+        const SceneSerializer::WriteResult saved = SceneSerializer::WriteScene(*m_world, scene);
         if (saved.outsideReferences > 0)
         {
             // シーンをまたぐ参照は保存できない決まり(ユーザーの決定)。null と書いて保存は続ける。

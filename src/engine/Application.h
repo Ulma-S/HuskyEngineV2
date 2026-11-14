@@ -154,6 +154,22 @@ namespace husky::engine
         // 読み終わるまで待つ。名前の重なり・表に無いシーンはエラーのログ(そのシーンは使わない)。
         // 戻り値: 一覧を読めたら true(中にエラーがあっても true)。
         bool LoadSceneList(const core::Guid& sceneListGuid);
+        // シーンの一覧(LoadSceneList)の1行: 名前 → シーンの GUID。
+        struct SceneListEntry
+        {
+            std::string name;
+            core::Guid guid;
+        };
+        const std::vector<SceneListEntry>& GetSceneList() const { return m_sceneList; }
+
+        // ルートシーンのファイルのパス(OpenRootScene / OpenRootSceneFile で開いたもの。SC-4)。開いていなければ空。
+        const std::string& GetRootScenePath() const { return m_rootScenePath; }
+        // シーンのファイルのパス: ルートシーンなら GetRootScenePath、子のシーンはアセットの表のパス(assets のフォルダ + 相対パス)。
+        // 分からなければ空。
+        std::string GetScenePath(const Scene& scene) const;
+        // assets のフォルダの中の相対パスを、ファイルのパスにする(区切りの "/" は1つだけ入れる)。
+        std::string MakeAssetPath(const std::string& relativePath) const;
+
         // 一覧の名前からシーンの GUID を引く。無ければ nullptr。
         const core::Guid* FindSceneGuid(std::string_view sceneName) const;
         // 一覧の先頭のシーンの名前(最初のシーン)。一覧が空なら空の文字列。
@@ -225,6 +241,9 @@ namespace husky::engine
         // 書き方は platform::WriteTextFile(一時ファイルに書いてから置き換える)なので、途中で止まっても元のファイルは壊れない。
         // 戻り値: 保存できたら true(警告はログに出す)。
         bool SaveSceneFile(const std::string& path);
+        // 【開発ビルドだけ】scene に直接いるアクターと子のシーンの記録を、path に保存する(SC-4。SaveSceneFile はルートシーンでこれを呼ぶ)。
+        // シーンをまたぐ参照は保存できない(エラーのログ、null と書く)。
+        bool SaveScene(const Scene& scene, const std::string& path);
 #endif
 
         // platform を初期化し、ウィンドウと描画を用意して、終了が要求されるまでゲームループを回す。
@@ -265,13 +284,8 @@ namespace husky::engine
         core::ObjectRegistry m_registry;
         World* m_world = nullptr; // m_registry が持ち主。ここは借りているだけ
 
-        // シーンの一覧(LoadSceneList)の表: 名前 → シーンの GUID。並びは一覧の順。
-        struct SceneListEntry
-        {
-            std::string name;
-            core::Guid guid;
-        };
-        std::vector<SceneListEntry> m_sceneList;
+        std::vector<SceneListEntry> m_sceneList; // シーンの一覧(LoadSceneList)の表。並びは一覧の順
+        std::string m_rootScenePath;             // ルートシーンのファイルのパス(OpenRootScene / OpenRootSceneFile が書く。SC-4)
 
         // ワールドを空にする: 全アクターを Destroy して一覧から外し、子のシーンを下ろし、ルートシーンの名前・GUID・記録を空にする。
         void ClearWorld();

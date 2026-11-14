@@ -9,6 +9,7 @@
 #include "engine/AssetLoader.h"
 #include "engine/Component.h"
 #include "engine/Prefab.h" // プレハブとの違い(印と、Revert / Apply のボタン)
+#include "engine/Scene.h"  // Scene の窓の、シーンの見出しの行(SC-4)
 #include "tools/EditorCommands.h" // Revert all / Apply all のボタンが、コマンドを名前で呼ぶ
 #include "engine/RenderReflection.h" // render::Color の型情報(色は色の選び方で編集するため)
 #include "engine/SpriteAnimatorComponent.h" // アニメーションの ID を名前で選ぶ表示
@@ -852,8 +853,8 @@ namespace husky::tools
                 }
             }
             BuildTreeRows(scene, registry);
-            // 一番上の行は「シーン」: ここへ落とすと親なしになる
-            ImGui::Selectable("(scene root: drop here for no parent)", false);
+            // 一番上の行: ここへ落とすと親なしになる(ルートシーンとは別のもの)
+            ImGui::Selectable("(drop here for no parent)", false);
             if (ImGui::BeginDragDropTarget())
             {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HUSKY_ACTOR"))
@@ -870,6 +871,14 @@ namespace husky::tools
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                 {
                     const auto [i, depth] = m_treeRows[static_cast<std::size_t>(row)];
+                    if (i < 0) // シーンの見出しの行(SC-4)
+                    {
+                        const engine::Scene* rowScene = m_sceneRows[static_cast<std::size_t>(-1 - i)];
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(depth) * ImGui::GetTreeNodeToLabelSpacing());
+                        ImGui::TextDisabled("[%s] %s", rowScene->IsRoot() ? "root scene" : "scene",
+                                            rowScene->name.empty() ? "(unnamed)" : rowScene->name.c_str());
+                        continue;
+                    }
                     const core::ObjectHandle handle = scene.actors[static_cast<std::size_t>(i)];
                     const engine::Actor* actor = registry.Resolve<engine::Actor>(handle);
                     if (actor == nullptr)
@@ -1287,12 +1296,40 @@ namespace husky::tools
                 m_isRoot[k] = 1;
             }
         }
-        // 3. 根から順に、開いているものの子孫を行にする(輪になっているものは根にならないので出ない)
-        for (std::size_t i = 0; i < count; ++i)
+        // 3. シーンの木の順に(SC-4)、シーンの見出しの行と、そのシーンに入っている根のアクターから開いているものの子孫を行にする
+        //    (輪になっているものは根にならないので出ない)。見出しの行は「位置」を -1 - (m_sceneRows の番号) で表す。
+        m_sceneRows.clear();
+        m_sceneStack.clear();
+        if (const engine::Scene* rootScene = scene.GetRootScene())
         {
-            if (m_isRoot[i] != 0)
+            m_sceneStack.emplace_back(rootScene, 0);
+        }
+        while (!m_sceneStack.empty())
+        {
+            const auto [current, sceneDepth] = m_sceneStack.back();
+            m_sceneStack.pop_back();
+            m_treeRows.emplace_back(-1 - static_cast<int>(m_sceneRows.size()), sceneDepth);
+            m_sceneRows.push_back(current);
+            for (std::size_t i = 0; i < count; ++i)
             {
-                AppendTreeRows(static_cast<int>(i), 0);
+                if (m_isRoot[i] == 0)
+                {
+                    continue;
+                }
+                const engine::Actor* actor = registry.Resolve<engine::Actor>(scene.actors[i]);
+                if (actor != nullptr && actor->GetScene() == current)
+                {
+                    AppendTreeRows(static_cast<int>(i), sceneDepth + 1);
+                }
+            }
+            // 子のシーンは、後ろから積む(取り出すときに元の順になる)
+            for (auto it = current->children.rbegin(); it != current->children.rend(); ++it)
+            {
+                const engine::Scene* child = registry.Resolve<engine::Scene>(*it);
+                if (child != nullptr && !child->IsPendingDestroy())
+                {
+                    m_sceneStack.emplace_back(child, sceneDepth + 1);
+                }
             }
         }
         // 表を空に戻す(次のフレームに、消えたアクターの場所が残らないように)

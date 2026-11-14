@@ -97,7 +97,9 @@ namespace husky::tools
         std::vector<int> m_firstChild;   // シーンの一覧の位置 → 最初の子の位置(-1 は無い)
         std::vector<int> m_nextSibling;  // シーンの一覧の位置 → 次の兄弟の位置(-1 は無い)
         std::vector<char> m_isRoot;      // シーンの一覧の位置 → 親が無い(か、親が一覧にいない)か
-        std::vector<std::pair<int, int>> m_treeRows; // 描く行(シーンの一覧の位置、深さ)
+        std::vector<std::pair<int, int>> m_treeRows; // 描く行(シーンの一覧の位置、深さ)。位置が負ならシーンの見出し(SC-4)
+        std::vector<const engine::Scene*> m_sceneRows; // 見出しの行のシーン(-1 - 位置 で引く。描く間だけ使う)
+        std::vector<std::pair<const engine::Scene*, int>> m_sceneStack; // シーンの木をたどる作業用(深さつき)
         core::ObjectHandle m_revealedFor;            // 先祖を開いて見えるようにした選択(選び直したら、もう一度開く)
         engine::World* m_sceneForRows = nullptr;     // 行を作っている間だけ使う(AppendTreeRows がアクターのハンドルを引くため)
     };
