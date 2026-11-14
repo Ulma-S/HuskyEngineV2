@@ -332,7 +332,7 @@ add_library(husky_engine ${HUSKY_MODULE_TYPE}
     src/engine/ObjectSerializer.cpp
     src/engine/Prefab.cpp
     src/engine/ScriptableData.cpp
-    src/engine/Scene.cpp
+    src/engine/World.cpp
     src/engine/SceneSerializer.cpp
     src/engine/SpriteAnimatorComponent.cpp
     src/engine/SpriteComponent.cpp
@@ -598,7 +598,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/UIComponentsTests.cpp
         tests/engine/UIButtonTests.cpp
         tests/engine/ObjectMatchesTests.cpp
-        tests/engine/SceneTests.cpp
+        tests/engine/WorldTests.cpp
         tests/engine/HierarchyTests.cpp
         tests/engine/ComponentTests.cpp
         tests/engine/SpriteComponentTests.cpp

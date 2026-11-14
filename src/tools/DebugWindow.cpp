@@ -370,7 +370,7 @@ namespace husky::tools
                         render.droppedSpriteCount);
 
             ImGui::SeparatorText("Objects");
-            ImGui::Text("Objects: %zu  Actors: %zu", app.GetRegistry().GetObjectCount(), app.GetScene().actors.size());
+            ImGui::Text("Objects: %zu  Actors: %zu", app.GetRegistry().GetObjectCount(), app.GetWorld().actors.size());
             ImGui::Text("Collected by last GC: %zu", app.GetCollectedLastGc());
 
             ImGui::SeparatorText("Memory");

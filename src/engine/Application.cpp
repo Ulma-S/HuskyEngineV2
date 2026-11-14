@@ -33,13 +33,13 @@ namespace husky::engine
         , m_loader(m_assets, m_registry, m_jobs, m_types) // m_registry はまだ作られていないが、参照を覚えるだけなのでよい
         , m_registry(objectCapacityBytes)
     {
-        RegisterEngineTypes(m_types); // engine の型(Scene、Actor、SpriteComponent など)を、名前から作れるようにする
+        RegisterEngineTypes(m_types); // engine の型(World、Actor、SpriteComponent など)を、名前から作れるようにする
 
         // シーンは、レジストリの中で一番最初に作るので、容量が極端に小さくない限り作れる。
-        m_scene = m_registry.Create<Scene>();
-        m_registry.AddRoot(m_scene->GetHandle());
-        m_scene->SetInput(&m_input); // アクターは GetScene()->GetInput() で入力を読む
-        m_scene->SetAssetLoader(&m_loader); // アクターは GetScene()->GetAssetLoader() でアセットの参照を引く
+        m_world = m_registry.Create<World>();
+        m_registry.AddRoot(m_world->GetHandle());
+        m_world->SetInput(&m_input); // アクターは GetWorld()->GetInput() で入力を読む
+        m_world->SetAssetLoader(&m_loader); // アクターは GetWorld()->GetAssetLoader() でアセットの参照を引く
         m_loader.SetAudioDevice(&m_audio); // 読んだ音の波を音の層に預ける(出す先が無くても預けられる)
         // エンジンのアセットの種類の読み方を、ローダに登録する(AL-1〜3。新しい種類もここへ足す)。
         m_loader.RegisterKind(CreateTextureAssetKind());
@@ -49,7 +49,7 @@ namespace husky::engine
         m_loader.RegisterKind(CreatePrefabAssetKind());
         m_loader.RegisterKind(CreateScriptableDataAssetKind());
         m_loader.RegisterKind(CreateSceneAssetKind()); // SC-1
-        m_scene->SetAudio(&m_audio); // アクターやコンポーネントは GetScene()->GetAudio() で音を鳴らす
+        m_world->SetAudio(&m_audio); // アクターやコンポーネントは GetWorld()->GetAudio() で音を鳴らす
     }
 
     double Application::StepFrame(std::uint64_t nowNanoseconds, const platform::InputEvents& events)
@@ -98,12 +98,12 @@ namespace husky::engine
         //      (編集中のクリックはエディタが使う)。止めたら一度だけ、ボタンの見た目を戻す。
         if (m_sceneTickEnabled || m_sceneStepRequested)
         {
-            m_uiEvents.Update(*m_scene, m_input);
+            m_uiEvents.Update(*m_world, m_input);
             m_uiEventsActive = true;
         }
         else if (m_uiEventsActive)
         {
-            m_uiEvents.Reset(*m_scene);
+            m_uiEvents.Reset(*m_world);
             m_uiEventsActive = false;
         }
 
@@ -119,12 +119,12 @@ namespace husky::engine
         if (m_sceneTickEnabled || m_sceneStepRequested)
         {
             {
-                HUSKY_PROFILE_SCOPE("Scene.Tick");
-                m_scene->Tick(dt);
+                HUSKY_PROFILE_SCOPE("World.Tick");
+                m_world->Tick(dt);
             }
             // 当たり判定: アクターが動いた後に、コライダーを当たり判定の世界に伝え、重なりを調べてイベントを届ける。
             // 受け取った側は同じフレームのうちに反応でき、Destroy などはこの後のフレームの終わりで確定する。
-            m_physics2D.Update(*m_scene, dt); // 中で区間 "Physics2D.*" を測る
+            m_physics2D.Update(*m_world, dt); // 中で区間 "Physics2D.*" を測る
             m_sceneStepRequested = false;
         }
 
@@ -132,13 +132,13 @@ namespace husky::engine
         //     インスペクタで直した RectTransform が見えるように、毎フレーム行う。画面の大きさは入力と一緒に届いたもの。
         {
             HUSKY_PROFILE_SCOPE("UILayout");
-            LayoutCanvases(*m_scene, m_input.GetScreenWidth(), m_input.GetScreenHeight());
+            LayoutCanvases(*m_world, m_input.GetScreenWidth(), m_input.GetScreenHeight());
         }
 
         // 4. フレームの終わり: 破棄の確定と、必要なら GC。
         //    この順番が大事: Destroy 済みのアクターを一覧から外す → 破棄を確定する → (たまに)GC。
         HUSKY_PROFILE_SCOPE("FrameEnd"); // ここから関数の終わりまで
-        m_scene->RemoveDestroyedActors();
+        m_world->RemoveDestroyedActors();
         m_registry.FlushDestroyed();
         m_secondsSinceGc += dt;
         if (m_secondsSinceGc >= GcIntervalSeconds)
@@ -183,7 +183,7 @@ namespace husky::engine
     void Application::AddSceneData(const ArchiveValue& data, const std::string& label)
     {
         const SceneSerializer::ReadReport report = SceneSerializer::Read(
-            data, *m_scene, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
+            data, *m_world, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
         for (const std::string& warning : report.warnings)
         {
             HUSKY_LOG(SceneLog::ReadWarning, label, warning);
@@ -195,7 +195,7 @@ namespace husky::engine
     bool Application::SaveSceneFile(const std::string& path)
     {
         // オブジェクト → 値の木 → 文字列 → ファイル、の順に変換する(LoadSceneFile の逆)。
-        const SceneSerializer::WriteResult saved = SceneSerializer::Write(*m_scene);
+        const SceneSerializer::WriteResult saved = SceneSerializer::Write(*m_world);
         for (const std::string& warning : saved.warnings)
         {
             HUSKY_LOG(SceneLog::SaveWarning, path, warning);
@@ -210,7 +210,7 @@ namespace husky::engine
         {
             return false; // 理由は platform がログに出している
         }
-        HUSKY_LOG(SceneLog::Saved, path, m_scene->actors.size(), text.size());
+        HUSKY_LOG(SceneLog::Saved, path, m_world->actors.size(), text.size());
         return true;
     }
 #endif
@@ -373,7 +373,7 @@ namespace husky::engine
                 HUSKY_PROFILE_SCOPE("Render"); // 描画全体(下の区間を含む)
                 // カメラ: シーンのカメラ(CameraComponent)があればそれで、無ければ画面ちょうどの動かないカメラで映す。
                 // カメラは動き、画面の大きさも窓を広げると変わるので、毎フレーム作り直す。
-                CameraMatrices camera = MakeSceneCamera(*m_scene,
+                CameraMatrices camera = MakeSceneCamera(*m_world,
                                                               static_cast<float>(renderDevice.GetScreenWidth()),
                                                               static_cast<float>(renderDevice.GetScreenHeight()));
 #if HUSKY_DEVELOPMENT
@@ -395,7 +395,7 @@ namespace husky::engine
                         m_beforeSceneDraw(renderDevice);
                     }
 #endif
-                    DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture);
+                    DrawSprites(*m_world, renderDevice, m_loader, m_defaultSpriteTexture);
 #if HUSKY_DEVELOPMENT
                     if (m_afterSceneDraw) // エディタの移動のギズモなど、シーンより手前に描くもの
                     {
@@ -409,8 +409,8 @@ namespace husky::engine
                     renderDevice.SetViewProjection(MakeScreenCamera(static_cast<float>(renderDevice.GetScreenWidth()),
                                                                     static_cast<float>(renderDevice.GetScreenHeight()))
                                                        .ViewProjection());
-                    DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture, SpritePass::Screen);
-                    DrawUI(*m_scene, renderDevice, m_loader, m_uiTextLayout); // UI の画像と文字(UI-6a)
+                    DrawSprites(*m_world, renderDevice, m_loader, m_defaultSpriteTexture, SpritePass::Screen);
+                    DrawUI(*m_world, renderDevice, m_loader, m_uiTextLayout); // UI の画像と文字(UI-6a)
                     if (m_screenDraw)
                     {
                         m_screenDraw(renderDevice);

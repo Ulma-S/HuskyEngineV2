@@ -5,7 +5,7 @@
 #include "engine/Application.h"
 #include "engine/CameraComponent.h"
 #include "engine/GlmConversion.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <doctest/doctest.h>
 
@@ -89,7 +89,7 @@ TEST_CASE("カメラ: zoom 2 なら 2 倍に大きく映り、見える範囲は
 TEST_CASE("カメラ: シーンにカメラが無ければ画面ちょうどのカメラ、あればカメラのアクターの位置と zoom で映す")
 {
     husky::engine::Application app;
-    husky::engine::Scene& scene = app.GetScene();
+    husky::engine::World& scene = app.GetWorld();
 
     // カメラが無い: 画面ちょうど(ワールドの左下が画面の左下)
     CHECK(ToClip(husky::engine::MakeSceneCamera(scene, 1280.0f, 720.0f), 0.0f, 0.0f).x == doctest::Approx(-1.0f));
@@ -137,14 +137,14 @@ TEST_CASE("RS-2: ScreenToWorld は画面の点(左上が原点、下が +y)を�
 TEST_CASE("RS-2: FindSceneCameraView はシーンのカメラの位置と zoom、無ければ画面ちょうどの見え方")
 {
     husky::engine::Application app;
-    const husky::engine::CameraView none = husky::engine::FindSceneCameraView(app.GetScene(), 1280.0f, 720.0f);
+    const husky::engine::CameraView none = husky::engine::FindSceneCameraView(app.GetWorld(), 1280.0f, 720.0f);
     CHECK(none.centerX == 640.0f);
     CHECK(none.centerY == 360.0f);
     CHECK(none.zoom == 1.0f);
-    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* actor = app.GetWorld().Spawn<husky::engine::Actor>();
     actor->transform.position = {50.0f, 60.0f, 0.0f};
     actor->AddComponent<husky::engine::CameraComponent>()->zoom = 3.0f;
-    const husky::engine::CameraView view = husky::engine::FindSceneCameraView(app.GetScene(), 1280.0f, 720.0f);
+    const husky::engine::CameraView view = husky::engine::FindSceneCameraView(app.GetWorld(), 1280.0f, 720.0f);
     CHECK(view.centerX == 50.0f);
     CHECK(view.centerY == 60.0f);
     CHECK(view.zoom == 3.0f);

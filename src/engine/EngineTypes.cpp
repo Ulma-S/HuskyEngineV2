@@ -7,7 +7,7 @@
 #include "engine/Collider2D.h"
 #include "engine/Component.h"
 #include "engine/Rigidbody2D.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "engine/UIActor.h"
@@ -28,7 +28,7 @@ namespace husky::engine
     // エンジンの型の型情報の中身(HR-1)。ヘッダの HUSKY_OBJECT は宣言だけなので、ここで1つずつ作る。
     // このファイルは HuskyEngine.dll(静的リンクの構成ではエンジンのライブラリ)にだけ入るので、型情報はプログラムに1つだけになる。
     // エンジンに HUSKY_OBJECT の型を足したら、ここにも足す(忘れるとリンクのときに StaticType が見つからないエラーになる)。
-    HUSKY_OBJECT_DEFINE(Scene)
+    HUSKY_OBJECT_DEFINE(World)
     HUSKY_OBJECT_DEFINE(Actor)
     HUSKY_OBJECT_DEFINE(Component)
     HUSKY_OBJECT_DEFINE(SpriteComponent)
@@ -56,7 +56,7 @@ namespace husky::engine
 
     void RegisterEngineTypes(core::TypeRegistry& types)
     {
-        types.Register<Scene>();
+        types.Register<World>();
         types.Register<Actor>();
         types.Register<Component>();
         types.Register<SpriteComponent>();

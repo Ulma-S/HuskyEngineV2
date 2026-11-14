@@ -12,21 +12,21 @@
 using husky::core::ObjectRegistry;
 using husky::engine::Actor;
 using husky::engine::ForEachSprite;
-using husky::engine::Scene;
+using husky::engine::World;
 using husky::engine::SpriteComponent;
 using husky::render::Sprite;
 
 namespace
 {
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
 
     // ForEachSprite が渡すスプライトを、順に集める。
-    std::vector<Sprite> CollectSprites(Scene& scene)
+    std::vector<Sprite> CollectSprites(World& scene)
     {
         std::vector<Sprite> sprites;
         ForEachSprite(scene, [&](const Sprite& sprite, SpriteComponent&) { sprites.push_back(sprite); });
@@ -54,7 +54,7 @@ TEST_CASE("SpriteComponent: 大きさはリフレクションのプロパティ�
 TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコンポーネントから取り、一覧の順に渡す")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
     Actor* first = scene->Spawn<Actor>();
     first->transform.position.x = 10.0f;
@@ -85,7 +85,7 @@ TEST_CASE("ForEachSprite: 位置はアクターから、大きさと色はコン
 TEST_CASE("ForEachSprite: Destroy したアクターやスプライトは描かない")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
     Actor* destroyedActor = scene->Spawn<Actor>();
     destroyedActor->AddComponent<SpriteComponent>();
@@ -116,7 +116,7 @@ TEST_CASE("SpriteComponent: テクスチャは、テクスチャのアセット�
 TEST_CASE("ForEachSprite: コンポーネントも一緒に渡す(描画層のテクスチャは、DrawSprites がアセットから引く)")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     SpriteComponent* sprite = scene->Spawn<Actor>()->AddComponent<SpriteComponent>();
     sprite->texture.guid = husky::tests::MakeGuid(3, 2);
 
@@ -177,7 +177,7 @@ TEST_CASE("SpriteComponent: 範囲(region)は構造体のプロパティで、�
 namespace
 {
     // スプライトを1枚だけ持つシーンから、描く四隅を計算する(ForEachSprite → ComputeSpriteCorners)。
-    husky::render::SpriteCorners CornersOf(Scene& scene)
+    husky::render::SpriteCorners CornersOf(World& scene)
     {
         const std::vector<Sprite> sprites = CollectSprites(scene);
         REQUIRE(sprites.size() == 1);
@@ -188,7 +188,7 @@ namespace
 TEST_CASE("RS-1: ピボットは既定で真ん中。位置がスプライトの真ん中になり、四隅は大きさの半分ずつ離れる")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     actor->transform.position = {100.0f, 50.0f, 0.0f};
     SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
@@ -216,7 +216,7 @@ TEST_CASE("RS-1: ピボットは既定で真ん中。位置がスプライトの
 TEST_CASE("RS-1: 回転はピボットを中心に反時計回り、拡大縮小はピボットを中心に大きくなる")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     actor->transform.position = {100.0f, 50.0f, 0.0f};
     SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
@@ -244,7 +244,7 @@ TEST_CASE("RS-1: 回転はピボットを中心に反時計回り、拡大縮小
 TEST_CASE("RS-2: FindSpriteActorAt は点に重なるスプライトのうち、いちばん手前のアクターを返す(回転とピボットも考える)")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     // 奥: 真ん中 (100, 100)、40 x 20
     Actor* back = scene->Spawn<Actor>();
     back->transform.position = {100.0f, 100.0f, 0.0f};

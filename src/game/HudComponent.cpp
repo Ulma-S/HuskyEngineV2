@@ -2,7 +2,7 @@
 #include "game/HudComponent.h"
 
 #include "engine/Actor.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "game/GameActors.h"
 
 #include <cmath>   // std::ceil
@@ -13,7 +13,7 @@ namespace husky::game
     int HudComponent::ReadPlayerScore()
     {
         engine::Actor* owner = GetOwner();
-        engine::Scene* scene = owner != nullptr ? owner->GetScene() : nullptr;
+        engine::World* scene = owner != nullptr ? owner->GetWorld() : nullptr;
         core::ObjectRegistry* registry = GetOwnerRegistry();
         if (scene == nullptr || registry == nullptr)
         {

@@ -26,10 +26,10 @@ namespace
     std::string MakeSceneText()
     {
         Application source;
-        source.GetScene().Spawn<Actor>()->name = "Title";
-        source.GetScene().Spawn<Actor>()->name = "StartButton";
+        source.GetWorld().Spawn<Actor>()->name = "Title";
+        source.GetWorld().Spawn<Actor>()->name = "StartButton";
         std::string text;
-        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetScene()).value, text, true));
+        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetWorld()).value, text, true));
         return text;
     }
 }
@@ -56,10 +56,10 @@ TEST_CASE("SceneAsset: .scene を読み、中身からアクターを今のシ�
 
     // 読み込んだ中身は何度でも使える(アセットは変わらないデータ)。2回足せば4体。
     app.AddSceneData(scene->GetData(), "title.scene");
-    REQUIRE(app.GetScene().actors.size() == 2);
-    CHECK(app.GetRegistry().Resolve<Actor>(app.GetScene().actors[0])->name == "Title");
+    REQUIRE(app.GetWorld().actors.size() == 2);
+    CHECK(app.GetRegistry().Resolve<Actor>(app.GetWorld().actors[0])->name == "Title");
     app.AddSceneData(scene->GetData(), "title.scene");
-    CHECK(app.GetScene().actors.size() == 4);
+    CHECK(app.GetWorld().actors.size() == 4);
 }
 
 TEST_CASE("SceneAsset: 壊れた JSON のシーンは「失敗」(SC-1)")

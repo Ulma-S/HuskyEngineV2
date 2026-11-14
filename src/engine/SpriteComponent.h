@@ -18,7 +18,7 @@
 #include "engine/AssetLoader.h"
 #include "engine/PixelRect.h"
 #include "engine/SpriteSheetAsset.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "core/Vector2.h"
 #include "engine/RenderReflection.h" // render::Color をプロパティにするための登録
 #include "engine/TransformMatrix.h"
@@ -82,7 +82,7 @@ namespace husky::engine
         Screen,
     };
     template <typename Function>
-    void ForEachSprite(Scene& scene, Function&& function, SpritePass pass = SpritePass::World)
+    void ForEachSprite(World& scene, Function&& function, SpritePass pass = SpritePass::World)
     {
         scene.ForEachActor([&](Actor& actor) {
             const bool onScreen = actor.IsDrawnOnScreen();
@@ -110,7 +110,7 @@ namespace husky::engine
     // 無ければ nullptr。回転・拡大縮小・ピボットも考える(点をスプライトのローカルの座標へ戻してから、四角形の中かを見る)。
     // エディタのシーンビューで、クリックしたアクターを選ぶのに使う。
     // 動作スレッド: ゲームスレッドのみ
-    Actor* FindSpriteActorAt(Scene& scene, float worldX, float worldY);
+    Actor* FindSpriteActorAt(World& scene, float worldX, float worldY);
 
     // ピクセル単位の範囲 region を、大きさ textureWidth x textureHeight の画像の UV(0〜1)にして、sprite に書く。
     // region が空(大きさ 0)か、画像の大きさが分からない(0)なら、画像の全体(0〜1)にする。
@@ -135,6 +135,6 @@ namespace husky::engine
     // renderDevice.BeginFrame と EndFrame の間で呼ぶ。
     // 動作スレッド: ゲームスレッドのみ
     // pass は ForEachSprite と同じ(Screen は、画面ちょうどのカメラにしてから呼ぶ)。
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
+    void DrawSprites(World& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
                      core::ObjectHandle defaultTexture, SpritePass pass = SpritePass::World);
 }

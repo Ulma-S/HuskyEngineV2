@@ -28,7 +28,7 @@ namespace husky::audio
 
 namespace husky::engine
 {
-    class Scene;
+    class World;
 
     class AudioSourceComponent : public Component
     {
@@ -75,6 +75,6 @@ namespace husky::engine
     // 読み終わっていなければ鳴らさずに読み始めるだけ(効果音は遅れて鳴るより鳴らないほうがよいため)。
     // sound を持つもの(プロパティの AssetRef)が、鳴り終わるまで生きていること(アセットが回収されると音は止まる)。
     // 戻り値: 鳴らした番号(鳴らせなければ null)。
-    audio::PlaybackId PlaySoundOnce(Scene& scene, core::AssetRef<SoundAsset>& sound, float volume = 1.0f,
+    audio::PlaybackId PlaySoundOnce(World& scene, core::AssetRef<SoundAsset>& sound, float volume = 1.0f,
                                     audio::Bus bus = audio::Bus::Effect);
 }

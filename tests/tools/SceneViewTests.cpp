@@ -91,7 +91,7 @@ TEST_CASE("RS-3: CommitActorTransform はドラッグで変えた transform を 
     REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
     REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
-    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* actor = app.GetWorld().Spawn<husky::engine::Actor>();
     actor->transform.position = {10.0f, 20.0f, 5.0f};
 
     // ドラッグ中はその場で書き換わっている(履歴にはまだ無い)
@@ -267,7 +267,7 @@ TEST_CASE("RS-5: CommitActorTransform は位置・回転・拡大縮小をまと
     husky::tools::EditorCommandRegistry commands;
     REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
     REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
-    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* actor = app.GetWorld().Spawn<husky::engine::Actor>();
     const husky::engine::Transform before = actor->transform;
     actor->transform.rotation = 45.0f;
     actor->transform.scale = {2.0f, 3.0f, 1.0f};

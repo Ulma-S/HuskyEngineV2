@@ -95,7 +95,7 @@ namespace husky::tools
         if (!m_initialized)
         {
             // ゲームのカメラと同じ見え方から始める(編集を始めた途端に画面が飛ばないように)
-            m_view = engine::FindSceneCameraView(app.GetScene(), screenWidth, screenHeight);
+            m_view = engine::FindSceneCameraView(app.GetWorld(), screenWidth, screenHeight);
             m_initialized = true;
         }
 
@@ -195,7 +195,7 @@ namespace husky::tools
                 }
                 else
                 {
-                    engine::Actor* actor = engine::FindSpriteActorAt(app.GetScene(), world.x, world.y);
+                    engine::Actor* actor = engine::FindSpriteActorAt(app.GetWorld(), world.x, world.y);
                     inspector.Select(actor != nullptr ? actor->GetHandle() : core::ObjectHandle());
                     selected = actor;
                 }

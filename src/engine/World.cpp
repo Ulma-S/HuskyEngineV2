@@ -1,11 +1,11 @@
-// Scene.h の実装。
-#include "engine/Scene.h"
+// World.h の実装。
+#include "engine/World.h"
 
 #include <algorithm> // std::remove_if, std::sort
 
 namespace husky::engine
 {
-    void Scene::Tick(double dt)
+    void World::Tick(double dt)
     {
         core::ObjectRegistry* registry = GetRegistry();
         if (registry == nullptr)
@@ -70,7 +70,7 @@ namespace husky::engine
         }
     }
 
-    bool Scene::AddLoadedActor(Actor& actor)
+    bool World::AddLoadedActor(Actor& actor)
     {
         core::ObjectRegistry* registry = GetRegistry();
         // 同じレジストリのものでなければ、ハンドルが別の表を指してしまうので入れない。
@@ -78,11 +78,11 @@ namespace husky::engine
         {
             return false;
         }
-        if (!actor.m_scene.IsNull()) // もうどこかのシーンにいる
+        if (!actor.m_world.IsNull()) // もうどこかのシーンにいる
         {
             return false;
         }
-        actor.m_scene = GetHandle();
+        actor.m_world = GetHandle();
         if (actor.guid.IsNull()) // 古いファイルや、コマンドで作ったアクターには、まだ無い
         {
             actor.guid = core::Guid::Generate();
@@ -92,7 +92,7 @@ namespace husky::engine
         return true;
     }
 
-    Actor* Scene::FindActorByGuid(const core::Guid& guid)
+    Actor* World::FindActorByGuid(const core::Guid& guid)
     {
         if (guid.IsNull())
         {
@@ -109,7 +109,7 @@ namespace husky::engine
         return nullptr;
     }
 
-    std::size_t Scene::RemoveDestroyedActors()
+    std::size_t World::RemoveDestroyedActors()
     {
         // 親(か、その上のどれか)が Destroy 済みのアクターも Destroy する(親を消すと子孫も消える。HIER-2a)。
         // 祖先をすべて調べるので、一覧の順番に関係なく1回で済む。

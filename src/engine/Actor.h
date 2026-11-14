@@ -18,19 +18,19 @@
 
 namespace husky::engine
 {
-    class Scene; // 前方宣言(Scene.h が Actor.h を読むので、ここでは読まない)
+    class World; // 前方宣言(World.h が Actor.h を読むので、ここでは読まない)
 
     // 動作スレッド: ゲームスレッドのみ
     class Actor : public core::Object
     {
         HUSKY_OBJECT(Actor, core::Object)
     public:
-        // このアクターがいるシーン。Scene::Spawn で作ったものだけが持つ。
+        // このアクターがいるシーン。World::Spawn で作ったものだけが持つ。
         // シーンの外で作った(registry.Create<Actor>() など)か、シーンがもう無ければ nullptr。
-        // シーンからは、エンジンの機能(入力など)を引ける(Scene::GetInput など)。
-        Scene* GetScene() const;
+        // シーンからは、エンジンの機能(入力など)を引ける(World::GetInput など)。
+        World* GetWorld() const;
 
-        // 毎フレーム、シーンの更新(Scene::Tick)から呼ばれる。dt はこのフレームの経過時間(秒)。
+        // 毎フレーム、シーンの更新(World::Tick)から呼ばれる。dt はこのフレームの経過時間(秒)。
         // 子クラスで override して、動きを書く。Destroy 済みのアクターでは呼ばれない。
         // 実行順は TickOrder::Default(0)で、このアクターの Default のコンポーネントより先に呼ばれる。
         virtual void Tick(double dt) { (void)dt; }
@@ -107,7 +107,7 @@ namespace husky::engine
         std::int64_t RemoveComponent(Component& component);
 
         std::string name; // 人が読む名前。ほかのアクターと重なってもよい(区別には guid を使う)
-        // このアクターの変わらない ID。シーンに入れたとき(Scene::Spawn、AddLoadedActor)に、まだ無ければ振られる。
+        // このアクターの変わらない ID。シーンに入れたとき(World::Spawn、AddLoadedActor)に、まだ無ければ振られる。
         // 保存しても読み戻しても、Play / Stop で作り直しても変わらない。エディタのコマンド(CLI や AI)がアクターを指すのに使う。
         // 人は名前で区別すればよく、GUID を意識しなくてよい(インスペクタでは灰色の文字で読むだけ)。
         // 書き換えてよいのは、シーンの読み込み(重なりを直すとき)だけ。
@@ -152,7 +152,7 @@ namespace husky::engine
         // 親が無ければ、ローカル = ワールド(今までどおり)。
         // 親は子が指す(parent。保存する)。親は子の一覧を持たない(持つと、読み込み・Undo・property.set のたびに
         // 2か所をそろえる必要があるため。子が要るときは GetChildren でシーンから集める)。
-        // 親を Destroy すると、子孫もフレームの終わりに一緒に消える(Scene::RemoveDestroyedActors)。
+        // 親を Destroy すると、子孫もフレームの終わりに一緒に消える(World::RemoveDestroyedActors)。
 
         // 親を根の方へたどる段数の上限。ファイルや property.set で輪になっていても、止まるようにする。
         static constexpr int MaxHierarchyDepth = 64;
@@ -216,24 +216,24 @@ namespace husky::engine
         // ワールドの行列を、親をたどって作る(render: 描くときの値を使うか。depth: たどった段数、上限で止める)。
         core::Matrix4 ComputeWorldMatrix(bool render, int depth) const;
 
-        // 下のコンポーネントの更新と片付けは、Scene だけが呼ぶ。
-        // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
-        friend class Scene;
+        // 下のコンポーネントの更新と片付けは、World だけが呼ぶ。
+        // friend: World には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。
+        friend class World;
 
         // components に並んでいる全コンポーネントに、持ち主(このアクター)を覚えさせ直す。
-        // ファイルから読み込んだときに、Scene::AddLoadedActor が呼ぶ。
+        // ファイルから読み込んだときに、World::AddLoadedActor が呼ぶ。
         void RelinkComponentOwners();
 
-        // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、Scene が呼ぶ。
+        // 全コンポーネントの Destroy を呼ぶ。アクターを Destroy したときに、World が呼ぶ。
         void DestroyComponents();
 
         // Destroy 済み(またはもう存在しない)コンポーネントを、一覧から外す。戻り値: 外した数。
-        // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(Scene::RemoveDestroyedActors が呼ぶ)。
+        // フレームの終わりに、ObjectRegistry::FlushDestroyed の前に呼ぶ(World::RemoveDestroyedActors が呼ぶ)。
         std::size_t RemoveDestroyedComponents();
 
-        // このアクターがいるシーン。Scene::Spawn が設定する。
+        // このアクターがいるシーン。World::Spawn が設定する。
         // プロパティとして登録しないので、弱い参照(アクターがシーンを生かし続けることはない。生かす向きはシーン → アクター)。
-        core::ObjectHandle m_scene;
+        core::ObjectHandle m_world;
 
         // ハンドルからコンポーネントを引く。もう無いか、型が違うか、レジストリで作っていなければ nullptr。
         template <typename T>

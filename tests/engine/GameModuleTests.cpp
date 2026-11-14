@@ -86,7 +86,7 @@ TEST_CASE("HR-4: ゲームの DLL は写しから読み、読み直すとシー�
     husky::engine::Actor* actor = husky::core::Cast<husky::engine::Actor>(created);
     REQUIRE(actor != nullptr);
     actor->name = "ReloadMe";
-    REQUIRE(app.GetScene().AddLoadedActor(*actor));
+    REQUIRE(app.GetWorld().AddLoadedActor(*actor));
     const husky::core::Guid guid = actor->guid;
 
     const husky::engine::GameModuleReloadResult result = husky::engine::ReloadGameModule(app);
@@ -96,7 +96,7 @@ TEST_CASE("HR-4: ゲームの DLL は写しから読み、読み直すとシー�
     CHECK_FALSE(husky::platform::FileExists(firstCopy.c_str())); // 前の写しは消えた
 
     // 同じ guid のアクターが、登録し直した型で作り直されている
-    husky::engine::Actor* restored = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* restored = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(restored != nullptr);
     CHECK(restored->name == "ReloadMe");
     CHECK(&restored->GetType() == app.GetTypeRegistry().Find("BouncerActor"));

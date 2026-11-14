@@ -1,15 +1,17 @@
-// シーン: 今動いているアクターの一覧を持つ。GC の根(ルート)にする。
+// ワールド: 今動いているアクターの平らな一覧を持つ(世界は1つ)。GC の根(ルート)にする。
+// SC-2a(2026-11-14)で Scene から改名した。「シーン」はこれから、アクターをまとめて読む・下ろす入れ物の名前にする。
+// 変数の名前は、まだ多くの場所で scene のまま(型は World)。
 //
 // 使い方:
 //   core::ObjectRegistry registry;
-//   Scene* scene = registry.Create<Scene>();
-//   registry.AddRoot(scene->GetHandle());         // シーンを根にすると、一覧のアクターは GC で回収されない
+//   World* world = registry.Create<World>();
+//   registry.AddRoot(world->GetHandle());         // ワールドを根にすると、一覧のアクターは GC で回収されない
 //
-//   Enemy* enemy = scene->Spawn<Enemy>();         // アクターを作って一覧に入れる
+//   Enemy* enemy = world->Spawn<Enemy>();         // アクターを作って一覧に入れる
 //   ...
 //   // 毎フレーム
-//   scene->Tick(dt);                              // 全アクターを更新
-//   scene->RemoveDestroyedActors();               // フレームの終わり: Destroy 済みのアクターを一覧から外し、
+//   world->Tick(dt);                              // 全アクターを更新
+//   world->RemoveDestroyedActors();               // フレームの終わり: Destroy 済みのアクターを一覧から外し、
 //   registry.FlushDestroyed();                    //                   破棄を確定する
 //
 // アクターを消すときは actor->Destroy() を呼ぶ(Unity の Destroy と同じく、フレームの終わりに消える)。
@@ -35,11 +37,11 @@ namespace husky::engine
     class AssetLoader; // 同じく前方宣言(ポインタで持つだけ)
 
     // 動作スレッド: ゲームスレッドのみ
-    class Scene : public core::Object
+    class World : public core::Object
     {
-        HUSKY_OBJECT(Scene, core::Object)
+        HUSKY_OBJECT(World, core::Object)
     public:
-        // シーンは ObjectRegistry で作ること(registry.Create<Scene>())。
+        // シーンは ObjectRegistry で作ること(registry.Create<World>())。
         // アクターは、シーンを作ったのと同じレジストリで作る(GetRegistry() で取れる)。
 
         // T 型のアクターを作り、一覧の末尾に入れる。メモリが足りなければ nullptr。
@@ -59,9 +61,9 @@ namespace husky::engine
             if (actor != nullptr)
             {
                 // T に同じ名前のメンバーがあっても大丈夫なように、Actor& として書く。
-                // 設定するのはコンストラクタの後なので、アクターのコンストラクタの中では GetScene() は nullptr。
+                // 設定するのはコンストラクタの後なので、アクターのコンストラクタの中では GetWorld() は nullptr。
                 Actor& base = *actor;
-                base.m_scene = GetHandle();
+                base.m_world = GetHandle();
                 if (base.guid.IsNull())
                 {
                     base.guid = core::Guid::Generate(); // 変わらない ID(Actor::guid)を振る
@@ -87,7 +89,7 @@ namespace husky::engine
         Actor* FindActorByGuid(const core::Guid& guid);
 
         // エンジンの入力。ゲームループが SetInput で渡す。渡されていなければ nullptr。
-        // アクターやコンポーネントは GetScene()->GetInput() で読む(自分で Input を持ったり、配られたりしない)。
+        // アクターやコンポーネントは GetWorld()->GetInput() で読む(自分で Input を持ったり、配られたりしない)。
         const Input* GetInput() const { return m_input; }
 
         // 入力を渡す。シーンは借りるだけで、持ち主にはならない(Input の寿命は呼んだ側が決める)。
@@ -95,7 +97,7 @@ namespace husky::engine
         void SetInput(const Input* input) { m_input = input; }
 
         // アセットのローダ(SD-4)。入力と同じく、ゲームループ(Application)が SetAssetLoader で渡す。渡されていなければ nullptr。
-        // アクターやコンポーネントが、プロパティの AssetRef(ScriptableData など)を引くときに GetScene()->GetAssetLoader() で使う。
+        // アクターやコンポーネントが、プロパティの AssetRef(ScriptableData など)を引くときに GetWorld()->GetAssetLoader() で使う。
         // Resolve は参照(AssetRef)とローダのキャッシュを書き換えるので、const ではない。ゲームスレッドだけ。
         AssetLoader* GetAssetLoader() const { return m_assetLoader; }
         void SetAssetLoader(AssetLoader* loader) { m_assetLoader = loader; }

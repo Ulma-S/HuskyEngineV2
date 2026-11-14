@@ -108,7 +108,7 @@ TEST_CASE("EditorCli: シーンを書き換えるコマンドは --scene のフ�
     CHECK(out.find("saved scene") != std::string::npos);
     husky::engine::Application check;
     REQUIRE(check.LoadSceneFile(scene));
-    CHECK(check.GetScene().actors.size() == 2);
+    CHECK(check.GetWorld().actors.size() == 2);
 
     // 引数の誤りは使い方の誤り(2)、コマンドの失敗(知らない型)は 1。どちらもファイルは変えない
     out.clear();
@@ -120,7 +120,7 @@ TEST_CASE("EditorCli: シーンを書き換えるコマンドは --scene のフ�
           CliExitCode::CommandFailed);
     husky::engine::Application recheck;
     REQUIRE(recheck.LoadSceneFile(scene));
-    CHECK(recheck.GetScene().actors.size() == 2);
+    CHECK(recheck.GetWorld().actors.size() == 2);
 }
 
 TEST_CASE("EditorCli: 読むだけのコマンド(actor.list)は --scene を読んで保存しない。property.set は名前で指して保存する")
@@ -156,8 +156,8 @@ TEST_CASE("EditorCli: 読むだけのコマンド(actor.list)は --scene を読�
 
     husky::engine::Application check;
     REQUIRE(check.LoadSceneFile(scene));
-    REQUIRE(check.GetScene().actors.size() == 1);
-    const husky::engine::Actor* actor = check.GetRegistry().Resolve<husky::engine::Actor>(check.GetScene().actors[0]);
+    REQUIRE(check.GetWorld().actors.size() == 1);
+    const husky::engine::Actor* actor = check.GetRegistry().Resolve<husky::engine::Actor>(check.GetWorld().actors[0]);
     REQUIRE(actor != nullptr);
     CHECK(actor->name == "Player");
     CHECK(actor->transform.position.x == 64.0f);

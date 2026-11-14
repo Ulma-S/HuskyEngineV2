@@ -21,12 +21,12 @@ namespace husky::engine::SceneSerializer
         }
 
         // 保存するオブジェクトを、番号の順に集める: アクター、その後ろにそのアクターのコンポーネント、の繰り返し。
-        void CollectObjects(Scene& scene, core::ObjectRegistry& registry, const std::vector<Actor*>& actors,
+        void CollectObjects(World& scene, core::ObjectRegistry& registry, const std::vector<Actor*>& actors,
                             std::vector<const core::Object*>& outObjects, std::vector<std::int64_t>& outActorIds)
         {
             for (Actor* actor : actors)
             {
-                if (actor == nullptr || actor->IsPendingDestroy() || actor->GetScene() != &scene)
+                if (actor == nullptr || actor->IsPendingDestroy() || actor->GetWorld() != &scene)
                 {
                     continue;
                 }
@@ -324,14 +324,14 @@ namespace husky::engine::SceneSerializer
         }
     }
 
-    WriteResult Write(Scene& scene)
+    WriteResult Write(World& scene)
     {
         std::vector<Actor*> actors;
         scene.ForEachActor([&actors](Actor& actor) { actors.push_back(&actor); }); // Destroy 済みのアクターは渡されない
         return WriteActors(scene, actors);
     }
 
-    WriteResult WriteActors(Scene& scene, const std::vector<Actor*>& actors, const WriteOptions& options)
+    WriteResult WriteActors(World& scene, const std::vector<Actor*>& actors, const WriteOptions& options)
     {
         WriteResult result;
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
@@ -644,7 +644,7 @@ namespace husky::engine::SceneSerializer
         return anyId ? -1 : actors->At(0).AsInt(-1);
     }
 
-    ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types,
+    ReadReport Read(const ArchiveValue& value, World& scene, const core::TypeRegistry& types,
                     const PrefabFinder& findPrefab)
     {
         ReadReport report;
@@ -880,7 +880,7 @@ namespace husky::engine::SceneSerializer
         for (const PrefabRoot& root : prefabRoots)
         {
             Actor* rootActor = registry->Resolve<Actor>(root.actor);
-            if (rootActor == nullptr || rootActor->GetScene() != &scene)
+            if (rootActor == nullptr || rootActor->GetWorld() != &scene)
             {
                 continue;
             }

@@ -65,7 +65,7 @@ namespace
 TEST_CASE("REF-1: 参照はコマンドの引数では、アクターは guid、コンポーネントは {actor, component, index} で表し、引き直せる")
 {
     Application app;
-    Prey* prey = app.GetScene().Spawn<Prey>();
+    Prey* prey = app.GetWorld().Spawn<Prey>();
     prey->name = "Rabbit";
     SpriteComponent* first = prey->AddComponent<SpriteComponent>();
     SpriteComponent* second = prey->AddComponent<SpriteComponent>();
@@ -94,9 +94,9 @@ TEST_CASE("REF-1: 参照はコマンドの引数では、アクターは guid、
 TEST_CASE("REF-1: property.set で参照を書き換えられる。型の違う相手は断り、null で外し、Undo で戻る")
 {
     Application app;
-    Hunter* hunter = app.GetScene().Spawn<Hunter>();
+    Hunter* hunter = app.GetWorld().Spawn<Hunter>();
     hunter->name = "Hunter";
-    Prey* prey = app.GetScene().Spawn<Prey>();
+    Prey* prey = app.GetWorld().Spawn<Prey>();
     prey->name = "Rabbit";
     SpriteComponent* sprite = prey->AddComponent<SpriteComponent>();
     EditorCommandRegistry commands;
@@ -131,9 +131,9 @@ TEST_CASE("REF-1: property.set で参照を書き換えられる。型の違う�
 TEST_CASE("REF-1: インスペクタで相手を選ぶと、記録係が property.set の1件にし、Undo で前の相手に戻る")
 {
     Application app;
-    Hunter* hunter = app.GetScene().Spawn<Hunter>();
-    Prey* first = app.GetScene().Spawn<Prey>();
-    Prey* second = app.GetScene().Spawn<Prey>();
+    Hunter* hunter = app.GetWorld().Spawn<Hunter>();
+    Prey* first = app.GetWorld().Spawn<Prey>();
+    Prey* second = app.GetWorld().Spawn<Prey>();
     hunter->prey.Set(first);
     EditorCommandRegistry commands;
     RegisterCommands(commands);
@@ -160,8 +160,8 @@ TEST_CASE("REF-1: シーンのインスペクタは参照を選ぶ箱で描い�
 {
     husky::tests::HeadlessImGui imgui;
     Application app;
-    Hunter* hunter = app.GetScene().Spawn<Hunter>();
-    Prey* prey = app.GetScene().Spawn<Prey>();
+    Hunter* hunter = app.GetWorld().Spawn<Hunter>();
+    Prey* prey = app.GetWorld().Spawn<Prey>();
     hunter->prey.Set(prey);
     prey->Destroy(); // 消えた相手(フレームの終わりまでは残る。インスペクタは消える予定のものを (missing) と出す)
     husky::tools::SceneInspector inspector;
@@ -173,11 +173,11 @@ TEST_CASE("REF-1: シーンのインスペクタは参照を選ぶ箱で描い�
 TEST_CASE("REF-1: 参照の配列も property.set で要素ごとに参照の形で書き換えられる。型の違う要素があれば何も変えない")
 {
     Application app;
-    Hunter* hunter = app.GetScene().Spawn<Hunter>();
+    Hunter* hunter = app.GetWorld().Spawn<Hunter>();
     hunter->name = "Hunter";
-    Prey* a = app.GetScene().Spawn<Prey>();
+    Prey* a = app.GetWorld().Spawn<Prey>();
     a->name = "A";
-    Prey* b = app.GetScene().Spawn<Prey>();
+    Prey* b = app.GetWorld().Spawn<Prey>();
     b->name = "B";
     EditorCommandRegistry commands;
     RegisterCommands(commands);
@@ -199,9 +199,9 @@ TEST_CASE("REF-1: 参照の配列も property.set で要素ごとに参照の形
 TEST_CASE("REF-1: インスペクタで参照の配列の要素を選ぶ・足すと、配列まるごとの property.set の1件になり、Undo で戻る")
 {
     Application app;
-    Hunter* hunter = app.GetScene().Spawn<Hunter>();
-    Prey* a = app.GetScene().Spawn<Prey>();
-    Prey* b = app.GetScene().Spawn<Prey>();
+    Hunter* hunter = app.GetWorld().Spawn<Hunter>();
+    Prey* a = app.GetWorld().Spawn<Prey>();
+    Prey* b = app.GetWorld().Spawn<Prey>();
     hunter->flock.resize(1);
     hunter->flock[0].Set(a);
     EditorCommandRegistry commands;

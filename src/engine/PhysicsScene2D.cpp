@@ -7,7 +7,7 @@
 #include "engine/Collider2D.h"
 #include "engine/EngineLog.h"
 #include "engine/Rigidbody2D.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <cmath> // std::remainder
 
@@ -46,7 +46,7 @@ namespace husky::engine
     {
     }
 
-    void PhysicsScene2D::Update(Scene& scene, double dt)
+    void PhysicsScene2D::Update(World& scene, double dt)
     {
         HUSKY_PROFILE_SCOPE("Physics2D"); // 全体(下の区間を含む)
         // このフレームに進める歩数を先に決める(Kinematic を動かす速さに使う)
@@ -85,7 +85,7 @@ namespace husky::engine
         }
     }
 
-    void PhysicsScene2D::Sync(Scene& scene)
+    void PhysicsScene2D::Sync(World& scene)
     {
         // 前のフレームに置いていたものに「まだ見ていない」の印を付ける(表をまるごと回さず、置いていたものだけ)。
         // swap: 2つの入れ物の中身を入れ替える(コピーしない。確保した領域も入れ替わるので、使い回せる)。
@@ -325,7 +325,7 @@ namespace husky::engine
         entry.body = PhysicsBodyHandle2D{};
     }
 
-    void PhysicsScene2D::WriteBackBodies(Scene& scene)
+    void PhysicsScene2D::WriteBackBodies(World& scene)
     {
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
         if (registry == nullptr)
@@ -474,7 +474,7 @@ namespace husky::engine
         }
     }
 
-    void PhysicsScene2D::ApplyInterpolation(Scene& scene)
+    void PhysicsScene2D::ApplyInterpolation(World& scene)
     {
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
         if (registry == nullptr)
@@ -578,7 +578,7 @@ namespace husky::engine
         m_collisionEvents.push_back(forB);
     }
 
-    void PhysicsScene2D::Deliver(Scene& scene)
+    void PhysicsScene2D::Deliver(World& scene)
     {
         core::ObjectRegistry* registry = scene.GetObjectRegistry();
         if (registry == nullptr)

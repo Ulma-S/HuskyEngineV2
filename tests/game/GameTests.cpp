@@ -48,10 +48,10 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
     husky::game::SpawnInitialActors(app);
-    REQUIRE(app.GetScene().actors.size() == husky::game::BouncerCount + husky::game::CrateCount + husky::game::WallCount + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
+    REQUIRE(app.GetWorld().actors.size() == husky::game::BouncerCount + husky::game::CrateCount + husky::game::WallCount + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
 
     // 一覧の最後(一番手前)がプレイヤー
-    const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
+    const auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetWorld().actors.back());
     REQUIRE(player != nullptr);
     CHECK(player->GetComponent<husky::engine::SpriteComponent>() != nullptr);
 
@@ -64,14 +64,14 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     CHECK_FALSE(player->GetComponent<husky::engine::SpriteComponent>()->sheet.IsNull());
     REQUIRE(player->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
     CHECK(player->GetComponent<husky::engine::SpriteAnimatorComponent>()->playing);
-    const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors.front());
     REQUIRE(bouncer != nullptr);
     CHECK(bouncer->prefab.guid == *app.GetAssetDatabase().FindGuid("prefabs/bouncer.prefab"));
     CHECK(bouncer->GetComponent<husky::engine::SpriteComponent>()->width == husky::game::BouncerSize);
     CHECK(bouncer->vx != 0.0f); // 1つずつ違う値は、置いた後に書いている
 
     // カメラはプレイヤーを追いかけ、最初からプレイヤーの真ん中(= プレイヤーの位置。ピボットが真ん中)を映す位置にいる
-    const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetScene());
+    const husky::engine::CameraComponent* camera = husky::engine::FindSceneCamera(app.GetWorld());
     REQUIRE(camera != nullptr);
     const auto* follow = camera->GetOwner()->GetComponent<husky::game::CameraFollowComponent>();
     REQUIRE(follow != nullptr);
@@ -86,23 +86,23 @@ TEST_CASE("Game: 最初の配置は、跳ね回るアクター、カメラ、プ
     husky::game::RegisterGameTypes(other.GetTypeRegistry());
     ScanBuiltAssets(other);
     husky::game::SpawnInitialActors(other);
-    const auto* first = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
-    const auto* otherFirst = other.GetRegistry().Resolve<husky::game::BouncerActor>(other.GetScene().actors.front());
+    const auto* first = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors.front());
+    const auto* otherFirst = other.GetRegistry().Resolve<husky::game::BouncerActor>(other.GetWorld().actors.front());
     REQUIRE(first != nullptr);
     REQUIRE(otherFirst != nullptr);
     CHECK(first->transform.position.x == otherFirst->transform.position.x);
     CHECK(first->vy == otherFirst->vy);
 
     // ゲームの型を登録したアプリなら、保存したシーンを読み戻せる(エディタがシーンを扱うときと同じ)
-    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetScene());
+    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetWorld());
     Application loaded;
     husky::game::RegisterGameTypes(loaded.GetTypeRegistry());
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved.value, loaded.GetScene(), loaded.GetTypeRegistry());
+        husky::engine::SceneSerializer::Read(saved.value, loaded.GetWorld(), loaded.GetTypeRegistry());
     CHECK(report.warnings.empty());
-    CHECK(loaded.GetScene().actors.size() == app.GetScene().actors.size());
+    CHECK(loaded.GetWorld().actors.size() == app.GetWorld().actors.size());
     // 読み戻しても、カメラはプレイヤーを指したまま(ハンドルは番号の対応表で保存される)
-    const husky::engine::CameraComponent* loadedCamera = husky::engine::FindSceneCamera(loaded.GetScene());
+    const husky::engine::CameraComponent* loadedCamera = husky::engine::FindSceneCamera(loaded.GetWorld());
     REQUIRE(loadedCamera != nullptr);
     const auto* loadedFollow = loadedCamera->GetOwner()->GetComponent<husky::game::CameraFollowComponent>();
     REQUIRE(loadedFollow != nullptr);
@@ -116,7 +116,7 @@ TEST_CASE("Game: プレイヤーは上キーで +y(上)へ、下キーで -y(下
 
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    auto* player = app.GetWorld().Spawn<husky::game::PlayerActor>();
     REQUIRE(player != nullptr);
     player->transform.position.y = 100.0f;
 
@@ -136,7 +136,7 @@ TEST_CASE("Game: プレイヤーは世界の外へ出られない")
 
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    auto* player = app.GetWorld().Spawn<husky::game::PlayerActor>();
     REQUIRE(player != nullptr);
     const float half = husky::game::PlayerSize / 2.0f; // 位置はプレイヤーの真ん中なので、端から半分の大きさで止まる
     player->transform.position = {half + 5.0f, half + 5.0f, 0.0f};
@@ -161,9 +161,9 @@ TEST_CASE("COL-4: プレハブのコライダーで、跳ね回るものはプ�
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
     husky::game::SpawnInitialActors(app);
-    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
-    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
-    auto* other = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors[1]);
+    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetWorld().actors.back());
+    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors.front());
+    auto* other = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors[1]);
     REQUIRE(player != nullptr);
     REQUIRE(bouncer != nullptr);
     REQUIRE(other != nullptr);
@@ -207,12 +207,12 @@ TEST_CASE("SD-4: 跳ね回るものの数・速さ・プレハブは設定のデ
     // assets の data/bouncers.sdata が読め、置いたもの全員がプレハブの値としてそれを指す(1体ずつの値ではない)
     const husky::core::Guid* dataGuid = app.GetAssetDatabase().FindGuid("data/bouncers.sdata");
     REQUIRE(dataGuid != nullptr);
-    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors.front());
+    auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors.front());
     REQUIRE(bouncer != nullptr);
     CHECK(bouncer->settings.guid == *dataGuid);
     const husky::game::BouncerSettings* settings = app.GetAssetLoader().Resolve(bouncer->settings);
     REQUIRE(settings != nullptr);
-    CHECK(app.GetScene().actors.size() == static_cast<std::size_t>(settings->count + husky::game::CrateCount + husky::game::WallCount) + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
+    CHECK(app.GetWorld().actors.size() == static_cast<std::size_t>(settings->count + husky::game::CrateCount + husky::game::WallCount) + 3); // + 木箱 + 壁 + カメラ + BGM + プレイヤー
     CHECK(settings->IsReadOnly());
 }
 
@@ -238,10 +238,10 @@ TEST_CASE("SD-4: 設定のデータの count と maxSpeed を変えると、置�
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     husky::game::SpawnInitialActors(app);
-    REQUIRE(app.GetScene().actors.size() == 5 + husky::game::WallCount + 1); // 跳ね回るもの 5 + 壁 + カメラ(プレイヤーと木箱のプレハブは無い)
+    REQUIRE(app.GetWorld().actors.size() == 5 + husky::game::WallCount + 1); // 跳ね回るもの 5 + 壁 + カメラ(プレイヤーと木箱のプレハブは無い)
     for (std::size_t i = 0; i < 5; ++i)
     {
-        const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetScene().actors[i]);
+        const auto* bouncer = app.GetRegistry().Resolve<husky::game::BouncerActor>(app.GetWorld().actors[i]);
         REQUIRE(bouncer != nullptr);
         CHECK(bouncer->vx >= -10.0f);
         CHECK(bouncer->vx <= 10.0f);
@@ -257,7 +257,7 @@ TEST_CASE("PHY-5: プレイヤー(Kinematic)で木箱(Dynamic)を押せる。木
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
     husky::game::SpawnInitialActors(app);
-    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetScene().actors.back());
+    auto* player = app.GetRegistry().Resolve<husky::game::PlayerActor>(app.GetWorld().actors.back());
     REQUIRE(player != nullptr);
     // プレイヤーはプレハブで Kinematic の体を持つ
     REQUIRE(player->GetComponent<husky::engine::Rigidbody2D>() != nullptr);
@@ -266,7 +266,7 @@ TEST_CASE("PHY-5: プレイヤー(Kinematic)で木箱(Dynamic)を押せる。木
     // 木箱(名前 "Crate")を集める。最初の木箱は、プレイヤーの右 200、上 40 にある
     std::vector<husky::engine::Actor*> crates;
     int walls = 0;
-    app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+    app.GetWorld().ForEachActor([&](husky::engine::Actor& actor) {
         if (actor.name == "Crate")
         {
             crates.push_back(&actor);
@@ -311,7 +311,7 @@ TEST_CASE("Game: 左ボタンでクリックした所へ、プレイヤーが歩
 
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    auto* player = app.GetWorld().Spawn<husky::game::PlayerActor>();
     REQUIRE(player != nullptr);
     player->transform.position = husky::core::Vector3{500.0f, 100.0f, 0.0f};
 
@@ -373,12 +373,12 @@ TEST_CASE("Game: マウスの下のワールドの位置は、シーンのカメ
 
     // 画面の大きさを渡していない(テストや CLI): 求めず、outWorld も変えない
     app.StepFrame(0, InputEvents{});
-    CHECK_FALSE(husky::engine::FindMouseWorldPosition(app.GetScene(), world));
+    CHECK_FALSE(husky::engine::FindMouseWorldPosition(app.GetWorld(), world));
     CHECK(world.x == -1.0f);
 
     // カメラを (1000, 2000) に置く(zoom 1): 画面の真ん中 (640, 360) がカメラの位置に映る。
     // 画面で右へ 100・下へ 50 は、ワールドで右へ 100・下へ 50(y は -)
-    auto* cameraActor = app.GetScene().Spawn<husky::engine::Actor>();
+    auto* cameraActor = app.GetWorld().Spawn<husky::engine::Actor>();
     REQUIRE(cameraActor != nullptr);
     cameraActor->transform.position = husky::core::Vector3{1000.0f, 2000.0f, 0.0f};
     REQUIRE(cameraActor->AddComponent<husky::engine::CameraComponent>() != nullptr);
@@ -391,7 +391,7 @@ TEST_CASE("Game: マウスの下のワールドの位置は、シーンのカメ
     move.y = 410.0f;
     events.mouse.push_back(move);
     app.StepFrame(0, events);
-    REQUIRE(husky::engine::FindMouseWorldPosition(app.GetScene(), world));
+    REQUIRE(husky::engine::FindMouseWorldPosition(app.GetWorld(), world));
     CHECK(world.x == doctest::Approx(1100.0f));
     CHECK(world.y == doctest::Approx(1950.0f));
 }
@@ -405,7 +405,7 @@ namespace
     T* FindFirstComponent(Application& app)
     {
         T* found = nullptr;
-        app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+        app.GetWorld().ForEachActor([&](husky::engine::Actor& actor) {
             if (found == nullptr)
             {
                 found = actor.GetComponent<T>();
@@ -417,7 +417,7 @@ namespace
     husky::engine::Actor* FindActorNamed(Application& app, const char* name)
     {
         husky::engine::Actor* found = nullptr;
-        app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+        app.GetWorld().ForEachActor([&](husky::engine::Actor& actor) {
             if (found == nullptr && actor.name == name)
             {
                 found = &actor;
@@ -436,11 +436,11 @@ TEST_CASE("Game: Canvas の無いシーンには HUD のプレハブを置く。
     REQUIRE(FindFirstComponent<husky::engine::CanvasComponent>(app) != nullptr);
     REQUIRE(FindFirstComponent<husky::game::HudComponent>(app) != nullptr);
     CHECK(FindActorNamed(app, "ResetButton") != nullptr);
-    const std::size_t count = app.GetScene().actors.size();
+    const std::size_t count = app.GetWorld().actors.size();
     CHECK(count == 5); // HUD、スコア、残り時間、ボタン、ボタンの文字
 
     husky::game::SpawnHudIfMissing(app); // 2回目は置かない
-    CHECK(app.GetScene().actors.size() == count);
+    CHECK(app.GetWorld().actors.size() == count);
 }
 
 TEST_CASE("Game: HUD はプレイヤーのスコアと残り時間を文字に書き、時間切れで止まり、リセットのボタンで最初に戻る")
@@ -448,7 +448,7 @@ TEST_CASE("Game: HUD はプレイヤーのスコアと残り時間を文字に�
     Application app;
     husky::game::RegisterGameTypes(app.GetTypeRegistry());
     ScanBuiltAssets(app);
-    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    auto* player = app.GetWorld().Spawn<husky::game::PlayerActor>();
     REQUIRE(player != nullptr);
     husky::game::SpawnHudIfMissing(app);
     husky::game::HudComponent* hud = FindFirstComponent<husky::game::HudComponent>(app);
@@ -496,9 +496,9 @@ TEST_CASE("Game: HUD はプレイヤーのスコアと残り時間を文字に�
 TEST_CASE("Game: プレイヤーのスコアは、跳ね回るものが触れ始めたときだけ増える")
 {
     Application app;
-    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
-    auto* bouncer = app.GetScene().Spawn<husky::game::BouncerActor>();
-    auto* other = app.GetScene().Spawn<husky::engine::Actor>();
+    auto* player = app.GetWorld().Spawn<husky::game::PlayerActor>();
+    auto* bouncer = app.GetWorld().Spawn<husky::game::BouncerActor>();
+    auto* other = app.GetWorld().Spawn<husky::engine::Actor>();
     REQUIRE(player != nullptr);
     REQUIRE(bouncer != nullptr);
     REQUIRE(other != nullptr);

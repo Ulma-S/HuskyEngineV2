@@ -52,7 +52,7 @@ namespace
 
     AnimatedActor SpawnAnimatedActor(Application& app)
     {
-        Actor* actor = app.GetScene().Spawn<Actor>();
+        Actor* actor = app.GetWorld().Spawn<Actor>();
         REQUIRE(actor != nullptr);
         AnimatedActor result;
         result.sprite = actor->AddComponent<SpriteComponent>();
@@ -184,7 +184,7 @@ TEST_CASE("SpriteAnimator: アニメーションが見つからない、スプ�
     CHECK(actor.sprite->sprite == 7);
 
     // SpriteComponent の無いアクターに付けても、落ちない
-    Actor* alone = app.GetScene().Spawn<Actor>();
+    Actor* alone = app.GetWorld().Spawn<Actor>();
     SpriteAnimatorComponent* lonely = alone->AddComponent<SpriteAnimatorComponent>();
     lonely->Play(Walk);
     lonely->Tick(0.5);

@@ -15,7 +15,7 @@
 
 using husky::engine::Actor;
 using husky::engine::Application;
-using husky::engine::Scene;
+using husky::engine::World;
 using husky::platform::Key;
 using husky::platform::KeyEvent;
 
@@ -31,7 +31,7 @@ namespace
         void Tick(double dt) override
         {
             transform.position.x += static_cast<float>(100.0 * dt);
-            const Scene* scene = GetScene();
+            const World* scene = GetWorld();
             if (scene != nullptr && scene->GetInput()->IsDown(Key::Space))
             {
                 transform.position.y += static_cast<float>(100.0 * dt);
@@ -54,14 +54,14 @@ TEST_CASE("Application: シーンは最初からあり、GC の根で、入力�
     Application app;
     CHECK(app.GetRegistry().GetObjectCount() == 1); // シーンだけ
     CHECK(app.GetRegistry().GetRootCount() == 1);
-    CHECK(app.GetScene().GetInput() == &app.GetInput());
+    CHECK(app.GetWorld().GetInput() == &app.GetInput());
 }
 
 TEST_CASE("Application: StepFrame は固定した dt でシーンを更新し、その dt を返す")
 {
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    Walker* walker = app.GetScene().Spawn<Walker>();
+    Walker* walker = app.GetWorld().Spawn<Walker>();
 
     CHECK(app.StepFrame(0, NoEvents) == doctest::Approx(0.1));
     CHECK(app.StepFrame(0, NoEvents) == doctest::Approx(0.1));
@@ -72,7 +72,7 @@ TEST_CASE("Application: StepFrame に渡したキーイベントが、アクタ�
 {
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    Walker* walker = app.GetScene().Spawn<Walker>();
+    Walker* walker = app.GetWorld().Spawn<Walker>();
 
     app.StepFrame(0, {KeyEvent{Key::Space, true}}); // Space を押す
     CHECK(app.GetInput().WasPressed(Key::Space));
@@ -90,7 +90,7 @@ TEST_CASE("Application: 更新コールバックは、シーンの更新の前�
     g_log.clear();
     Application app;
     app.GetClock().SetFixedDelta(0.05);
-    app.GetScene().Spawn<TickLogger>();
+    app.GetWorld().Spawn<TickLogger>();
     double receivedDt = 0.0;
     app.SetUpdateCallback([&](Application&, double dt) {
         g_log += "U";
@@ -107,14 +107,14 @@ TEST_CASE("Application: Destroy したアクターは、そのフレームの終
 {
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    Walker* walker = app.GetScene().Spawn<Walker>();
+    Walker* walker = app.GetWorld().Spawn<Walker>();
     const auto handle = walker->GetHandle();
 
     walker->Destroy();
     app.StepFrame(0, NoEvents);
 
     CHECK(app.GetRegistry().Resolve(handle) == nullptr);
-    CHECK(app.GetScene().actors.empty());
+    CHECK(app.GetWorld().actors.empty());
 }
 
 TEST_CASE("Application: GC は GcIntervalSeconds(1 秒)ごとに回り、シーンから届かないものを回収する")
@@ -144,7 +144,7 @@ TEST_CASE("Application: 温まった後は、GC を回すフレームも含め�
     Application app;
     for (int i = 0; i < 1000; ++i)
     {
-        app.GetScene().Spawn<Walker>()->AddComponent<husky::engine::SpriteComponent>();
+        app.GetWorld().Spawn<Walker>()->AddComponent<husky::engine::SpriteComponent>();
     }
     app.GetClock().SetFixedDelta(0.0625); // 16 フレームで 1 秒 = GC 1 回
     for (int i = 0; i < 40; ++i)          // 温める: 作業用の配列が一番大きくなるまで回す(GC も 2 回回る)
@@ -167,7 +167,7 @@ TEST_CASE("Application: engine の型を、型の登録簿に登録済み")
 {
     Application app;
     husky::core::TypeRegistry& types = app.GetTypeRegistry();
-    CHECK(types.Find("Scene") != nullptr);
+    CHECK(types.Find("World") != nullptr);
     CHECK(types.Find("Actor") != nullptr);
     CHECK(types.Find("Component") != nullptr);
     CHECK(types.Find("SpriteComponent") != nullptr);
@@ -182,24 +182,24 @@ TEST_CASE("Application: LoadSceneFile は、保存したシーンのファイル
     const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_scene.json";
     {
         Application source;
-        Walker* walker = source.GetScene().Spawn<Walker>();
+        Walker* walker = source.GetWorld().Spawn<Walker>();
         walker->name = "ファイルから";
         walker->AddComponent<husky::engine::SpriteComponent>()->color = {0.25f, 0.5f, 0.75f, 1.0f};
         source.GetTypeRegistry().Register<Walker>();
 
         std::string text;
-        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetScene()).value, text));
+        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetWorld()).value, text));
         REQUIRE(husky::platform::WriteTextFile(path.c_str(), text));
     }
 
     // 読み込む側: 型を登録してから読み込む。
     Application app;
     app.GetTypeRegistry().Register<Walker>();
-    app.GetScene().Spawn<Walker>(); // 先にいるアクターは消えない
+    app.GetWorld().Spawn<Walker>(); // 先にいるアクターは消えない
     REQUIRE(app.LoadSceneFile(path));
 
-    REQUIRE(app.GetScene().actors.size() == 2);
-    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetScene().actors[1]);
+    REQUIRE(app.GetWorld().actors.size() == 2);
+    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetWorld().actors[1]);
     REQUIRE(loaded != nullptr);
     CHECK(loaded->name == "ファイルから");
     CHECK(loaded->GetComponent<husky::engine::SpriteComponent>()->color.b == 0.75f);
@@ -220,7 +220,7 @@ TEST_CASE("Application: LoadSceneFile は、無いファイルや壊れた JSON 
     const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_broken_scene.json";
     REQUIRE(husky::platform::WriteTextFile(path.c_str(), "{ \"objects\": [ "));
     CHECK_FALSE(app.LoadSceneFile(path));
-    CHECK(app.GetScene().actors.empty());
+    CHECK(app.GetWorld().actors.empty());
     husky::platform::RemoveFile(path.c_str());
 }
 
@@ -245,7 +245,7 @@ TEST_CASE("Application(開発ビルド): SaveSceneFile で保存したものを�
     const std::string path = husky::platform::GetExecutableDirectory() + "husky_test_saved_scene.json";
     {
         Application source;
-        Walker* walker = source.GetScene().Spawn<Walker>();
+        Walker* walker = source.GetWorld().Spawn<Walker>();
         walker->name = "保存した";
         walker->transform.position.y = 42.0f;
         REQUIRE(source.SaveSceneFile(path));
@@ -258,8 +258,8 @@ TEST_CASE("Application(開発ビルド): SaveSceneFile で保存したものを�
     Application app;
     app.GetTypeRegistry().Register<Walker>();
     REQUIRE(app.LoadSceneFile(path));
-    REQUIRE(app.GetScene().actors.size() == 1);
-    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetScene().actors[0]);
+    REQUIRE(app.GetWorld().actors.size() == 1);
+    Walker* loaded = app.GetRegistry().Resolve<Walker>(app.GetWorld().actors[0]);
     REQUIRE(loaded != nullptr);
     CHECK(loaded->name == "保存した");
     CHECK(loaded->transform.position.y == 42.0f);

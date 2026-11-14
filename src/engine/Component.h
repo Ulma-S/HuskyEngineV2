@@ -29,7 +29,7 @@ namespace husky::engine
     class Actor; // 前方宣言: 「Actor というクラスがある」とだけ伝える(Actor.h が Component.h を読むので、循環を避ける)
 
     // 実行順(Tick を呼ぶ順番を決める整数)の、よく使う値。Unity の DefaultExecutionOrder にあたる。
-    // Scene::Tick は、シーンの全コンポーネントを実行順の小さい順に呼ぶ。小さい値のものが、全アクター分
+    // World::Tick は、シーンの全コンポーネントを実行順の小さい順に呼ぶ。小さい値のものが、全アクター分
     // 終わってから、大きい値のものが始まる。同じ値どうしは、シーンの一覧の順(アクターの順、その中の付けた順)。
     // ここに無い値(たとえば Default と Late の間の 500)も自由に使ってよい。
     //
@@ -52,7 +52,7 @@ namespace husky::engine
         friend class Actor;
 
     public:
-        // 毎フレーム、シーンの更新(Scene::Tick)から、GetTickOrder() の順番で呼ばれる。
+        // 毎フレーム、シーンの更新(World::Tick)から、GetTickOrder() の順番で呼ばれる。
         // 子クラスで override して、機能を書く。Destroy 済みのコンポーネントや、
         // Destroy 済みのアクターに付いたコンポーネントでは呼ばれない。
         virtual void Tick(double dt) { (void)dt; }
@@ -69,7 +69,7 @@ namespace husky::engine
 
         // このコンポーネントの実行順(宣言)。既定は TickOrder::Default(0)。
         // 先に、または後に動かしたい子クラスは、override して返す値を変える。
-        // Scene::Tick はフレームの最初にこの値を読んで順番を決めるので、フレームの途中で変えても、効くのは次のフレームから。
+        // World::Tick はフレームの最初にこの値を読んで順番を決めるので、フレームの途中で変えても、効くのは次のフレームから。
         virtual std::int32_t GetTickOrder() const { return TickOrder::Default; }
 
         // 取り付け先のアクター。もう存在しなければ nullptr。

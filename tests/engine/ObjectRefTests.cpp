@@ -6,7 +6,7 @@
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 
@@ -19,7 +19,7 @@ using husky::core::ObjectRegistry;
 using husky::core::TypeRegistry;
 using husky::engine::Actor;
 using husky::engine::ArchiveValue;
-using husky::engine::Scene;
+using husky::engine::World;
 using husky::engine::SpriteComponent;
 namespace SceneSerializer = husky::engine::SceneSerializer;
 
@@ -48,9 +48,9 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
@@ -83,7 +83,7 @@ TEST_CASE("SF-1: ObjectRef<T> はプロパティになり、指せる型の情�
     CHECK(property->IsReference()); // シーンのファイルでは番号で書く
 
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Hunter* hunter = scene->Spawn<Hunter>();
     Prey* prey = scene->Spawn<Prey>();
     CHECK(hunter->Target().Resolve(registry) == nullptr); // まだ何も指さない
@@ -108,7 +108,7 @@ TEST_CASE("SF-1: シーンを保存して読み直すと、ObjectRef は読み�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry sourceRegistry;
-    Scene* source = CreateRootScene(sourceRegistry);
+    World* source = CreateRootScene(sourceRegistry);
     Prey* prey = source->Spawn<Prey>();
     prey->name = "うさぎ";
     SpriteComponent* sprite = prey->AddComponent<SpriteComponent>();
@@ -122,7 +122,7 @@ TEST_CASE("SF-1: シーンを保存して読み直すと、ObjectRef は読み�
 
     ObjectRegistry targetRegistry;
     targetRegistry.Create<Actor>(); // ハンドルの場所をずらす
-    Scene* target = CreateRootScene(targetRegistry);
+    World* target = CreateRootScene(targetRegistry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(ThroughJson(saved.value), *target, types);
     CHECK(report.warnings.empty());
     REQUIRE(target->actors.size() == 2);
@@ -148,7 +148,7 @@ TEST_CASE("SF-1: 読み込みで、番号の相手が指せる型でなければ
     ], "actors": [0, 1] })", file));
 
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
     REQUIRE(report.warnings.size() == 1);
     CHECK(report.warnings[0].find("m_prey") != std::string::npos);
@@ -163,7 +163,7 @@ TEST_CASE("SF-1: プレハブにすると、アクターの外を指す ObjectRe
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Prey* outside = scene->Spawn<Prey>();
     Hunter* hunter = scene->Spawn<Hunter>();
     SpriteComponent* own = hunter->AddComponent<SpriteComponent>();

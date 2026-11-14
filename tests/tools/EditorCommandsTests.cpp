@@ -154,7 +154,7 @@ TEST_CASE("EditorCommands: シーンの保存は、指定したすべてのフ�
 {
     husky::tests::TestFolder folder("husky_test_command_save");
     Application app;
-    app.GetScene().Spawn<husky::engine::Actor>();
+    app.GetWorld().Spawn<husky::engine::Actor>();
 
     EditorCommandRegistry commands;
     REQUIRE(commands.Register(husky::tools::MakeSaveSceneCommand({folder.PathOf("a.json"), folder.PathOf("b.json")})));
@@ -173,7 +173,7 @@ TEST_CASE("EditorCommands: シーンの保存は、指定したすべてのフ�
     // 書けた側を読み戻すと、同じシーン(アクター1つ)になる。
     Application loaded;
     REQUIRE(loaded.LoadSceneFile(folder.PathOf("b.json")));
-    CHECK(loaded.GetScene().actors.size() == 1);
+    CHECK(loaded.GetWorld().actors.size() == 1);
 }
 
 TEST_CASE("EditorCommands: シーンの保存で書けないファイルがあれば失敗にし、書けなかった場所を返す")
@@ -310,18 +310,18 @@ TEST_CASE("EditorCommands: アクターを置くコマンドは、型の名前�
     const EditorCommandResult result = commands.Execute("actor.spawn", app, args);
     CHECK(result.succeeded);
     CHECK(result.message == "Spawned Actor at (100, 50.5)");
-    REQUIRE(app.GetScene().actors.size() == 1);
-    const husky::engine::Actor* actor = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetScene().actors[0]);
+    REQUIRE(app.GetWorld().actors.size() == 1);
+    const husky::engine::Actor* actor = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetWorld().actors[0]);
     REQUIRE(actor != nullptr);
     CHECK(actor->transform.position.x == 100.0f);
     CHECK(actor->transform.position.y == 50.5f);
-    CHECK(actor->GetScene() == &app.GetScene());
+    CHECK(actor->GetWorld() == &app.GetWorld());
 
     REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "SpriteComponent"})", args));
     CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded); // アクターではない
     REQUIRE(husky::engine::JsonFormat::Read(R"({"type": "NoSuchActor"})", args));
     CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded);
-    CHECK(app.GetScene().actors.size() == 1);
+    CHECK(app.GetWorld().actors.size() == 1);
 }
 
 TEST_CASE("EditorCommands: 温まった後は、キーが押されていないフレームのショートカットの確認も、ボタンを並べるのも、メモリを確保しない")
@@ -389,7 +389,7 @@ TEST_CASE("EditorCommands: prefab.create でアクターからプレハブを作
     REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
     CHECK(commands.Find("prefab.create")->readsScene);
 
-    husky::engine::Actor* coin = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* coin = app.GetWorld().Spawn<husky::engine::Actor>();
     coin->name = "Coin";
     coin->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
 
@@ -415,8 +415,8 @@ TEST_CASE("EditorCommands: prefab.create でアクターからプレハブを作
     const EditorCommandResult spawned = commands.Execute("actor.spawn", app, args);
     REQUIRE(spawned.succeeded);
     CHECK(spawned.message == "Spawned prefabs/coin.prefab at (5, 0)");
-    REQUIRE(app.GetScene().actors.size() == 2);
-    husky::engine::Actor* placed = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetScene().actors[1]);
+    REQUIRE(app.GetWorld().actors.size() == 2);
+    husky::engine::Actor* placed = app.GetRegistry().Resolve<husky::engine::Actor>(app.GetWorld().actors[1]);
     REQUIRE(placed != nullptr);
     CHECK(placed->name == "Coin");
     CHECK(placed->transform.position.x == 5.0f);
@@ -439,7 +439,7 @@ TEST_CASE("EditorCommands: prefab.create でアクターからプレハブを作
     ArchiveValue byGuid = ArchiveValue::MakeObject();
     byGuid.Set("prefab", ArchiveValue(guidText));
     CHECK(commands.Execute("actor.spawn", app, byGuid).succeeded);
-    CHECK(app.GetScene().actors.size() == 3);
+    CHECK(app.GetWorld().actors.size() == 3);
 
     // prefab と type は、どちらか一方だけ
     REQUIRE(husky::engine::JsonFormat::Read(R"({"prefab": "prefabs/coin.prefab", "type": "Actor"})", args));
@@ -447,7 +447,7 @@ TEST_CASE("EditorCommands: prefab.create でアクターからプレハブを作
     CHECK_FALSE(commands.Execute("actor.spawn", app, ArchiveValue::MakeObject()).succeeded);
     REQUIRE(husky::engine::JsonFormat::Read(R"({"prefab": "prefabs/none.prefab"})", args));
     CHECK_FALSE(commands.Execute("actor.spawn", app, args).succeeded);
-    CHECK(app.GetScene().actors.size() == 3);
+    CHECK(app.GetWorld().actors.size() == 3);
 }
 
 TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を開いても、ImGui の使い方の誤りが無い。開くだけでは実行しない")
@@ -461,7 +461,7 @@ TEST_CASE("DebugWindow: 引数の入力欄の小窓(選択肢の箱を含む)を
     window.OpenArgsInput("actor.spawn");
     imgui.Frame([&] { window.Draw(app, &commands); }); // 小窓を開いたフレーム
     imgui.Frame([&] { window.Draw(app, &commands); }); // 開いたまま
-    CHECK(app.GetScene().actors.empty());
+    CHECK(app.GetWorld().actors.empty());
     CHECK(commands.GetLastCommandName().empty());
 
     // 選択肢: 型の登録簿にある Actor の子孫(アクターでない型は入らない)
@@ -487,9 +487,9 @@ namespace
     NamedActors SpawnNamedActors(Application& app)
     {
         NamedActors actors;
-        actors.enemyA = app.GetScene().Spawn<husky::engine::Actor>();
-        actors.enemyB = app.GetScene().Spawn<husky::engine::Actor>();
-        actors.player = app.GetScene().Spawn<husky::engine::Actor>();
+        actors.enemyA = app.GetWorld().Spawn<husky::engine::Actor>();
+        actors.enemyB = app.GetWorld().Spawn<husky::engine::Actor>();
+        actors.player = app.GetWorld().Spawn<husky::engine::Actor>();
         actors.enemyA->name = "Enemy";
         actors.enemyB->name = "Enemy";
         actors.player->name = "Player";
@@ -511,17 +511,17 @@ TEST_CASE("EditorCommands: アクターは名前でも guid でも指せる。�
     const NamedActors actors = SpawnNamedActors(app);
     std::string error;
 
-    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Player", error) == actors.player);
-    CHECK(husky::tools::FindActorFromArg(app.GetScene(), actors.enemyB->guid.ToString(), error) == actors.enemyB);
+    CHECK(husky::tools::FindActorFromArg(app.GetWorld(), "Player", error) == actors.player);
+    CHECK(husky::tools::FindActorFromArg(app.GetWorld(), actors.enemyB->guid.ToString(), error) == actors.enemyB);
 
-    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Enemy", error) == nullptr);
+    CHECK(husky::tools::FindActorFromArg(app.GetWorld(), "Enemy", error) == nullptr);
     CHECK(error.find("matches 2 actors") != std::string::npos);
     CHECK(error.find(actors.enemyA->guid.ToString()) != std::string::npos); // 候補の guid が並ぶ
     CHECK(error.find(actors.enemyB->guid.ToString()) != std::string::npos);
 
-    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "Nobody", error) == nullptr);
+    CHECK(husky::tools::FindActorFromArg(app.GetWorld(), "Nobody", error) == nullptr);
     CHECK(error.find("No actor named") != std::string::npos);
-    CHECK(husky::tools::FindActorFromArg(app.GetScene(), "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a99", error) == nullptr);
+    CHECK(husky::tools::FindActorFromArg(app.GetWorld(), "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a99", error) == nullptr);
     CHECK(error.find("No actor has the guid") != std::string::npos);
 }
 
@@ -542,7 +542,7 @@ TEST_CASE("EditorCommands: actor.list はアクターを名前、型、guid で�
 
     result = commands.Execute("actor.list", app, Json(R"({"name": "Enemy"})"));
     CHECK(result.data.GetArraySize() == 2);
-    result = commands.Execute("actor.list", app, Json(R"({"type": "Scene"})")); // アクターでない型には当てはまらない
+    result = commands.Execute("actor.list", app, Json(R"({"type": "World"})")); // アクターでない型には当てはまらない
     CHECK(result.data.GetArraySize() == 0);
     CHECK_FALSE(commands.Execute("actor.list", app, Json(R"({"type": "NoSuchType"})")).succeeded);
 }
@@ -727,7 +727,7 @@ TEST_CASE("EditorCommands: 戻せるコマンドは履歴に積まれ、Undo で
 
     // 相手のアクターが消えていたら、戻せない。その1件は捨てる(ずっと詰まらないように)
     actors.player->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     result = commands.Execute("editor.undo", app);
     CHECK_FALSE(result.succeeded);
     CHECK(commands.GetUndoCount() == 1);
@@ -808,7 +808,7 @@ TEST_CASE("EditorCommands: prefab.overrides はプレハブとの違いを並べ
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
     // 幅 24 の白いスプライトのプレハブを作って置き、3つの値を変える
-    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
     original->name = "Coin";
     original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
@@ -818,7 +818,7 @@ TEST_CASE("EditorCommands: prefab.overrides はプレハブとの違いを並べ
     const std::string guid = spawned.data.Find("guid")->AsString();
     husky::core::Guid parsed;
     REQUIRE(husky::core::Guid::Parse(guid, parsed));
-    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(parsed);
+    husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(parsed);
     REQUIRE(placed != nullptr);
     husky::engine::SpriteComponent* sprite = placed->GetComponent<husky::engine::SpriteComponent>();
     REQUIRE(sprite != nullptr);
@@ -870,12 +870,12 @@ TEST_CASE("EditorCommands: actor.destroy は子孫も消し、Undo で子孫と�
     REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
-    husky::engine::Actor* root = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* root = app.GetWorld().Spawn<husky::engine::Actor>();
     root->name = "Root";
-    husky::engine::Actor* middle = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* middle = app.GetWorld().Spawn<husky::engine::Actor>();
     middle->name = "Middle";
     middle->transform.position = {5.0f, 0.0f, 0.0f};
-    husky::engine::Actor* leaf = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* leaf = app.GetWorld().Spawn<husky::engine::Actor>();
     leaf->name = "Leaf";
     REQUIRE(middle->SetParent(root, false));
     REQUIRE(leaf->SetParent(middle, false));
@@ -888,14 +888,14 @@ TEST_CASE("EditorCommands: actor.destroy は子孫も消し、Undo で子孫と�
     CHECK(destroyed.details.empty()); // 親は控えの外だが、外を指すハンドルの警告は出ない
     CHECK(leaf->IsPendingDestroy());
     CHECK_FALSE(root->IsPendingDestroy());
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     app.GetRegistry().FlushDestroyed();
-    CHECK(app.GetScene().actors.size() == 1);
+    CHECK(app.GetWorld().actors.size() == 1);
 
     // Undo: 2体とも同じ guid で戻り、Middle は Root の子に、Leaf は Middle の子に戻る
     REQUIRE(commands.Execute("editor.undo", app).succeeded);
-    husky::engine::Actor* restoredMiddle = app.GetScene().FindActorByGuid(middleGuid);
-    husky::engine::Actor* restoredLeaf = app.GetScene().FindActorByGuid(leafGuid);
+    husky::engine::Actor* restoredMiddle = app.GetWorld().FindActorByGuid(middleGuid);
+    husky::engine::Actor* restoredLeaf = app.GetWorld().FindActorByGuid(leafGuid);
     REQUIRE(restoredMiddle != nullptr);
     REQUIRE(restoredLeaf != nullptr);
     CHECK(restoredMiddle->GetParent() == root);
@@ -923,7 +923,7 @@ TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.rest
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
     // プレハブから置き、幅だけを変える(プレハブとの違いが1つある)
-    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
     original->name = "Coin";
     original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
@@ -940,18 +940,18 @@ TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.rest
                 .succeeded);
 
     // --- 消す: Destroy の印が付き、guid では見つからなくなる。フレームの終わりで一覧から外れる ---
-    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(placed != nullptr);
     REQUIRE(commands.Execute("actor.destroy", app, Json(actorArg.c_str())).succeeded);
     CHECK(placed->IsPendingDestroy());
-    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
+    CHECK(app.GetWorld().FindActorByGuid(guid) == nullptr);
     CHECK_FALSE(commands.Execute("actor.destroy", app, Json(actorArg.c_str())).succeeded); // もういない
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     app.GetRegistry().FlushDestroyed();
 
     // --- Undo: 同じ guid で戻る。プレハブとのつながり、違い(幅 30)、プレハブの値、位置もそのまま ---
     REQUIRE(commands.Execute("editor.undo", app).succeeded);
-    husky::engine::Actor* restored = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* restored = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(restored != nullptr);
     CHECK(restored->name == "Coin");
     CHECK(restored->transform.position.x == 7.0f);
@@ -971,9 +971,9 @@ TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.rest
 
     // --- Redo / Undo を続けても、同じ guid のアクターが消えたり戻ったりする ---
     REQUIRE(commands.Execute("editor.undo", app).succeeded); // actor.restore を戻す = 消す
-    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
+    CHECK(app.GetWorld().FindActorByGuid(guid) == nullptr);
     REQUIRE(commands.Execute("editor.redo", app).succeeded);
-    CHECK(app.GetScene().FindActorByGuid(guid) != nullptr);
+    CHECK(app.GetWorld().FindActorByGuid(guid) != nullptr);
 }
 
 TEST_CASE("EditorCommands: actor.spawn は Undo で消え、Redo で同じ guid のまま戻る(後の履歴の guid と食い違わない)")
@@ -1002,13 +1002,13 @@ TEST_CASE("EditorCommands: actor.spawn は Undo で消え、Redo で同じ guid 
     // 名前を戻し、置いたのも戻す → いなくなる
     REQUIRE(commands.Execute("editor.undo", app).succeeded);
     REQUIRE(commands.Execute("editor.undo", app).succeeded);
-    CHECK(app.GetScene().FindActorByGuid(guid) == nullptr);
-    app.GetScene().RemoveDestroyedActors();
+    CHECK(app.GetWorld().FindActorByGuid(guid) == nullptr);
+    app.GetWorld().RemoveDestroyedActors();
     app.GetRegistry().FlushDestroyed();
 
     // やり直す → 同じ guid・同じ位置で戻り、続く名前の変更もやり直せる
     REQUIRE(commands.Execute("editor.redo", app).succeeded);
-    husky::engine::Actor* back = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* back = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(back != nullptr);
     CHECK(back->transform.position.x == 3.0f);
     CHECK(back->transform.position.y == 4.0f);
@@ -1054,7 +1054,7 @@ TEST_CASE("EditorCommands: prefab.apply は違いをプレハブのファイル�
     REQUIRE(commands.Register(husky::tools::MakeListOverridesCommand()));
     REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
 
-    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
     original->name = "Coin";
     original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
@@ -1072,7 +1072,7 @@ TEST_CASE("EditorCommands: prefab.apply は違いをプレハブのファイル�
     auto sprite = [&app](const std::string& guidText) {
         husky::core::Guid guid;
         REQUIRE(husky::core::Guid::Parse(guidText, guid));
-        husky::engine::Actor* actor = app.GetScene().FindActorByGuid(guid);
+        husky::engine::Actor* actor = app.GetWorld().FindActorByGuid(guid);
         REQUIRE(actor != nullptr);
         return actor->GetComponent<husky::engine::SpriteComponent>();
     };
@@ -1139,7 +1139,7 @@ TEST_CASE("PF-7c: component.add は指定の位置に足し、Undo で外れ、R
     Application app;
     EditorCommandRegistry commands;
     RegisterComponentCommands(commands);
-    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* hero = app.GetWorld().Spawn<husky::engine::Actor>();
     hero->name = "Hero";
     hero->AddComponent<husky::engine::SpriteComponent>();
     hero->AddComponent<husky::engine::CameraComponent>();
@@ -1173,7 +1173,7 @@ TEST_CASE("PF-7c: component.remove はすぐに一覧から外し、Undo で同�
     Application app;
     EditorCommandRegistry commands;
     RegisterComponentCommands(commands);
-    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* hero = app.GetWorld().Spawn<husky::engine::Actor>();
     hero->name = "Hero";
     hero->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     hero->AddComponent<husky::engine::CameraComponent>()->zoom = 2.0f;
@@ -1185,7 +1185,7 @@ TEST_CASE("PF-7c: component.remove はすぐに一覧から外し、Undo で同�
     CHECK(first->IsPendingDestroy());
     REQUIRE(hero->components.size() == 2);
     CHECK(hero->GetComponent<husky::engine::CameraComponent>()->zoom == 3.0f);
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     app.GetRegistry().FlushDestroyed();
 
     // Undo: 1番目に、zoom 2 のまま戻る(新しいオブジェクトとして)
@@ -1218,18 +1218,18 @@ TEST_CASE("PF-7c: プレハブから来たコンポーネントを外すと remo
     REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
     RegisterComponentCommands(commands);
 
-    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
     original->name = "Coin";
     original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
     original->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
     REQUIRE(spawned.succeeded);
     const std::string guidText = spawned.data.Find("guid")->AsString();
     husky::core::Guid guid;
     REQUIRE(husky::core::Guid::Parse(guidText, guid));
-    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(placed != nullptr);
     REQUIRE(placed->GetComponent<husky::engine::SpriteComponent>() != nullptr);
     const husky::core::Guid componentId = placed->GetComponent<husky::engine::SpriteComponent>()->prefabComponentId;
@@ -1237,7 +1237,7 @@ TEST_CASE("PF-7c: プレハブから来たコンポーネントを外すと remo
 
     // 保存したアクターの記録(objects の中で guid が合うもの)に removedComponents があるか
     auto hasRemoved = [&app, &guidText]() {
-        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetWorld()).value;
         const ArchiveValue* objects = written.Find("objects");
         for (std::size_t i = 0; objects != nullptr && i < objects->GetArraySize(); ++i)
         {
@@ -1271,9 +1271,9 @@ TEST_CASE("PF-7c: 外したコンポーネントのアクターへの参照は g
     REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
     REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
     RegisterComponentCommands(commands);
-    husky::engine::Actor* player = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* player = app.GetWorld().Spawn<husky::engine::Actor>();
     player->name = "Player";
-    husky::engine::Actor* camera = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* camera = app.GetWorld().Spawn<husky::engine::Actor>();
     camera->name = "MainCamera";
     camera->AddComponent<husky::game::CameraFollowComponent>()->target = player->GetHandle();
     const husky::core::Guid playerGuid = player->guid;
@@ -1284,13 +1284,13 @@ TEST_CASE("PF-7c: 外したコンポーネントのアクターへの参照は g
     REQUIRE(removed.succeeded);
     CHECK(removed.details.empty());
     REQUIRE(commands.Execute("actor.destroy", app, Json(R"({"actor": "Player"})")).succeeded);
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     app.GetRegistry().FlushDestroyed();
     REQUIRE(commands.Execute("editor.undo", app).succeeded); // プレイヤーが戻る
     REQUIRE(commands.Execute("editor.undo", app).succeeded); // 追従が戻る
     husky::game::CameraFollowComponent* follow = camera->GetComponent<husky::game::CameraFollowComponent>();
     REQUIRE(follow != nullptr);
-    husky::engine::Actor* restoredPlayer = app.GetScene().FindActorByGuid(playerGuid);
+    husky::engine::Actor* restoredPlayer = app.GetWorld().FindActorByGuid(playerGuid);
     REQUIRE(restoredPlayer != nullptr);
     CHECK(follow->target == restoredPlayer->GetHandle());
 }
@@ -1308,20 +1308,20 @@ TEST_CASE("PF-7d: prefab.revertComponent は外したコンポーネントをプ
     RegisterComponentCommands(commands);
 
     // プレハブ: スプライト(幅 24)、アニメーター、カメラ(zoom 2)の順
-    husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
     original->name = "Coin";
     original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
     original->AddComponent<husky::engine::SpriteAnimatorComponent>();
     original->AddComponent<husky::engine::CameraComponent>()->zoom = 2.0f;
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
     original->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
     REQUIRE(spawned.succeeded);
     const std::string guidText = spawned.data.Find("guid")->AsString();
     husky::core::Guid guid;
     REQUIRE(husky::core::Guid::Parse(guidText, guid));
-    husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+    husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(placed != nullptr);
     REQUIRE(placed->GetComponent<husky::engine::SpriteAnimatorComponent>() != nullptr);
     const husky::core::Guid animatorId = placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->prefabComponentId;
@@ -1384,12 +1384,12 @@ namespace
         REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
         REQUIRE(commands.Register(husky::tools::MakeApplyComponentCommand(folder.Root())));
         RegisterComponentCommands(commands);
-        husky::engine::Actor* original = app.GetScene().Spawn<husky::engine::Actor>();
+        husky::engine::Actor* original = app.GetWorld().Spawn<husky::engine::Actor>();
         original->name = "Coin";
         original->AddComponent<husky::engine::SpriteComponent>()->width = 24.0f;
         REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Coin", "path": "prefabs/coin.prefab"})")).succeeded);
         original->Destroy();
-        app.GetScene().RemoveDestroyedActors();
+        app.GetWorld().RemoveDestroyedActors();
         const EditorCommandResult a = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab"})"));
         const EditorCommandResult b = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/coin.prefab", "x": 50})"));
         REQUIRE(a.succeeded);
@@ -1400,7 +1400,7 @@ namespace
     husky::engine::Actor* ActorByGuidText(Application& app, const std::string& text)
     {
         husky::core::Guid guid;
-        return husky::core::Guid::Parse(text, guid) ? app.GetScene().FindActorByGuid(guid) : nullptr;
+        return husky::core::Guid::Parse(text, guid) ? app.GetWorld().FindActorByGuid(guid) : nullptr;
     }
 }
 
@@ -1500,7 +1500,7 @@ TEST_CASE("使い勝手: component.add で足したコライダーは絵に合�
     Application app;
     EditorCommandRegistry commands;
     RegisterComponentCommands(commands);
-    husky::engine::Actor* hero = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* hero = app.GetWorld().Spawn<husky::engine::Actor>();
     hero->name = "Hero";
     husky::engine::SpriteComponent* sprite = hero->AddComponent<husky::engine::SpriteComponent>();
     sprite->width = 40.0f;
@@ -1530,11 +1530,11 @@ TEST_CASE("EditorCommands: actor.setParent は親を付け替え、Undo / Redo �
     REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
-    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* car = app.GetWorld().Spawn<husky::engine::Actor>();
     car->name = "Car";
     car->transform.position = {100.0f, 0.0f, 0.0f};
     car->transform.rotation = 90.0f;
-    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* wheel = app.GetWorld().Spawn<husky::engine::Actor>();
     wheel->name = "Wheel";
     wheel->transform.position = {100.0f, 20.0f, 0.0f};
 
@@ -1590,9 +1590,9 @@ TEST_CASE("EditorCommands: 子を含むプレハブの prefab.revert / prefab.ap
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
     // Car → Wheel のプレハブを作る
-    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* car = app.GetWorld().Spawn<husky::engine::Actor>();
     car->name = "Car";
-    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* wheel = app.GetWorld().Spawn<husky::engine::Actor>();
     wheel->name = "Wheel";
     wheel->transform.position = {10.0f, 0.0f, 0.0f};
     REQUIRE(wheel->SetParent(car, false));
@@ -1604,7 +1604,7 @@ TEST_CASE("EditorCommands: 子を含むプレハブの prefab.revert / prefab.ap
         REQUIRE(spawned.succeeded);
         husky::core::Guid guid;
         REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
-        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
         REQUIRE(placed != nullptr);
         std::vector<husky::engine::Actor*> children;
         placed->GetChildren(children);
@@ -1654,9 +1654,9 @@ TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置い�
     REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
     REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
 
-    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* car = app.GetWorld().Spawn<husky::engine::Actor>();
     car->name = "Car";
-    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* wheel = app.GetWorld().Spawn<husky::engine::Actor>();
     wheel->name = "Wheel";
     REQUIRE(wheel->SetParent(car, false));
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Car", "path": "prefabs/car.prefab"})")).succeeded);
@@ -1666,7 +1666,7 @@ TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置い�
         REQUIRE(spawned.succeeded);
         husky::core::Guid guid;
         REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
-        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
         REQUIRE(placed != nullptr);
         return placed;
     };
@@ -1676,7 +1676,7 @@ TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置い�
         return children;
     };
     auto endFrame = [&]() {
-        app.GetScene().RemoveDestroyedActors();
+        app.GetWorld().RemoveDestroyedActors();
         app.GetRegistry().FlushDestroyed();
     };
     husky::engine::Actor* first = spawn();
@@ -1704,7 +1704,7 @@ TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置い�
     REQUIRE(childrenOf(*first).size() == 1);
 
     // --- 足した子を Apply でプレハブに書き込むと、ほかの置いたものにも足される ---
-    husky::engine::Actor* light = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* light = app.GetWorld().Spawn<husky::engine::Actor>();
     light->name = "Light";
     REQUIRE(light->SetParent(first, false));
     found = husky::engine::Prefab::FindOverrides(*first);
@@ -1757,7 +1757,7 @@ TEST_CASE("EditorCommands: 入れ子のプレハブ: 中のプレハブとの違
         REQUIRE(spawned.succeeded);
         husky::core::Guid guid;
         REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
-        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        husky::engine::Actor* placed = app.GetWorld().FindActorByGuid(guid);
         REQUIRE(placed != nullptr);
         return placed;
     };
@@ -1769,18 +1769,18 @@ TEST_CASE("EditorCommands: 入れ子のプレハブ: 中のプレハブとの違
     auto widthOf = [](const husky::engine::Actor& actor) { return actor.GetComponent<husky::engine::SpriteComponent>()->width; };
 
     // --- 中のプレハブ: Tire(幅 10)→ Bolt ---
-    husky::engine::Actor* tire = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* tire = app.GetWorld().Spawn<husky::engine::Actor>();
     tire->name = "Tire";
     tire->AddComponent<husky::engine::SpriteComponent>()->width = 10.0f;
-    husky::engine::Actor* bolt = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* bolt = app.GetWorld().Spawn<husky::engine::Actor>();
     bolt->name = "Bolt";
     REQUIRE(bolt->SetParent(tire, false));
     REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Tire", "path": "prefabs/tire.prefab"})")).succeeded);
     tire->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
 
     // --- 外のプレハブ: Car の下にタイヤを2つ置き、前のタイヤだけ幅 12 にする ---
-    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* car = app.GetWorld().Spawn<husky::engine::Actor>();
     car->name = "Car";
     husky::engine::Actor* front = spawn("prefabs/tire.prefab");
     husky::engine::Actor* rear = spawn("prefabs/tire.prefab");
@@ -1859,7 +1859,7 @@ TEST_CASE("EditorCommands: 入れ子のプレハブ: 中のプレハブとの違
     REQUIRE(bolts.size() == 1);
     const std::string boltId = bolts[0]->prefabActorId.ToString();
     bolts[0]->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     REQUIRE(commands.Execute("prefab.applyChild", app,
                              Json(("{\"actor\": \"" + thirdTire->guid.ToString() + "\", \"removed\": \"" + boltId + "\"}").c_str()))
                 .succeeded);

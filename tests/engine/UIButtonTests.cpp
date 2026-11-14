@@ -56,12 +56,12 @@ namespace
     ButtonScene SpawnButtonScene(Application& app)
     {
         ButtonScene scene;
-        scene.receiver = app.GetScene().Spawn<Receiver>();
+        scene.receiver = app.GetWorld().Spawn<Receiver>();
         REQUIRE(scene.receiver != nullptr);
-        UIActor* canvas = app.GetScene().Spawn<UIActor>();
+        UIActor* canvas = app.GetWorld().Spawn<UIActor>();
         REQUIRE(canvas != nullptr);
         REQUIRE(canvas->AddComponent<CanvasComponent>() != nullptr);
-        scene.button = app.GetScene().Spawn<CountingButton>();
+        scene.button = app.GetWorld().Spawn<CountingButton>();
         REQUIRE(scene.button != nullptr);
         scene.button->rectTransform.sizeDelta = {200.0f, 100.0f};
         REQUIRE(scene.button->SetParent(canvas, false));

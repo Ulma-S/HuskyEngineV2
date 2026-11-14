@@ -74,7 +74,7 @@ namespace
 TEST_CASE("SF-2b: property.set は配列まるごとを受け付ける(参照の配列は REF-1 の配列のテストで確かめる)")
 {
     Application app;
-    Patrol* patrol = app.GetScene().Spawn<Patrol>();
+    Patrol* patrol = app.GetWorld().Spawn<Patrol>();
     patrol->name = "Patrol";
     EditorCommandRegistry commands;
     RegisterCommands(commands);
@@ -94,7 +94,7 @@ TEST_CASE("SF-2b: property.set は配列まるごとを受け付ける(参照の
 TEST_CASE("SF-2b: 配列の要素のドラッグは、手を離したときに配列まるごとの property.set の1件になり、Undo で戻る")
 {
     Application app;
-    Patrol* patrol = app.GetScene().Spawn<Patrol>();
+    Patrol* patrol = app.GetWorld().Spawn<Patrol>();
     patrol->speeds = {1.0f, 2.0f};
     EditorCommandRegistry commands;
     RegisterCommands(commands);
@@ -112,7 +112,7 @@ TEST_CASE("SF-2b: 配列の要素のドラッグは、手を離したときに�
 TEST_CASE("SF-2b: 要素を足す・消すは、すぐに配列まるごとの property.set になり、Undo で戻る")
 {
     Application app;
-    Patrol* patrol = app.GetScene().Spawn<Patrol>();
+    Patrol* patrol = app.GetWorld().Spawn<Patrol>();
     patrol->speeds = {1.0f, 2.0f, 3.0f};
     EditorCommandRegistry commands;
     RegisterCommands(commands);
@@ -140,11 +140,11 @@ TEST_CASE("SF-2b: インスペクタは配列を開いて要素を並べても�
 {
     husky::tests::HeadlessImGui imgui;
     Application app;
-    Patrol* patrol = app.GetScene().Spawn<Patrol>();
+    Patrol* patrol = app.GetWorld().Spawn<Patrol>();
     patrol->speeds = {1.0f, 2.0f};
     patrol->flags = {true, false};
     patrol->targets.resize(1);
-    patrol->targets[0].Set(app.GetScene().Spawn<Actor>());
+    patrol->targets[0].Set(app.GetWorld().Spawn<Actor>());
 
     bool changed = true;
     for (int frame = 0; frame < 2; ++frame)
@@ -193,7 +193,7 @@ namespace
 TEST_CASE("SF-3b: property.set は enum を値の名前で書き換え、Undo で戻る。インスペクタは選択肢で描く")
 {
     Application app;
-    Guard* guard = app.GetScene().Spawn<Guard>();
+    Guard* guard = app.GetWorld().Spawn<Guard>();
     guard->name = "Guard";
     EditorCommandRegistry commands;
     RegisterCommands(commands);

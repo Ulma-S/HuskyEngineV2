@@ -43,7 +43,7 @@
 #include "core/TypeRegistry.h"
 #include "engine/ArchiveValue.h"
 #include "engine/PrefabAsset.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <cstddef>
 #include <functional> // std::function
@@ -64,7 +64,7 @@ namespace husky::engine::SceneSerializer
     // シーンの生きている(Destroy 済みでない)アクターと、その生きているコンポーネントを保存する。
     // プレハブから置いたアクター(Actor::prefab の中身が読み込まれている)は、プレハブとの違いだけを書く(下の「プレハブから置いたもの」)。
     // それ以外のオブジェクト(シーンの外のもの)を指すハンドルは、null として書き、warnings に残す。
-    WriteResult Write(Scene& scene);
+    WriteResult Write(World& scene);
 
     // 保存の細かい決め事。
     struct WriteOptions
@@ -84,7 +84,7 @@ namespace husky::engine::SceneSerializer
 
     // scene の中の、指定したアクター(と、その生きているコンポーネント)だけを、シーンと同じ形で保存する。
     // Destroy 済みのアクターと、scene に入っていないアクターは飛ばす。ここに含まれない相手を指すハンドルは null と書き、warnings に残す。
-    WriteResult WriteActors(Scene& scene, const std::vector<Actor*>& actors, const WriteOptions& options = {});
+    WriteResult WriteActors(World& scene, const std::vector<Actor*>& actors, const WriteOptions& options = {});
 
     struct ReadReport
     {
@@ -102,7 +102,7 @@ namespace husky::engine::SceneSerializer
     // 型の名前は types で探す。知らない型のオブジェクトは作らず、それを指すハンドルはどこも指さないハンドルになる。
     // findPrefab を渡すと、プレハブから置いたアクターは、プレハブから作ってからファイルの値を重ねる(上の「プレハブから置いたもの」)。
     // 渡さなければ、ファイルの値だけで作る(プレハブそのものを読むときなど)。
-    ReadReport Read(const ArchiveValue& value, Scene& scene, const core::TypeRegistry& types,
+    ReadReport Read(const ArchiveValue& value, World& scene, const core::TypeRegistry& types,
                     const PrefabFinder& findPrefab = {});
 
     // プレハブの値の木 prefab の中で、Actor::prefabActorId が prefabActorId のアクターの記録の番号(HIER-2b)。

@@ -3,7 +3,7 @@
 
 #include "engine/Actor.h"
 #include "engine/AssetLoader.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 namespace husky::engine
 {
@@ -65,7 +65,7 @@ namespace husky::engine
     bool AudioSourceComponent::TryStartPlayback()
     {
         Actor* owner = GetOwner();
-        Scene* scene = owner != nullptr ? owner->GetScene() : nullptr;
+        World* scene = owner != nullptr ? owner->GetWorld() : nullptr;
         if (scene == nullptr || scene->GetAudio() == nullptr || scene->GetAssetLoader() == nullptr)
         {
             return true; // 鳴らす先が無い(テストなど): あきらめる
@@ -88,7 +88,7 @@ namespace husky::engine
         return true;
     }
 
-    audio::PlaybackId PlaySoundOnce(Scene& scene, core::AssetRef<SoundAsset>& sound, float volume, audio::Bus bus)
+    audio::PlaybackId PlaySoundOnce(World& scene, core::AssetRef<SoundAsset>& sound, float volume, audio::Bus bus)
     {
         if (scene.GetAudio() == nullptr || scene.GetAssetLoader() == nullptr)
         {

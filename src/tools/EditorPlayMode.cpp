@@ -71,12 +71,12 @@ namespace husky::tools
         }
 
         // 編集から: 今のシーンを控えてから動かす。控えは保存と同じ形の値の木(ファイルには書かない)。
-        engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::Write(app.GetScene());
+        engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::Write(app.GetWorld());
         m_snapshot = std::move(saved.value);
         m_state = State::Playing;
         app.SetSceneTickEnabled(true);
         EditorCommandResult result = EditorCommandResult::Success(
-            "Playing (" + std::to_string(app.GetScene().actors.size()) + " actors saved for Stop)");
+            "Playing (" + std::to_string(app.GetWorld().actors.size()) + " actors saved for Stop)");
         result.details = std::move(saved.warnings); // 控えに入らなかったもの(保存の警告と同じ)
         return result;
     }
@@ -116,7 +116,7 @@ namespace husky::tools
         app.GetAudio().SetPaused(false); // 一時停止したまま止めたときも、次に鳴らせるように解く
 
         // 1. 今いるアクターをすべて Destroy する(消えるのはフレームの終わり。それまでは Tick も描画もされない)。
-        engine::Scene& scene = app.GetScene();
+        engine::World& scene = app.GetWorld();
         core::ObjectRegistry& registry = app.GetRegistry();
         for (const core::ObjectHandle handle : scene.actors)
         {

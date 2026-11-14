@@ -189,7 +189,7 @@ TEST_CASE("ScriptableData: AssetRef で指している間は、箱も中身も G
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     AssetLoader& loader = app.GetAssetLoader();
 
-    Holder* holder = app.GetScene().Spawn<Holder>();
+    Holder* holder = app.GetWorld().Spawn<Holder>();
     holder->weapon.guid = SwordGuid;
     loader.Resolve(holder->weapon);
     loader.WaitForAllLoads();

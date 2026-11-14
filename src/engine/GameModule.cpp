@@ -205,7 +205,7 @@ namespace husky::engine
             result.message = "The game code is not loaded from a library (static link)";
             return result;
         }
-        Scene& scene = app.GetScene();
+        World& scene = app.GetWorld();
         core::ObjectRegistry& registry = app.GetRegistry();
         core::TypeRegistry& types = app.GetTypeRegistry();
         const std::string sourcePath = host.GetSourcePath();

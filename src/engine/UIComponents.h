@@ -29,7 +29,7 @@
 namespace husky::engine
 {
     class AssetLoader;
-    class Scene;
+    class World;
 
     // 文字の左右の寄せ(TextLayout.h の TextAlign)を、プロパティにできるように名前で登録する。
     HUSKY_ENUM_DECLARE(TextAlign) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
@@ -147,9 +147,9 @@ namespace husky::engine
     class UIEventSystem
     {
     public:
-        void Update(Scene& scene, Input& input);
+        void Update(World& scene, Input& input);
         // 全部のボタンを Normal に戻し、押しているボタンを忘れる(編集中になったときなど)。
-        void Reset(Scene& scene);
+        void Reset(World& scene);
         // マウスの下のいちばん手前の当たり(無ければ null)。テストと確かめ用。
         core::ObjectHandle GetHovered() const { return m_hovered; }
 
@@ -178,5 +178,5 @@ namespace husky::engine
 
     // シーンの Canvas の下の UIActor の、画像と文字を積む(画面ちょうどのカメラの前提)。layout は文字を並べる入れ物(使い回す)。
     // 文字のアトラスへの字の書き足し(Upload)もここで行う。renderDevice.BeginFrame と EndFrame の間で呼ぶ。
-    void DrawUI(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader, TextLayoutResult& layout);
+    void DrawUI(World& scene, render::RenderDevice& renderDevice, AssetLoader& loader, TextLayoutResult& layout);
 }

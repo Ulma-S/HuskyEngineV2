@@ -79,7 +79,7 @@ TEST_CASE("HR-3: 付けるとゲームの型を登録して覚え、ゲームの
     CHECK(host.IsGameType(HostGameActor::StaticType()));
     CHECK_FALSE(host.IsGameType(Actor::StaticType()));
 
-    HostGameActor* actor = app.GetScene().Spawn<HostGameActor>();
+    HostGameActor* actor = app.GetWorld().Spawn<HostGameActor>();
     REQUIRE(actor != nullptr);
     CHECK(host.CountGameObjects(app.GetRegistry()) == 1);
 
@@ -90,7 +90,7 @@ TEST_CASE("HR-3: 付けるとゲームの型を登録して覚え、ゲームの
 
     // 消すと外せる。型の登録も外れる
     actor->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     CHECK(host.Detach(app.GetTypeRegistry(), app.GetRegistry(), app.GetAssetLoader()));
     CHECK_FALSE(host.IsAttached());
     CHECK(host.GetTypes().empty());
@@ -117,7 +117,7 @@ TEST_CASE("HR-3: 外すときは、ゲームの型の ScriptableData をロー�
     husky::engine::AssetLoader& loader = app.GetAssetLoader();
 
     // シーンのアクター(ゲームの外の型)が、ゲームの型の ScriptableData を指す
-    HostSettingsHolder* holder = app.GetScene().Spawn<HostSettingsHolder>();
+    HostSettingsHolder* holder = app.GetWorld().Spawn<HostSettingsHolder>();
     REQUIRE(holder != nullptr);
     holder->settings.guid = SettingsGuid;
     loader.Resolve(holder->settings);

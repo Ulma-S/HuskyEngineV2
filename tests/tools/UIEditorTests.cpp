@@ -29,21 +29,21 @@ namespace
     UIScene SpawnUIScene(Application& app)
     {
         UIScene scene;
-        scene.world = app.GetScene().Spawn<husky::engine::Actor>();
+        scene.world = app.GetWorld().Spawn<husky::engine::Actor>();
         REQUIRE(scene.world != nullptr);
         REQUIRE(scene.world->AddComponent<SpriteComponent>() != nullptr);
-        scene.canvas = app.GetScene().Spawn<UIActor>();
+        scene.canvas = app.GetWorld().Spawn<UIActor>();
         REQUIRE(scene.canvas != nullptr);
         REQUIRE(scene.canvas->AddComponent<CanvasComponent>() != nullptr);
-        scene.label = app.GetScene().Spawn<UIActor>();
+        scene.label = app.GetWorld().Spawn<UIActor>();
         REQUIRE(scene.label != nullptr);
         REQUIRE(scene.label->AddComponent<SpriteComponent>() != nullptr);
         scene.label->name = "Label";
         REQUIRE(scene.label->SetParent(scene.canvas, false));
-        scene.lonely = app.GetScene().Spawn<UIActor>();
+        scene.lonely = app.GetWorld().Spawn<UIActor>();
         REQUIRE(scene.lonely != nullptr);
         REQUIRE(scene.lonely->AddComponent<SpriteComponent>() != nullptr);
-        husky::engine::LayoutCanvases(app.GetScene(), 1280.0f, 720.0f);
+        husky::engine::LayoutCanvases(app.GetWorld(), 1280.0f, 720.0f);
         return scene;
     }
 
@@ -51,7 +51,7 @@ namespace
     {
         std::vector<husky::engine::Actor*> owners;
         husky::engine::ForEachSprite(
-            app.GetScene(), [&](husky::render::Sprite&, SpriteComponent& component) { owners.push_back(component.GetOwner()); },
+            app.GetWorld(), [&](husky::render::Sprite&, SpriteComponent& component) { owners.push_back(component.GetOwner()); },
             pass);
         return owners;
     }
@@ -73,7 +73,7 @@ TEST_CASE("UIEditor: Canvas の下の UIActor は画面のパスでだけ描き�
     CHECK_FALSE(scene.lonely->IsDrawnOnScreen());
 
     // シーンビューのクリックで選ぶ当たり(ワールド)にも、UI は入らない
-    CHECK(husky::engine::FindSpriteActorAt(app.GetScene(), scene.label->GetWorldPosition().x,
+    CHECK(husky::engine::FindSpriteActorAt(app.GetWorld(), scene.label->GetWorldPosition().x,
                                            scene.label->GetWorldPosition().y) != scene.label);
 }
 
@@ -116,7 +116,7 @@ TEST_CASE("UIEditor: UI の四角の枠は、Canvas の下の UIActor ごとに 
     const UIScene scene = SpawnUIScene(app);
 
     std::vector<husky::render::Sprite> lines;
-    husky::tools::BuildUIRectOutlines(app.GetScene(), scene.label->GetHandle(), lines);
+    husky::tools::BuildUIRectOutlines(app.GetWorld(), scene.label->GetHandle(), lines);
     REQUIRE(lines.size() == 8); // Canvas と Label(Canvas の外の UIActor とふつうのアクターは無し)
     CHECK(lines.back().color.r == doctest::Approx(1.0f)); // 選んでいる Label が最後(橙色)
     CHECK(lines.back().color.b < 0.5f);

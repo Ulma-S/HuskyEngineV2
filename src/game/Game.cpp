@@ -77,7 +77,7 @@ namespace husky::game
         T* PlacePrefab(engine::Application& app, const engine::PrefabAsset& prefab)
         {
             engine::Prefab::InstantiateResult placed =
-                engine::Prefab::Instantiate(prefab, app.GetScene(), app.GetTypeRegistry());
+                engine::Prefab::Instantiate(prefab, app.GetWorld(), app.GetTypeRegistry());
             for (const std::string& warning : placed.warnings)
             {
                 HUSKY_LOG(GameLog::PrefabWarning, warning);
@@ -160,7 +160,7 @@ namespace husky::game
 
         // 世界の端の 4 枚の壁(PHY-5)。見た目は無く、動かない体(Static)の四角のコライダーだけ。
         // プレイヤーは世界の外へ出ない(PlayerActor::Tick)が、押された木箱はここで止まる。壁は木箱とだけ当たる。
-        void SpawnWalls(engine::Scene& scene)
+        void SpawnWalls(engine::World& scene)
         {
             constexpr float thickness = 64.0f;
             struct WallPlace
@@ -204,7 +204,7 @@ namespace husky::game
         // 設定のデータを引いておく(初めてなら読み始める)。触れた瞬間に初めて引くと、読み終わるまでの数フレームは
         // 既定の色になってしまうため。引いた後は AssetRef が強い参照で持つので、データは回収されない。
         // ふつうは表を1回引くだけで軽い(1000 体でも問題ない)。
-        if (engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr)
+        if (engine::AssetLoader* loader = GetWorld() != nullptr ? GetWorld()->GetAssetLoader() : nullptr)
         {
             loader->Resolve(settings);
             loader->Resolve(touchSound); // 音も同じ理由で先に読んでおく(PlaySoundOnce は読み終わっていなければ鳴らさない)
@@ -228,13 +228,13 @@ namespace husky::game
             if (touching++ == 0) // 触れ始め(0 → 1): 元の色を控えてから、設定のデータの色にする
             {
                 savedColor = sprite->color;
-                if (GetScene() != nullptr)
+                if (GetWorld() != nullptr)
                 {
                     // 触れ始めの音。たくさん同時に触れたときは、ミキサーが古い効果音から止めるので、鳴りすぎない。
-                    engine::PlaySoundOnce(*GetScene(), touchSound, 0.5f);
+                    engine::PlaySoundOnce(*GetWorld(), touchSound, 0.5f);
                 }
                 sprite->color = TouchedColor; // データが読めないときの既定
-                engine::AssetLoader* loader = GetScene() != nullptr ? GetScene()->GetAssetLoader() : nullptr;
+                engine::AssetLoader* loader = GetWorld() != nullptr ? GetWorld()->GetAssetLoader() : nullptr;
                 if (const BouncerSettings* data = loader != nullptr ? loader->Resolve(settings) : nullptr)
                 {
                     sprite->color = data->touchedColor;
@@ -259,7 +259,7 @@ namespace husky::game
 
     void PlayerActor::Tick(double dt)
     {
-        engine::Scene* scene = GetScene();
+        engine::World* scene = GetWorld();
         const engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
         if (input == nullptr)
         {
@@ -358,7 +358,7 @@ namespace husky::game
             bouncerPrefab = LoadPrefab(app, "prefabs/bouncer.prefab");
         }
         const engine::PrefabAsset* playerPrefab = LoadPrefab(app, "prefabs/player.prefab");
-        engine::Scene& scene = app.GetScene();
+        engine::World& scene = app.GetWorld();
 
         if (bouncerPrefab != nullptr)
         {
@@ -427,7 +427,7 @@ namespace husky::game
     void SpawnHudIfMissing(engine::Application& app)
     {
         bool hasCanvas = false;
-        app.GetScene().ForEachActor([&](engine::Actor& actor) {
+        app.GetWorld().ForEachActor([&](engine::Actor& actor) {
             if (actor.GetComponent<engine::CanvasComponent>() != nullptr)
             {
                 hasCanvas = true;

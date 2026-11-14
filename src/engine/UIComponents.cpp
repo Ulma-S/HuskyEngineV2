@@ -4,7 +4,7 @@
 #include "core/Method.h"
 #include "engine/AssetLoader.h"
 #include "engine/EngineLog.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SpriteComponent.h" // ChooseTexture、ApplyRegion
 #include "engine/UIActor.h"
 
@@ -116,7 +116,7 @@ namespace husky::engine
         }
     }
 
-    void DrawUI(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader, TextLayoutResult& layout)
+    void DrawUI(World& scene, render::RenderDevice& renderDevice, AssetLoader& loader, TextLayoutResult& layout)
     {
         scene.ForEachActor([&](Actor& actor) {
             if (!actor.IsA<UIActor>() || !actor.IsDrawnOnScreen())
@@ -246,7 +246,7 @@ namespace husky::engine
         method->Invoke(*receiver, noArguments, result);
     }
 
-    void UIEventSystem::Update(Scene& scene, Input& input)
+    void UIEventSystem::Update(World& scene, Input& input)
     {
         // 1. マウスの下のいちばん手前の当たり(一覧で後ろほど手前に描かれる)。マウスの位置は下が + なので、上が + に直す
         const core::Vector2 mouse = input.GetMousePosition();
@@ -332,7 +332,7 @@ namespace husky::engine
         }
     }
 
-    void UIEventSystem::Reset(Scene& scene)
+    void UIEventSystem::Reset(World& scene)
     {
         m_hovered = {};
         m_pressed = {};

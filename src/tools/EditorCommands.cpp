@@ -360,7 +360,7 @@ namespace husky::tools
                     failed.push_back(path);
                 }
             }
-            const std::size_t actorCount = context.app.GetScene().actors.size();
+            const std::size_t actorCount = context.app.GetWorld().actors.size();
             EditorCommandResult result;
             if (failed.empty())
             {
@@ -557,7 +557,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure("Give exactly one of prefab or type");
             }
 
-            engine::Scene& scene = context.app.GetScene();
+            engine::World& scene = context.app.GetWorld();
             const core::TypeRegistry& types = context.app.GetTypeRegistry();
             engine::Actor* actor = nullptr;
             std::vector<std::string> warnings;
@@ -638,7 +638,7 @@ namespace husky::tools
         std::vector<EditorArgChoice> ActorChoices(engine::Application& app, const engine::ArchiveValue&)
         {
             std::vector<EditorArgChoice> choices;
-            app.GetScene().ForEachActor([&choices](engine::Actor& actor) {
+            app.GetWorld().ForEachActor([&choices](engine::Actor& actor) {
                 choices.push_back({actor.guid.ToString(), DescribeActor(actor)});
             });
             return choices;
@@ -703,7 +703,7 @@ namespace husky::tools
                                         engine::Actor*& actorOut, std::string& error)
         {
             const engine::ArchiveValue* actorValue = args.Find("actor");
-            actorOut = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            actorOut = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actorOut == nullptr)
             {
                 return nullptr;
@@ -792,12 +792,12 @@ namespace husky::tools
         if (const engine::Actor* actor = core::Cast<engine::Actor>(object))
         {
             // シーンにいるアクターだけ(guid で引き直せるもの)
-            return app.GetScene().FindActorByGuid(actor->guid) == actor ? engine::ArchiveValue(actor->guid.ToString())
+            return app.GetWorld().FindActorByGuid(actor->guid) == actor ? engine::ArchiveValue(actor->guid.ToString())
                                                                          : engine::ArchiveValue();
         }
         const engine::Component* component = core::Cast<engine::Component>(object);
         const engine::Actor* owner = component != nullptr ? component->GetOwner() : nullptr;
-        if (owner == nullptr || app.GetScene().FindActorByGuid(owner->guid) != owner)
+        if (owner == nullptr || app.GetWorld().FindActorByGuid(owner->guid) != owner)
         {
             return engine::ArchiveValue(); // シーンのアクターのものではない
         }
@@ -835,7 +835,7 @@ namespace husky::tools
         }
         if (value.GetType() == engine::ArchiveValue::Type::String)
         {
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), value.AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), value.AsString(), error);
             if (actor == nullptr)
             {
                 return false;
@@ -850,7 +850,7 @@ namespace husky::tools
             error = "A reference must be null, an actor (name or guid), or {\"actor\": ..., \"component\": type}";
             return false;
         }
-        engine::Actor* actor = FindActorFromArg(app.GetScene(), actorValue->AsString(), error);
+        engine::Actor* actor = FindActorFromArg(app.GetWorld(), actorValue->AsString(), error);
         if (actor == nullptr)
         {
             return false;
@@ -942,7 +942,7 @@ namespace husky::tools
         return true;
     }
 
-    engine::Actor* FindActorFromArg(engine::Scene& scene, const std::string& actorText, std::string& error)
+    engine::Actor* FindActorFromArg(engine::World& scene, const std::string& actorText, std::string& error)
     {
         // 1. guid の形なら guid で探す(名前に guid の形の文字列を付けるアクターは無いものとする)。
         core::Guid guid;
@@ -1017,7 +1017,7 @@ namespace husky::tools
             result.data = engine::ArchiveValue::MakeArray();
             std::size_t count = 0;
             constexpr std::size_t MaxDetails = 20; // 人向けの一覧は読める数で切る(全件は data に入れる)
-            context.app.GetScene().ForEachActor([&](engine::Actor& actor) {
+            context.app.GetWorld().ForEachActor([&](engine::Actor& actor) {
                 if ((nameValue != nullptr && actor.name != nameValue->AsString()) ||
                     (filterType != nullptr && !actor.GetType().IsA(*filterType)))
                 {
@@ -1293,7 +1293,7 @@ namespace husky::tools
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string ignored;
             const engine::Actor* actor =
-                actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
+                actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), ignored) : nullptr;
             if (actor != nullptr)
             {
                 for (const core::ObjectHandle handle : actor->components)
@@ -1383,7 +1383,7 @@ namespace husky::tools
         };
         command.execute = [](EditorCommandContext& context) {
             std::string error;
-            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(context.app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -1476,7 +1476,7 @@ namespace husky::tools
         actorArg.choices = ActorChoices;
         command.args = {actorArg};
         command.execute = [](EditorCommandContext& context) {
-            engine::Scene& scene = context.app.GetScene();
+            engine::World& scene = context.app.GetWorld();
             std::string error;
             engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
@@ -1531,7 +1531,7 @@ namespace husky::tools
             {"parent", EditorArgType::String, "Guid of the parent to attach the restored actor to (leave out for none)", false},
         };
         command.execute = [](EditorCommandContext& context) {
-            engine::Scene& scene = context.app.GetScene();
+            engine::World& scene = context.app.GetWorld();
             const engine::ArchiveValue& data = *context.args.Find("data");
             core::Guid guid;
             if (!ReadSavedActorGuid(data, guid))
@@ -1662,7 +1662,7 @@ namespace husky::tools
              false},
         };
         command.execute = [](EditorCommandContext& context) {
-            engine::Scene& scene = context.app.GetScene();
+            engine::World& scene = context.app.GetWorld();
             std::string error;
             engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
@@ -1760,7 +1760,7 @@ namespace husky::tools
                 warnings.push_back("\"data\" has no \"value\"; the component keeps its default values");
                 return;
             }
-            engine::Scene& scene = app.GetScene();
+            engine::World& scene = app.GetWorld();
             engine::ObjectSerializer::ReadReport report = engine::ObjectSerializer::ReadProperties(
                 *value, component, [&](std::int64_t id) -> core::ObjectHandle {
                     if (references == nullptr || references->GetType() != engine::ArchiveValue::Type::Array || id < 0 ||
@@ -1883,7 +1883,7 @@ namespace husky::tools
             std::vector<EditorArgChoice> names;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string error;
-            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actor == nullptr)
             {
                 return names;
@@ -1920,7 +1920,7 @@ namespace husky::tools
         command.execute = [](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -1957,7 +1957,7 @@ namespace husky::tools
         command.execute = [](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2024,7 +2024,7 @@ namespace husky::tools
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string ignored;
             const engine::Actor* actor =
-                actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), ignored) : nullptr;
+                actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), ignored) : nullptr;
             return actor != nullptr ? engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()) : engine::Prefab::OverridesResult{};
         }
 
@@ -2037,7 +2037,7 @@ namespace husky::tools
             {
                 core::Guid guid;
                 const engine::Actor* actor =
-                    core::Guid::Parse(choice.value, guid) ? app.GetScene().FindActorByGuid(guid) : nullptr;
+                    core::Guid::Parse(choice.value, guid) ? app.GetWorld().FindActorByGuid(guid) : nullptr;
                 if (actor != nullptr && !actor->prefab.IsNull())
                 {
                     instances.push_back(std::move(choice));
@@ -2128,7 +2128,7 @@ namespace husky::tools
         command.args = {actorArg};
         command.execute = [](EditorCommandContext& context) {
             std::string error;
-            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(context.app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2195,7 +2195,7 @@ namespace husky::tools
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string error;
-            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actor == nullptr)
             {
                 return choices;
@@ -2225,7 +2225,7 @@ namespace husky::tools
         command.execute = [](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2330,7 +2330,7 @@ namespace husky::tools
         command.args = MakeOverrideArgs();
         command.execute = [](EditorCommandContext& context) {
             std::string error;
-            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(context.app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2431,7 +2431,7 @@ namespace husky::tools
         command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2493,7 +2493,7 @@ namespace husky::tools
             // 3. 同じプレハブから置いた全員に伝える: 古いプレハブの値のままのものだけが、新しい値になる。
             //    全員が新しいアセットを指すようにする(次の保存では、新しいプレハブと比べた違いになる)。
             std::size_t followed = 0;
-            app.GetScene().ForEachActor([&](engine::Actor& other) {
+            app.GetWorld().ForEachActor([&](engine::Actor& other) {
                 if (other.prefab.guid == guid)
                 {
                     // プレハブの中の同じアクター(根なら根、子なら同じ ID の子)の違いだけを伝える(HIER-2b)
@@ -2535,7 +2535,7 @@ namespace husky::tools
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string error;
-            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actor == nullptr)
             {
                 return choices;
@@ -2570,7 +2570,7 @@ namespace husky::tools
         command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -2667,7 +2667,7 @@ namespace husky::tools
             //    prefab.revertComponent と同じ道具で戻す)。消したとき: その ID のコンポーネントを持つ全員から外す。
             std::size_t followed = 0;
             std::vector<engine::Actor*> instances;
-            app.GetScene().ForEachActor([&](engine::Actor& other) {
+            app.GetWorld().ForEachActor([&](engine::Actor& other) {
                 if (other.prefab.guid == prefabGuid)
                 {
                     other.prefab.asset = reloaded;
@@ -2730,7 +2730,7 @@ namespace husky::tools
         EditorCommandArg actorArg{"actor", EditorArgType::String, "Actor to save: its name or guid", true};
         actorArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
             std::vector<EditorArgChoice> choices;
-            app.GetScene().ForEachActor([&choices](engine::Actor& actor) {
+            app.GetWorld().ForEachActor([&choices](engine::Actor& actor) {
                 choices.push_back({actor.guid.ToString(), DescribeActor(actor)});
             });
             return choices;
@@ -2742,7 +2742,7 @@ namespace husky::tools
         };
         command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
             std::string error;
-            engine::Actor* actor = FindActorFromArg(context.app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(context.app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -3087,7 +3087,7 @@ namespace husky::tools
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string error;
-            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actor != nullptr)
             {
                 for (const engine::Prefab::ChildChange& removed :
@@ -3105,7 +3105,7 @@ namespace husky::tools
             std::vector<EditorArgChoice> choices;
             const engine::ArchiveValue* actorValue = args.Find("actor");
             std::string error;
-            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetWorld(), actorValue->AsString(), error) : nullptr;
             if (actor != nullptr)
             {
                 for (const engine::Prefab::ChildChange& added :
@@ -3137,7 +3137,7 @@ namespace husky::tools
         command.execute = [](EditorCommandContext& context) {
             engine::Application& app = context.app;
             std::string error;
-            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            engine::Actor* actor = FindActorFromArg(app.GetWorld(), context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)
             {
                 return EditorCommandResult::Failure(error);
@@ -3160,14 +3160,14 @@ namespace husky::tools
                 return EditorCommandResult::Failure(who + " has no removed child with id " + childId.ToString());
             }
             const std::vector<engine::Actor*> created =
-                engine::Prefab::InstantiateChild(*found.prefab, childId, *actor, app.GetScene(), app.GetTypeRegistry(), error);
+                engine::Prefab::InstantiateChild(*found.prefab, childId, *actor, app.GetWorld(), app.GetTypeRegistry(), error);
             if (created.empty())
             {
                 return EditorCommandResult::Failure("Could not put back the child of " + who + ": " + error);
             }
             EditorCommandResult result = EditorCommandResult::Success("Put back " + DescribeActor(*created[0]) + " under " + who);
             result.undo = MakeDestroyCall(created[0]->guid);
-            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(app.GetScene(),
+            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(app.GetWorld(),
                                                                                std::vector<engine::Actor*>(created.begin(), created.end()))
                                               .value,
                                           actor->guid.ToString());
@@ -3196,7 +3196,7 @@ namespace husky::tools
         command.args = {actorArg, addedArg, removedArg};
         command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
             engine::Application& app = context.app;
-            engine::Scene& scene = app.GetScene();
+            engine::World& scene = app.GetWorld();
             std::string error;
             engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
             if (actor == nullptr)

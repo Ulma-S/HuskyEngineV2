@@ -2,11 +2,11 @@
 
 #include "engine/Actor.h"
 #include "engine/Input.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 namespace husky::engine
 {
-    CameraComponent* FindSceneCamera(Scene& scene)
+    CameraComponent* FindSceneCamera(World& scene)
     {
         CameraComponent* found = nullptr;
         // ForEachActor は途中で止められないので、最初に見つけたものだけを覚えておく。
@@ -19,7 +19,7 @@ namespace husky::engine
         return found;
     }
 
-    CameraView FindSceneCameraView(Scene& scene, float screenWidth, float screenHeight)
+    CameraView FindSceneCameraView(World& scene, float screenWidth, float screenHeight)
     {
         const CameraComponent* camera = FindSceneCamera(scene);
         const Actor* owner = camera != nullptr ? camera->GetOwner() : nullptr;
@@ -31,13 +31,13 @@ namespace husky::engine
         return CameraView{position.x, position.y, camera->zoom};
     }
 
-    CameraMatrices MakeSceneCamera(Scene& scene, float screenWidth, float screenHeight)
+    CameraMatrices MakeSceneCamera(World& scene, float screenWidth, float screenHeight)
     {
         const CameraView view = FindSceneCameraView(scene, screenWidth, screenHeight);
         return MakeOrthographicCamera(view.centerX, view.centerY, view.zoom, screenWidth, screenHeight);
     }
 
-    bool FindMouseWorldPosition(Scene& scene, core::Vector3& outWorld)
+    bool FindMouseWorldPosition(World& scene, core::Vector3& outWorld)
     {
         const Input* input = scene.GetInput();
         if (input == nullptr || input->GetScreenWidth() <= 0.0f || input->GetScreenHeight() <= 0.0f)

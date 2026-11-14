@@ -4,7 +4,7 @@
 
 #include "engine/Actor.h"
 #include "engine/Application.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
@@ -40,7 +40,7 @@ namespace
 
     OverlapRecorder* SpawnBox(Application& app, float x, float y)
     {
-        OverlapRecorder* actor = app.GetScene().Spawn<OverlapRecorder>();
+        OverlapRecorder* actor = app.GetWorld().Spawn<OverlapRecorder>();
         actor->transform.position = {x, y, 0.0f};
         actor->AddComponent<BoxCollider2D>(); // 32 x 32
         return actor;
@@ -179,7 +179,7 @@ TEST_CASE("COL-3: エディタの枠の形(ComputeBoxColliderCorners / ComputeCi
 {
     Application app;
     app.GetClock().SetFixedDelta(1.0 / 60.0);
-    OverlapRecorder* actor = app.GetScene().Spawn<OverlapRecorder>();
+    OverlapRecorder* actor = app.GetWorld().Spawn<OverlapRecorder>();
     actor->transform.position = {100.0f, 50.0f, 0.0f};
     actor->transform.rotation = 30.0f;
     actor->transform.scale = {2.0f, 1.0f, 1.0f};
@@ -222,7 +222,7 @@ TEST_CASE("宿題: 左右反転(拡大 x がマイナス)でも、エディタ�
 {
     Application app;
     app.GetClock().SetFixedDelta(1.0 / 60.0);
-    OverlapRecorder* actor = app.GetScene().Spawn<OverlapRecorder>();
+    OverlapRecorder* actor = app.GetWorld().Spawn<OverlapRecorder>();
     actor->transform.position = {100.0f, 0.0f, 0.0f};
     actor->transform.scale = {-1.0f, 1.0f, 1.0f};
     BoxCollider2D* box = actor->AddComponent<BoxCollider2D>();
@@ -242,7 +242,7 @@ TEST_CASE("宿題: 左右反転(拡大 x がマイナス)でも、エディタ�
 TEST_CASE("使い勝手: FitColliderToSprite はコライダーを絵の大きさと位置に合わせる(四角はそのまま、円は大きいほうの辺)")
 {
     Application app;
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     husky::engine::SpriteComponent* sprite = actor->AddComponent<husky::engine::SpriteComponent>();
     sprite->width = 128.0f;
     sprite->height = 64.0f;
@@ -259,7 +259,7 @@ TEST_CASE("使い勝手: FitColliderToSprite はコライダーを絵の大き�
     CHECK(circle->offset.x == 64.0f);
     CHECK(circle->offset.y == 32.0f);
     // スプライトが無ければ何もしない
-    Actor* bare = app.GetScene().Spawn<Actor>();
+    Actor* bare = app.GetWorld().Spawn<Actor>();
     BoxCollider2D* untouched = bare->AddComponent<BoxCollider2D>();
     CHECK_FALSE(husky::engine::FitColliderToSprite(*untouched, *bare));
     CHECK(untouched->size.x == 32.0f);

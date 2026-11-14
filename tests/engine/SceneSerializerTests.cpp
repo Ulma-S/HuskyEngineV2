@@ -2,7 +2,7 @@
 // 保存したシーンを、別のレジストリ(= 別のメモリの状態)に読み込んで、同じ形に戻るかを確かめる。
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 
@@ -16,7 +16,7 @@ using husky::core::ObjectRegistry;
 using husky::core::TypeRegistry;
 using husky::engine::Actor;
 using husky::engine::ArchiveValue;
-using husky::engine::Scene;
+using husky::engine::World;
 using husky::engine::SpriteComponent;
 namespace JsonFormat = husky::engine::JsonFormat;
 namespace SceneSerializer = husky::engine::SceneSerializer;
@@ -37,9 +37,9 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
@@ -69,7 +69,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
 
     // --- 保存する側 ---
     ObjectRegistry sourceRegistry;
-    Scene* source = CreateRootScene(sourceRegistry);
+    World* source = CreateRootScene(sourceRegistry);
     Actor* prey = source->Spawn<Actor>();
     prey->name = "うさぎ";
     prey->transform.position.x = 5.5f;
@@ -89,7 +89,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     // --- 読み込む側(別のレジストリ。ハンドルの値は保存した側と無関係) ---
     ObjectRegistry targetRegistry;
     targetRegistry.Create<Actor>(); // わざと1つ作っておき、ハンドルの場所をずらす
-    Scene* target = CreateRootScene(targetRegistry);
+    World* target = CreateRootScene(targetRegistry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *target, types);
 
     CHECK(report.warnings.empty());
@@ -118,7 +118,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
     CHECK(loadedSprite->color.a == 0.75f);
     CHECK(loadedSprite->GetOwner() == loadedPrey);
     CHECK(loadedHunter->GetComponent<SpriteComponent>()->height == 64.0f);
-    CHECK(loadedPrey->GetScene() == target);
+    CHECK(loadedPrey->GetWorld() == target);
 
     // シーンが根なので、読み込んだものは GC で回収されない(最初にわざと作った1つだけが回収される)
     CHECK(targetRegistry.CollectGarbage() == 1);
@@ -128,7 +128,7 @@ TEST_CASE("SceneSerializer: 保存したシーンを別のレジストリに読�
 TEST_CASE("SceneSerializer: Destroy 済みのアクターとコンポーネントは保存しない")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* kept = scene->Spawn<Actor>();
     kept->AddComponent<SpriteComponent>()->Destroy();
     scene->Spawn<Actor>()->Destroy();
@@ -145,7 +145,7 @@ TEST_CASE("SceneSerializer: シーンの外のオブジェクトを指すハン�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Hunter* hunter = scene->Spawn<Hunter>();
     hunter->target = registry.Create<Actor>()->GetHandle(); // シーンにいないアクター
 
@@ -153,7 +153,7 @@ TEST_CASE("SceneSerializer: シーンの外のオブジェクトを指すハン�
     CHECK(saved.warnings.size() == 1);
 
     ObjectRegistry otherRegistry;
-    Scene* other = CreateRootScene(otherRegistry);
+    World* other = CreateRootScene(otherRegistry);
     SceneSerializer::Read(ThroughJson(saved.value), *other, types);
     Hunter* loaded = otherRegistry.Resolve<Hunter>(other->actors.at(0));
     REQUIRE(loaded != nullptr);
@@ -177,7 +177,7 @@ TEST_CASE("SceneSerializer: 知らない型は作らずに飛ばし、それを�
     })", file));
 
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
 
     CHECK(report.createdCount == 2);
@@ -195,7 +195,7 @@ TEST_CASE("SceneSerializer: 今いるアクターは消さず、読み込んだ�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     scene->Spawn<Actor>()->name = "まえから";
     const ArchiveValue file = ThroughJson(SceneSerializer::Write(*scene).value);
 
@@ -211,7 +211,7 @@ TEST_CASE("Actor の guid: シーンに入れると振られ、保存して読�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* first = scene->Spawn<Actor>();
     Actor* second = scene->Spawn<Actor>();
     first->name = "Enemy";
@@ -224,7 +224,7 @@ TEST_CASE("Actor の guid: シーンに入れると振られ、保存して読�
     // 保存して別のレジストリに読み戻しても、同じ guid
     const ArchiveValue file = ThroughJson(SceneSerializer::Write(*scene).value);
     ObjectRegistry otherRegistry;
-    Scene* other = CreateRootScene(otherRegistry);
+    World* other = CreateRootScene(otherRegistry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *other, types);
     CHECK(report.warnings.empty());
     REQUIRE(other->actors.size() == 2);
@@ -241,7 +241,7 @@ TEST_CASE("Actor の guid: 読み込んだアクターの guid がシーンの�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* original = scene->Spawn<Actor>();
     const husky::core::Guid originalGuid = original->guid;
     const ArchiveValue file = ThroughJson(SceneSerializer::Write(*scene).value);
@@ -269,7 +269,7 @@ TEST_CASE("Actor の guid: guid の無い古いファイルも読め、読んだ
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     ArchiveValue file;
     REQUIRE(JsonFormat::Read(R"({ "version": 1, "objects": [ { "id": 0, "type": "Actor", "properties": { "name": "old" } } ],
                                   "actors": [0] })",
@@ -287,7 +287,7 @@ TEST_CASE("SceneSerializer: 版が無いファイルは警告を出して、読�
     REQUIRE(JsonFormat::Read(R"({ "objects": [ { "id": 0, "type": "Actor", "properties": {} } ], "actors": [0] })", file));
 
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
 
     CHECK(report.addedActorCount == 1);

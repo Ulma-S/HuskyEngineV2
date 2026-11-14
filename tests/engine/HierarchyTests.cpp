@@ -6,7 +6,7 @@
 #include "engine/Application.h"
 #include "engine/Collider2D.h"
 #include "engine/Rigidbody2D.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 #include "engine/SpriteComponent.h"
 #include "engine/TransformMatrix.h"
@@ -26,7 +26,7 @@ namespace
 {
     Actor* SpawnAt(Application& app, float x, float y)
     {
-        Actor* actor = app.GetScene().Spawn<Actor>();
+        Actor* actor = app.GetWorld().Spawn<Actor>();
         actor->transform.position = {x, y, 0.0f};
         return actor;
     }
@@ -180,8 +180,8 @@ TEST_CASE("HIER-2a: 親を消すと、子孫もフレームの終わりに一緒
 
     parent->Destroy();
     app.StepFrame(0, {});
-    CHECK(app.GetScene().actors.size() == 1);
-    CHECK(app.GetScene().FindActorByGuid(other->guid) == other);
+    CHECK(app.GetWorld().actors.size() == 1);
+    CHECK(app.GetWorld().FindActorByGuid(other->guid) == other);
 }
 
 TEST_CASE("HIER-2a: 親は保存され、読み戻すとつながる。子孫は親が先の順で集まる")
@@ -202,13 +202,13 @@ TEST_CASE("HIER-2a: 親は保存され、読み戻すとつながる。子孫は
     CHECK(descendants[0] == child);
     CHECK(descendants[1] == grandchild);
 
-    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetScene());
+    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetWorld());
     CHECK(saved.warnings.empty());
     Application loaded;
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved.value, loaded.GetScene(), loaded.GetTypeRegistry());
+        husky::engine::SceneSerializer::Read(saved.value, loaded.GetWorld(), loaded.GetTypeRegistry());
     CHECK(report.warnings.empty());
-    Actor* loadedGrandchild = loaded.GetScene().FindActorByGuid(grandchild->guid);
+    Actor* loadedGrandchild = loaded.GetWorld().FindActorByGuid(grandchild->guid);
     REQUIRE(loadedGrandchild != nullptr);
     REQUIRE(loadedGrandchild->GetParent() != nullptr);
     CHECK(loadedGrandchild->GetParent()->name == "Child");
@@ -222,7 +222,7 @@ TEST_CASE("HIER-2a: 読み込みで親子が輪になっていれば、親なし
     Actor* a = SpawnAt(app, 0.0f, 0.0f);
     Actor* b = SpawnAt(app, 0.0f, 0.0f);
     REQUIRE(b->SetParent(a));
-    husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetScene());
+    husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(app.GetWorld());
     // 手で直したファイルのつもりで、a の親を b にする(番号は b の id)
     const husky::engine::ArchiveValue& objects = *saved.value.Find("objects");
     std::int64_t idOfB = -1;
@@ -257,10 +257,10 @@ TEST_CASE("HIER-2a: 読み込みで親子が輪になっていれば、親なし
 
     Application loaded;
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved.value, loaded.GetScene(), loaded.GetTypeRegistry());
+        husky::engine::SceneSerializer::Read(saved.value, loaded.GetWorld(), loaded.GetTypeRegistry());
     CHECK(report.warnings.size() == 1);
-    Actor* loadedA = loaded.GetScene().FindActorByGuid(a->guid);
-    Actor* loadedB = loaded.GetScene().FindActorByGuid(b->guid);
+    Actor* loadedA = loaded.GetWorld().FindActorByGuid(a->guid);
+    Actor* loadedB = loaded.GetWorld().FindActorByGuid(b->guid);
     REQUIRE(loadedA != nullptr);
     REQUIRE(loadedB != nullptr);
     CHECK_FALSE(loadedA->IsDescendantOf(*loadedA));
@@ -282,14 +282,14 @@ TEST_CASE("HIER-1: 描画・選択・当たり判定はワールドの値を使�
 
     // 描画: モデル行列はワールドの行列
     std::vector<husky::render::Sprite> sprites;
-    husky::engine::ForEachSprite(app.GetScene(),
+    husky::engine::ForEachSprite(app.GetWorld(),
                                  [&](husky::render::Sprite& drawn, husky::engine::SpriteComponent&) { sprites.push_back(drawn); });
     REQUIRE(sprites.size() == 1);
     CHECK(sprites[0].model == child->GetWorldMatrix());
 
     // 選択: ワールドの位置で当たる(ローカルの値 (50, 0) では当たらない)
-    CHECK(husky::engine::FindSpriteActorAt(app.GetScene(), 200.0f, 150.0f) == child);
-    CHECK(husky::engine::FindSpriteActorAt(app.GetScene(), 50.0f, 0.0f) == nullptr);
+    CHECK(husky::engine::FindSpriteActorAt(app.GetWorld(), 200.0f, 150.0f) == child);
+    CHECK(husky::engine::FindSpriteActorAt(app.GetWorld(), 50.0f, 0.0f) == nullptr);
 
     // 当たり判定: 形はワールドの位置に置かれ、親を動かすとついて行く
     app.StepFrame(0, {});

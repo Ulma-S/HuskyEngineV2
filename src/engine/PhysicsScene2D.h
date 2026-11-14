@@ -28,7 +28,7 @@
 namespace husky::engine
 {
     class Actor;
-    class Scene;
+    class World;
 
     class PhysicsScene2D
     {
@@ -37,7 +37,7 @@ namespace husky::engine
 
         // 上の 1〜4 を行う。
         // dt は画面のフレームの長さ。物理は決まった刻み(GetStepper)で、貯まった分だけ進める。
-        void Update(Scene& scene, double dt);
+        void Update(World& scene, double dt);
 
         // 物理を進める決まった刻みの時計(既定は 1/60 秒、1 フレームに最大 4 歩)。
         const FixedStepper& GetStepper() const { return m_stepper; }
@@ -94,18 +94,18 @@ namespace husky::engine
 
         struct CollisionPair; // 下で定義する
 
-        void Sync(Scene& scene);
+        void Sync(World& scene);
         // アクターの Rigidbody2D に合わせて体を置く・置き直す・伝える。体が無ければ null を返す。
         // dynamic には、体が Dynamic かを入れる(体が無ければ false)。
         PhysicsBodyHandle2D SyncBody(const Actor& actor, core::ObjectRegistry& registry, const Pose2D& pose, bool& dynamic);
         // 体を世界から外す。付いていたコライダーの控えの形も「置いていない」にする(体と一緒に消えるため)。
         void RemoveBody(BodyEntry& entry);
         // Dynamic の体の場所と回転を、アクターの transform に書き戻す。
-        void WriteBackBodies(Scene& scene);
+        void WriteBackBodies(World& scene);
         // 最後の 1 歩の前に、動く体(Static 以外)の場所を previous に控える(PHY-4)。
         void RecordPreviousPoses();
         // 動く体のアクターに、描くときの transform(previous と pose を、貯まった時間の割合で混ぜたもの)を入れる(PHY-4)。
-        void ApplyInterpolation(Scene& scene);
+        void ApplyInterpolation(World& scene);
         // コライダーのハンドルの控えを探す。無ければ(置いていない、同じ場所の別の代)nullptr。
         Entry* FindEntry(core::ObjectHandle collider);
         void DetectOverlaps();
@@ -114,7 +114,7 @@ namespace husky::engine
         // collider を含む組を外し、両方に「離れた」を積む(コライダーが消えた・置き直したとき)。
         void DropCollisionPairs(core::ObjectHandle collider);
         void PushCollision(bool begin, const CollisionPair& pair, const core::Vector2& normal, const core::Vector2& point);
-        void Deliver(Scene& scene);
+        void Deliver(World& scene);
 
         std::unique_ptr<PhysicsWorld2D> m_world;
         FixedStepper m_stepper;

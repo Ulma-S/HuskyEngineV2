@@ -51,9 +51,9 @@ TEST_CASE("Inspector: すべての種類のプロパティを並べても、ImGu
 {
     HeadlessImGui imgui;
     Application app;
-    Chaser* chaser = app.GetScene().Spawn<Chaser>();
+    Chaser* chaser = app.GetWorld().Spawn<Chaser>();
     chaser->name = "chaser";
-    chaser->target = app.GetScene().Spawn<Actor>()->GetHandle();
+    chaser->target = app.GetWorld().Spawn<Actor>()->GetHandle();
     SpriteComponent* sprite = chaser->AddComponent<SpriteComponent>(); // float と構造体(色)
     sprite->color = {0.1f, 0.2f, 0.3f, 0.4f};
 
@@ -76,9 +76,9 @@ TEST_CASE("Inspector: 1000 体のシーンで、選んだアクターとコン�
     Application app;
     for (int i = 0; i < 1000; ++i)
     {
-        app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+        app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     }
-    Actor* picked = app.GetRegistry().Resolve<Actor>(app.GetScene().actors[500]);
+    Actor* picked = app.GetRegistry().Resolve<Actor>(app.GetWorld().actors[500]);
     REQUIRE(picked != nullptr);
 
     SceneInspector inspector;
@@ -101,7 +101,7 @@ TEST_CASE("Inspector: 切り出しの ID は、差し替えた表示(名前の�
     const husky::core::Guid* shapes = app.GetAssetDatabase().FindGuid("sprites/shapes.spritesheet");
     REQUIRE(shapes != nullptr);
 
-    SpriteComponent* sprite = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    SpriteComponent* sprite = app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     sprite->sheet.guid = *shapes;
     sprite->sprite = 1917386538; // diamond
 
@@ -135,7 +135,7 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     const husky::core::Guid* shapes = app.GetAssetDatabase().FindGuid("sprites/shapes.spritesheet");
     REQUIRE(shapes != nullptr);
 
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
     sprite->sheet.guid = *shapes;
     auto* animator = actor->AddComponent<husky::engine::SpriteAnimatorComponent>();
@@ -161,7 +161,7 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     CHECK(animator->animation == 1811624963);
 
     // SpriteComponent の無いアクターのアニメーターも、落ちずに表示できる。
-    auto* lonely = app.GetScene().Spawn<Actor>()->AddComponent<husky::engine::SpriteAnimatorComponent>();
+    auto* lonely = app.GetWorld().Spawn<Actor>()->AddComponent<husky::engine::SpriteAnimatorComponent>();
     imgui.Frame([&] {
         ImGui::Begin("Test");
         husky::tools::DrawProperties(lonely->GetType(), lonely, app.GetRegistry(), &app.GetAssetLoader());
@@ -185,7 +185,7 @@ TEST_CASE("Inspector: プレハブから置いたアクターは、プレハブ�
     REQUIRE(commands.Register(husky::tools::MakeRevertPrefabCommand()));
     REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
 
-    Actor* original = app.GetScene().Spawn<Actor>();
+    Actor* original = app.GetWorld().Spawn<Actor>();
     original->name = "Coin";
     original->AddComponent<SpriteComponent>()->width = 24.0f;
     husky::engine::ArchiveValue args = husky::engine::ArchiveValue::MakeObject();
@@ -198,7 +198,7 @@ TEST_CASE("Inspector: プレハブから置いたアクターは、プレハブ�
     REQUIRE(spawned.succeeded);
     husky::core::Guid guid;
     REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
-    Actor* placed = app.GetScene().FindActorByGuid(guid);
+    Actor* placed = app.GetWorld().FindActorByGuid(guid);
     REQUIRE(placed != nullptr);
 
     SceneInspector inspector;
@@ -223,7 +223,7 @@ TEST_CASE("Inspector: アクターの一覧は親子の木で描き、1000 体�
     std::vector<Actor*> roots;
     for (int i = 0; i < 1000; ++i)
     {
-        Actor* actor = app.GetScene().Spawn<Actor>();
+        Actor* actor = app.GetWorld().Spawn<Actor>();
         // 10 体ごとに、直前の根の子(と孫)にする
         if (i % 10 != 0 && !roots.empty())
         {
@@ -236,7 +236,7 @@ TEST_CASE("Inspector: アクターの一覧は親子の木で描き、1000 体�
     }
     SceneInspector inspector;
     // 子のアクターを選ぶと、先祖が開いて見えるようになる
-    Actor* child = app.GetRegistry().Resolve<Actor>(app.GetScene().actors[15]);
+    Actor* child = app.GetRegistry().Resolve<Actor>(app.GetWorld().actors[15]);
     REQUIRE(child != nullptr);
     inspector.Select(child->GetHandle());
     for (int frame = 0; frame < 3; ++frame)

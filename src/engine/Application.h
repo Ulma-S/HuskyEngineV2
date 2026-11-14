@@ -5,7 +5,7 @@
 // 使い方:
 //   Application app;
 //   app.GetTypeRegistry().Register<Player>();          // ファイルから作れるように、ゲームの型を登録する
-//   app.GetScene().Spawn<Player>();                   // 最初のアクターを置く(ウィンドウを開く前でもよい)
+//   app.GetWorld().Spawn<Player>();                   // 最初のアクターを置く(ウィンドウを開く前でもよい)
 //   app.SetUpdateCallback([](Application& a, double dt) { ... });  // ゲーム固有の毎フレームの処理(無くてもよい)
 //   ApplicationDesc desc;
 //   desc.title = "My Game";
@@ -25,7 +25,7 @@
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/PhysicsScene2D.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/TextLayout.h"
 #include "engine/UIComponents.h"
 #include "platform/InputEvents.h"
@@ -61,7 +61,7 @@ namespace husky::engine
     class Application final
     {
     public:
-        // 毎フレーム、入力の更新の後、シーンの更新(Scene::Tick)の前に呼ぶ関数の型。
+        // 毎フレーム、入力の更新の後、シーンの更新(World::Tick)の前に呼ぶ関数の型。
         // std::function<void(Application&, double)> は「Application& と double を受け取り、何も返さない関数」を入れる箱。
         using UpdateCallback = std::function<void(Application&, double)>;
 
@@ -84,7 +84,7 @@ namespace husky::engine
         core::TypeRegistry& GetTypeRegistry() { return m_types; }
         // 今のゲームのモジュール(HR-3)。exe が起動時に付け(DLL か、静的リンクなら表)、ホットリロードで付け替える。
         GameModuleHost& GetGameModule() { return m_gameModule; }
-        Scene& GetScene() { return *m_scene; }
+        World& GetWorld() { return *m_world; }
 
         // 2D の当たり判定(COL-3)。ゲームは GetPhysics2D().GetWorld() で問い合わせる(OverlapPoint、Raycast など)。
         // シーンを更新しているフレームだけ、StepFrame の中で同期と重なりの調べを行う(編集中は止まっている)。
@@ -113,7 +113,7 @@ namespace husky::engine
         //   1. dt を決める(FrameClock)
         //   2. 入力を更新する(events は、このフレームに起きたキーとマウスのイベントと画面の大きさ)。
         //      読み終わったアセットを書く(AssetLoader::Update)
-        //   3. 更新コールバック → シーンの更新(Scene::Tick。SetSceneTickEnabled(false) の間は、コマ送りのときだけ)
+        //   3. 更新コールバック → シーンの更新(World::Tick。SetSceneTickEnabled(false) の間は、コマ送りのときだけ)
         //   4. フレームの終わり: Destroy 済みのアクターを一覧から外す → 破棄を確定 → (GcIntervalSeconds ごとに)GC
         // 戻り値: このフレームの dt(秒)。
         double StepFrame(std::uint64_t nowNanoseconds, const platform::InputEvents& events);
@@ -124,7 +124,7 @@ namespace husky::engine
         // initializer_list(波かっこの並びそのものの型)は、波かっこからの変換がいちばん近いので、こちらが選ばれる。
         double StepFrame(std::uint64_t nowNanoseconds, std::initializer_list<platform::KeyEvent> keyEvents);
 
-        // シーンの更新(Scene::Tick)を止める・動かす。既定は動かす(製品とテストは、ずっと動かしたまま)。
+        // シーンの更新(World::Tick)を止める・動かす。既定は動かす(製品とテストは、ずっと動かしたまま)。
         // 止めている間も、更新コールバック、アセットの読み込み、フレームの終わりの処理(破棄の確定、GC)、描画は動く。
         // エディタの編集モードと一時停止に使う(tools の EditorPlayMode)。
         void SetSceneTickEnabled(bool enabled) { m_sceneTickEnabled = enabled; }
@@ -226,7 +226,7 @@ namespace husky::engine
         AssetLoader m_loader;
         PhysicsScene2D m_physics2D; // シーンのコライダーと当たり判定の世界(COL-3)
         core::ObjectRegistry m_registry;
-        Scene* m_scene = nullptr; // m_registry が持ち主。ここは借りているだけ
+        World* m_world = nullptr; // m_registry が持ち主。ここは借りているだけ
 
         UpdateCallback m_updateCallback;
         core::ObjectHandle m_defaultSpriteTexture; // 既定のテクスチャのアセット(Run の中で読み、根に加える)
@@ -234,7 +234,7 @@ namespace husky::engine
 
         double m_secondsSinceGc = 0.0;
         std::size_t m_collectedLastGc = 0;
-        bool m_sceneTickEnabled = true;    // false の間は Scene::Tick を呼ばない(SetSceneTickEnabled)
+        bool m_sceneTickEnabled = true;    // false の間は World::Tick を呼ばない(SetSceneTickEnabled)
         bool m_sceneStepRequested = false; // 止めている間に、次のフレームだけ進める(RequestSceneStep)
         render::FrameStats m_lastRenderStats;
         ScreenDrawCallback m_screenDraw; // 画面の座標で描くもの(SetScreenDrawCallback)

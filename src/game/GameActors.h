@@ -43,7 +43,7 @@ namespace husky::game
         std::int32_t touching = 0;
         render::Color savedColor;
 
-        // Scene::Tick から毎フレーム呼ばれる。
+        // World::Tick から毎フレーム呼ばれる。
         // override: 親(Actor)の virtual 関数を上書きしていることを、コンパイラに確かめさせる(C# の override と同じ)。
         // 跳ね返る位置は、見た目(SpriteComponent)の大きさではなく、当たりの大きさ(BouncerSize)で決める。
         // 動きは見た目に頼らない(見た目のコンポーネントを外しても、同じように動く)。

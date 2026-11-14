@@ -8,7 +8,7 @@
 #include "engine/Actor.h"
 #include "engine/Application.h"
 #include "engine/AssetLoader.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <doctest/doctest.h>
 
@@ -58,7 +58,7 @@ TEST_CASE("AudioSourceComponent: playOnStart なら、読み終わるのを待�
     ManualOutputState state;
     REQUIRE(app.GetAudio().StartOutput(std::make_unique<ManualOutput>(state, true)));
 
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     AudioSourceComponent* source = actor->AddComponent<AudioSourceComponent>();
     source->sound.guid = MakeGuid(9, 1);
     source->loop = true;
@@ -95,11 +95,11 @@ TEST_CASE("PlaySoundOnce: 読み終わっていなければ鳴らさず、読み
     // AssetRef を持つもの(ここではアクターのコンポーネントの代わりに根に入れた音を指す参照)が、鳴り終わるまで生きていること。
     husky::core::AssetRef<husky::engine::SoundAsset> sound;
     sound.guid = MakeGuid(9, 1);
-    CHECK(husky::engine::PlaySoundOnce(app.GetScene(), sound).IsNull()); // 読み始めただけ
+    CHECK(husky::engine::PlaySoundOnce(app.GetWorld(), sound).IsNull()); // 読み始めただけ
     app.GetRegistry().AddRoot(sound.asset);
     app.GetAssetLoader().WaitForAllLoads();
 
-    const husky::audio::PlaybackId id = husky::engine::PlaySoundOnce(app.GetScene(), sound, 0.5f);
+    const husky::audio::PlaybackId id = husky::engine::PlaySoundOnce(app.GetWorld(), sound, 0.5f);
     REQUIRE_FALSE(id.IsNull());
     CHECK(state.Render(1)[0] == doctest::Approx(0.25f));
     app.GetAudio().StopOutput();

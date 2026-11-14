@@ -124,7 +124,7 @@ namespace husky::tools
             RebuildRows(app.GetAssetLoader()); // 表が作り直されたときだけ(毎フレームは写さない)
         }
 
-        // 最初は右側、Scene の窓(右上、高さ 400)の下に出す。
+        // 最初は右側、World の窓(右上、高さ 400)の下に出す。
         const float width = 360.0f;
         const ImVec2 display = ImGui::GetIO().DisplaySize;
         const float x = display.x - width - 16.0f;

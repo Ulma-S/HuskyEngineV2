@@ -5,7 +5,7 @@
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 #include "engine/CameraComponent.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -27,7 +27,7 @@ using husky::core::ObjectRegistry;
 using husky::core::TypeRegistry;
 using husky::engine::Actor;
 using husky::engine::ArchiveValue;
-using husky::engine::Scene;
+using husky::engine::World;
 using husky::engine::SpriteComponent;
 namespace JsonFormat = husky::engine::JsonFormat;
 namespace Prefab = husky::engine::Prefab;
@@ -46,9 +46,9 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
@@ -75,7 +75,7 @@ TEST_CASE("Prefab: アクターから作ったプレハブを2回置くと、コ
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
     Actor* original = scene->Spawn<Actor>();
     original->name = "Coin";
@@ -101,7 +101,7 @@ TEST_CASE("Prefab: アクターから作ったプレハブを2回置くと、コ
     {
         CHECK(placed->name == "Coin");
         CHECK(placed->transform.position.x == 3.0f);
-        CHECK(placed->GetScene() == scene);
+        CHECK(placed->GetWorld() == scene);
         SpriteComponent* placedSprite = placed->GetComponent<SpriteComponent>();
         REQUIRE(placedSprite != nullptr);
         CHECK(placedSprite != sprite); // 元のコンポーネントを共有せず、新しく作っている
@@ -126,7 +126,7 @@ TEST_CASE("Prefab: アクターの外を指すハンドルは null にして警�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* player = scene->Spawn<Actor>();
     Follower* follower = scene->Spawn<Follower>();
     follower->target = player->GetHandle();
@@ -145,7 +145,7 @@ TEST_CASE("Prefab: アクターが1つでない値は、何も作らずに断る
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
     ArchiveValue noActors = ArchiveValue::MakeObject();
     noActors.Set("version", ArchiveValue(std::int64_t{1}));
@@ -184,7 +184,7 @@ TEST_CASE("PrefabAsset: .prefab を GUID で読むと値の木が手に入り、
     REQUIRE(prefab->IsLoaded());
     CHECK(loader.GetLoadedCount<husky::engine::PrefabAsset>() == 1);
 
-    const Prefab::InstantiateResult placed = Prefab::Instantiate(prefab->GetData(), app.GetScene(), app.GetTypeRegistry());
+    const Prefab::InstantiateResult placed = Prefab::Instantiate(prefab->GetData(), app.GetWorld(), app.GetTypeRegistry());
     CHECK(placed.warnings.empty());
     REQUIRE(placed.actor != nullptr);
     CHECK(placed.actor->name == "Coin");
@@ -267,7 +267,7 @@ namespace
     void WriteBoxPrefab(husky::tests::TestFolder& folder, const char* name, float width, bool withAnimator = false)
     {
         husky::engine::Application maker;
-        Actor* actor = maker.GetScene().Spawn<Actor>();
+        Actor* actor = maker.GetWorld().Spawn<Actor>();
         REQUIRE(actor != nullptr);
         actor->name = name;
         SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
@@ -304,7 +304,7 @@ namespace
         REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
         const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(BoxGuid);
         REQUIRE(prefab != nullptr);
-        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetScene(), app.GetTypeRegistry());
+        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetWorld(), app.GetTypeRegistry());
         REQUIRE(placed.actor != nullptr);
         return placed.actor;
     }
@@ -328,7 +328,7 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
         Actor* placed = PlaceBox(app, folder);
         placed->transform.position.x = 5.0f;
         placed->GetComponent<SpriteComponent>()->height = 20.0f;
-        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetWorld());
         CHECK(written.warnings.empty());
         saved = ThroughJson(written.value);
     }
@@ -358,7 +358,7 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        husky::engine::SceneSerializer::Read(saved, app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
     CHECK(report.warnings.empty());
     CHECK(report.createdCount == 2);
     REQUIRE(report.addedActors.size() == 1);
@@ -374,7 +374,7 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
     CHECK(app.GetAssetLoader().Resolve<husky::engine::PrefabAsset>(loaded->prefab.asset) != nullptr); // 読んだプレハブを覚えている
 
     // もう一度保存しても、違いは同じ(プレハブの値は書かない)
-    const ArchiveValue again = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+    const ArchiveValue again = husky::engine::SceneSerializer::Write(app.GetWorld()).value;
     CHECK(PropertiesAt(again, 0).Find("name") == nullptr);
     CHECK(PropertiesAt(again, 1).GetMemberCount() == 2);
 }
@@ -389,12 +389,12 @@ TEST_CASE("PF-4: プレハブが読めないときは、警告を出してファ
         husky::engine::Application app;
         Actor* placed = PlaceBox(app, folder);
         placed->GetComponent<SpriteComponent>()->height = 20.0f;
-        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetScene()).value);
+        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetWorld()).value);
     }
 
     husky::engine::Application app; // アセットの表を作らない(プレハブが見つからない)
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        husky::engine::SceneSerializer::Read(saved, app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
     REQUIRE(report.warnings.size() == 1);
     CHECK(report.warnings[0].find("読めない") != std::string::npos);
     REQUIRE(report.addedActors.size() == 1);
@@ -412,7 +412,7 @@ namespace
     {
         REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
         const husky::engine::SceneSerializer::ReadReport report =
-            husky::engine::SceneSerializer::Read(ThroughJson(saved), app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+            husky::engine::SceneSerializer::Read(ThroughJson(saved), app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
         CHECK(report.warnings.empty());
         REQUIRE(report.addedActors.size() == 1);
         return app.GetRegistry().Resolve<Actor>(report.addedActors[0]);
@@ -430,11 +430,11 @@ TEST_CASE("PF-7a: 置いた後に足したコンポーネントは全部の値�
         husky::engine::Application app;
         Actor* placed = PlaceBox(app, folder);
         placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->Destroy();
-        app.GetScene().RemoveDestroyedActors(); // フレームの終わり: Destroy 済みのコンポーネントが一覧から外れる
+        app.GetWorld().RemoveDestroyedActors(); // フレームの終わり: Destroy 済みのコンポーネントが一覧から外れる
         husky::engine::CameraComponent* camera = placed->AddComponent<husky::engine::CameraComponent>();
         REQUIRE(camera != nullptr);
         camera->zoom = 2.0f;
-        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetWorld());
         CHECK(written.warnings.empty());
         saved = ThroughJson(written.value);
     }
@@ -463,7 +463,7 @@ TEST_CASE("PF-7a: 置いた後に足したコンポーネントは全部の値�
     CHECK(loaded->GetComponent<husky::engine::CameraComponent>()->GetOwner() == loaded);
 
     // もう一度保存しても、同じ形(外した一覧が残る)
-    const ArchiveValue again = husky::engine::SceneSerializer::Write(other.GetScene()).value;
+    const ArchiveValue again = husky::engine::SceneSerializer::Write(other.GetWorld()).value;
     REQUIRE(again.Find("objects")->At(0).Find("removedComponents") != nullptr);
     CHECK(again.Find("objects")->At(0).Find("removedComponents")->GetArraySize() == 1);
 }
@@ -477,7 +477,7 @@ TEST_CASE("PF-7a: プレハブに後から足したコンポーネントは、�
     {
         husky::engine::Application app;
         PlaceBox(app, folder)->GetComponent<SpriteComponent>()->height = 20.0f;
-        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetScene()).value);
+        saved = ThroughJson(husky::engine::SceneSerializer::Write(app.GetWorld()).value);
     }
     CHECK(saved.Find("objects")->At(0).Find("removedComponents") == nullptr);
 
@@ -501,7 +501,7 @@ TEST_CASE("PF-7a: コンポーネントに ID の無い古いシーンのファ�
     {
         husky::engine::Application app;
         PlaceBox(app, folder)->GetComponent<SpriteComponent>()->height = 20.0f;
-        saved = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+        saved = husky::engine::SceneSerializer::Write(app.GetWorld()).value;
     }
     // ID を取り除き、PF-4 の形にする
     const ArchiveValue legacy = Rewrite(saved, "prefabComponentId", [](const ArchiveValue&) { return ArchiveValue(); });
@@ -526,7 +526,7 @@ TEST_CASE("PF-7b: FindOverrides はコンポーネントを ID で組にし、�
     Actor* placed = PlaceBox(app, folder);
     placed->GetComponent<SpriteComponent>()->height = 20.0f;
     placed->GetComponent<husky::engine::SpriteAnimatorComponent>()->Destroy();
-    app.GetScene().RemoveDestroyedActors();
+    app.GetWorld().RemoveDestroyedActors();
     REQUIRE(placed->AddComponent<husky::engine::CameraComponent>() != nullptr);
 
     const Prefab::OverridesResult found = Prefab::FindOverrides(*placed);
@@ -590,7 +590,7 @@ TEST_CASE("COL-4: コンポーネントの ID の無い古いシーンでも、�
         husky::engine::Application app;
         Actor* placed = PlaceBox(app, folder);
         placed->GetComponent<SpriteComponent>()->width = 48.0f;
-        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetScene()).value;
+        const ArchiveValue written = husky::engine::SceneSerializer::Write(app.GetWorld()).value;
         saved = Rewrite(ThroughJson(written), "prefabComponentId", [](const ArchiveValue&) { return ArchiveValue(); });
     }
 
@@ -599,10 +599,10 @@ TEST_CASE("COL-4: コンポーネントの ID の無い古いシーンでも、�
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+        husky::engine::SceneSerializer::Read(saved, app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
     CHECK(report.warnings.empty());
-    REQUIRE(app.GetScene().actors.size() == 1);
-    Actor* actor = app.GetRegistry().Resolve<Actor>(app.GetScene().actors[0]);
+    REQUIRE(app.GetWorld().actors.size() == 1);
+    Actor* actor = app.GetRegistry().Resolve<Actor>(app.GetWorld().actors[0]);
     REQUIRE(actor != nullptr);
     CHECK(actor->components.size() == 2);
     REQUIRE(actor->GetComponent<SpriteComponent>() != nullptr);
@@ -645,7 +645,7 @@ TEST_CASE("SD-4 の修正: プレハブのファイルに無いプロパティ�
     ArchiveValue written;
     std::string error;
     REQUIRE(Prefab::WriteChanges(found.prefab->GetData(), {change}, written, error));
-    const Prefab::InstantiateResult again = Prefab::Instantiate(written, app.GetScene(), types);
+    const Prefab::InstantiateResult again = Prefab::Instantiate(written, app.GetWorld(), types);
     REQUIRE(again.actor != nullptr);
     CHECK(again.actor->GetComponent<SpriteComponent>()->color.g == 0.5f);
 }
@@ -659,20 +659,20 @@ namespace
     void WriteTreePrefab(husky::tests::TestFolder& folder, bool withLight)
     {
         husky::engine::Application maker;
-        Actor* car = maker.GetScene().Spawn<Actor>();
+        Actor* car = maker.GetWorld().Spawn<Actor>();
         car->name = "Car";
         car->AddComponent<SpriteComponent>()->width = 40.0f;
-        Actor* wheel = maker.GetScene().Spawn<Actor>();
+        Actor* wheel = maker.GetWorld().Spawn<Actor>();
         wheel->name = "Wheel";
         wheel->transform.position = {10.0f, 0.0f, 0.0f};
         REQUIRE(wheel->SetParent(car, false));
         if (withLight)
         {
-            Actor* light = maker.GetScene().Spawn<Actor>();
+            Actor* light = maker.GetWorld().Spawn<Actor>();
             light->name = "Light";
             REQUIRE(light->SetParent(car, false));
         }
-        Actor* bolt = maker.GetScene().Spawn<Actor>();
+        Actor* bolt = maker.GetWorld().Spawn<Actor>();
         bolt->name = "Bolt";
         bolt->transform.position = {1.0f, 0.0f, 0.0f};
         REQUIRE(bolt->SetParent(wheel, false));
@@ -715,7 +715,7 @@ namespace
         folder.Write("prefabs/car.prefab.meta", husky::engine::AssetDatabase::MakeMetaText(TreeGuid));
     }
 
-    Actor* FindByName(husky::engine::Scene& scene, const char* name)
+    Actor* FindByName(husky::engine::World& scene, const char* name)
     {
         Actor* found = nullptr;
         scene.ForEachActor([&](Actor& actor) {
@@ -739,13 +739,13 @@ TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプ
         REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
         const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(TreeGuid);
         REQUIRE(prefab != nullptr);
-        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetScene(), app.GetTypeRegistry());
+        const Prefab::InstantiateResult placed = Prefab::Instantiate(*prefab, app.GetWorld(), app.GetTypeRegistry());
         CHECK(placed.warnings.empty());
         REQUIRE(placed.actor != nullptr);
         REQUIRE(placed.actors.size() == 3);
         Actor* car = placed.actor;
-        Actor* wheel = FindByName(app.GetScene(), "Wheel");
-        Actor* bolt = FindByName(app.GetScene(), "Bolt");
+        Actor* wheel = FindByName(app.GetWorld(), "Wheel");
+        Actor* bolt = FindByName(app.GetWorld(), "Bolt");
         REQUIRE(wheel != nullptr);
         REQUIRE(bolt != nullptr);
         CHECK(car->GetParent() == nullptr);
@@ -767,7 +767,7 @@ TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプ
         CHECK(overrides.overrides[0].path == "transform.position.y");
         CHECK_FALSE(overrides.overrides[0].perInstance);
 
-        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetWorld());
         CHECK(written.warnings.empty());
         saved = ThroughJson(written.value);
     }
@@ -792,12 +792,12 @@ TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプ
         husky::engine::Application app;
         REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
         const husky::engine::SceneSerializer::ReadReport report =
-            husky::engine::SceneSerializer::Read(saved, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+            husky::engine::SceneSerializer::Read(saved, app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
         CHECK(report.warnings.empty());
         CHECK(report.addedActorCount == 3);
-        Actor* car = FindByName(app.GetScene(), "Car");
-        Actor* wheel = FindByName(app.GetScene(), "Wheel");
-        Actor* bolt = FindByName(app.GetScene(), "Bolt");
+        Actor* car = FindByName(app.GetWorld(), "Car");
+        Actor* wheel = FindByName(app.GetWorld(), "Wheel");
+        Actor* bolt = FindByName(app.GetWorld(), "Bolt");
         REQUIRE(car != nullptr);
         REQUIRE(wheel != nullptr);
         REQUIRE(bolt != nullptr);
@@ -808,8 +808,8 @@ TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプ
         CHECK(car->GetComponent<SpriteComponent>()->width == 40.0f);
 
         bolt->Destroy();
-        app.GetScene().RemoveDestroyedActors();
-        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetScene());
+        app.GetWorld().RemoveDestroyedActors();
+        const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::Write(app.GetWorld());
         CHECK(written.warnings.empty());
         savedWithoutBolt = ThroughJson(written.value);
     }
@@ -820,13 +820,13 @@ TEST_CASE("HIER-2b: 子を含むプレハブは子孫ごと置かれ、子もプ
         husky::engine::Application app;
         REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
         const husky::engine::SceneSerializer::ReadReport report =
-            husky::engine::SceneSerializer::Read(savedWithoutBolt, app.GetScene(), app.GetTypeRegistry(), FinderOf(app));
+            husky::engine::SceneSerializer::Read(savedWithoutBolt, app.GetWorld(), app.GetTypeRegistry(), FinderOf(app));
         CHECK(report.warnings.empty());
-        CHECK(FindByName(app.GetScene(), "Bolt") == nullptr);
-        Actor* light = FindByName(app.GetScene(), "Light");
+        CHECK(FindByName(app.GetWorld(), "Bolt") == nullptr);
+        Actor* light = FindByName(app.GetWorld(), "Light");
         REQUIRE(light != nullptr);
-        CHECK(light->GetParent() == FindByName(app.GetScene(), "Car"));
+        CHECK(light->GetParent() == FindByName(app.GetWorld(), "Car"));
         CHECK(light->prefab.guid == TreeGuid);
-        CHECK(app.GetScene().actors.size() == 3);
+        CHECK(app.GetWorld().actors.size() == 3);
     }
 }

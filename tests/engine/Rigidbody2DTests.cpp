@@ -7,7 +7,7 @@
 #include "engine/Collider2D.h"
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SpriteComponent.h"
 
 #include <doctest/doctest.h>
@@ -26,7 +26,7 @@ namespace
     // 32 x 32 の四角のコライダーと、bodyType の Rigidbody2D を持つアクターを置く。
     Actor* SpawnBody(Application& app, float x, float y, BodyType2D type)
     {
-        Actor* actor = app.GetScene().Spawn<Actor>();
+        Actor* actor = app.GetWorld().Spawn<Actor>();
         actor->transform.position = {x, y, 0.0f};
         actor->AddComponent<Rigidbody2D>()->bodyType = type;
         actor->AddComponent<BoxCollider2D>();
@@ -169,7 +169,7 @@ TEST_CASE("PHY-2a: 体に付けたコライダーどうしも重なりのイベ�
     SetupApp(app, 0.0f);
     Actor* a = SpawnBody(app, 0.0f, 0.0f, BodyType2D::Kinematic);
     a->GetComponent<BoxCollider2D>()->isTrigger = true; // isTrigger はまだ覚えるだけ(PHY-3)
-    Actor* b = app.GetScene().Spawn<Actor>();
+    Actor* b = app.GetWorld().Spawn<Actor>();
     b->transform.position = {10.0f, 0.0f, 0.0f};
     b->AddComponent<BoxCollider2D>();
     Steps(app, 1);
@@ -183,7 +183,7 @@ TEST_CASE("PHY-2a: 体に付けたコライダーどうしも重なりのイベ�
 TEST_CASE("PHY-2a: Rigidbody2D の体の種類は名前で保存され、読み直すと同じ値になる")
 {
     Application app;
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     Rigidbody2D* source = actor->AddComponent<Rigidbody2D>();
     source->bodyType = BodyType2D::Kinematic;
     source->gravityScale = 0.5f;
@@ -294,7 +294,7 @@ namespace
 
     ContactRecorder* SpawnRecorder(Application& app, float x, float y, BodyType2D type)
     {
-        ContactRecorder* actor = app.GetScene().Spawn<ContactRecorder>();
+        ContactRecorder* actor = app.GetWorld().Spawn<ContactRecorder>();
         actor->transform.position = {x, y, 0.0f};
         actor->AddComponent<Rigidbody2D>()->bodyType = type;
         actor->AddComponent<BoxCollider2D>();
@@ -398,7 +398,7 @@ TEST_CASE("PHY-4: 描くときは、前の歩と今の歩の間を、貯まっ�
     actor->AddComponent<husky::engine::SpriteComponent>();
     Steps(app, 1);
     float drawnX = 0.0f;
-    husky::engine::ForEachSprite(app.GetScene(), [&](const husky::render::Sprite& sprite, husky::engine::SpriteComponent&) {
+    husky::engine::ForEachSprite(app.GetWorld(), [&](const husky::render::Sprite& sprite, husky::engine::SpriteComponent&) {
         drawnX = sprite.model.m[12]; // 列優先なので、移動の x は 12 番目
     });
     CHECK(drawnX == doctest::Approx(actor->GetRenderTransform().position.x));

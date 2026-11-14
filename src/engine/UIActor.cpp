@@ -1,7 +1,7 @@
 // UIActor.h の実装(UI の配置の計算)。
 #include "engine/UIActor.h"
 
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 namespace husky::engine
 {
@@ -85,7 +85,7 @@ namespace husky::engine
         }
     };
 
-    void LayoutCanvases(Scene& scene, float screenWidth, float screenHeight)
+    void LayoutCanvases(World& scene, float screenWidth, float screenHeight)
     {
         // 回の番号: 同じ回に同じアクターを2度計算しないため(親を先に置くとき、子から何度も親へたどる)。
         static std::uint64_t s_pass = 0;

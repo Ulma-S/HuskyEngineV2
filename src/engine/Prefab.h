@@ -27,7 +27,7 @@
 #include "core/TypeRegistry.h"
 #include "engine/ArchiveValue.h"
 #include "engine/PrefabAsset.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 
 #include <string>
@@ -74,11 +74,11 @@ namespace husky::engine::Prefab
 
     // プレハブの値から、アクターとコンポーネントを新しく作り、scene の一覧の末尾に置く。guid は新しく振られる。
     // "actors" が無い・空なら、何も作らずに失敗する(actor が nullptr、理由は warnings)。子孫も一緒に作り、親子もつながる。
-    InstantiateResult Instantiate(const ArchiveValue& prefab, Scene& scene, const core::TypeRegistry& types);
+    InstantiateResult Instantiate(const ArchiveValue& prefab, World& scene, const core::TypeRegistry& types);
 
     // プレハブのアセットから置き、置いたアクターに元のプレハブ(Actor::prefab)を覚えさせる。
     // アセットが読み終わっていなければ(読み込み中・失敗)、何も作らずに失敗する。
-    InstantiateResult Instantiate(const PrefabAsset& prefab, Scene& scene, const core::TypeRegistry& types);
+    InstantiateResult Instantiate(const PrefabAsset& prefab, World& scene, const core::TypeRegistry& types);
 
     // プレハブと違う値(上書き、override)1つ。
     struct Override
@@ -179,7 +179,7 @@ namespace husky::engine::Prefab
 
     // プレハブ prefab の中の ID が childId のアクターと、プレハブの中のその子孫を作り、scene に入れて parent の子にする。
     // 全員に元のプレハブを覚えさせる。作ったアクター(子が最初、親が先の順)を返す。作れなければ空と error。
-    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, Scene& scene,
+    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, World& scene,
                                          const core::TypeRegistry& types, std::string& error);
 
     // 足した子を書き込んだときに振った、プレハブの中の ID(置いたものに覚えさせて、組にするため)。

@@ -1,7 +1,7 @@
 // Actor.h と Component.h の実装。
 #include "engine/Actor.h"
 
-#include "engine/Scene.h" // GetScene で Scene* を返すために、Scene の中身(Object の子であること)を知る必要がある
+#include "engine/World.h" // GetWorld で World* を返すために、World の中身(Object の子であること)を知る必要がある
 
 #include "engine/EngineLog.h"
 #include "engine/GlmConversion.h"
@@ -20,10 +20,10 @@ namespace husky::engine
         return registry != nullptr ? registry->Resolve<Actor>(m_owner) : nullptr;
     }
 
-    Scene* Actor::GetScene() const
+    World* Actor::GetWorld() const
     {
         core::ObjectRegistry* registry = GetRegistry();
-        return registry != nullptr ? registry->Resolve<Scene>(m_scene) : nullptr;
+        return registry != nullptr ? registry->Resolve<World>(m_world) : nullptr;
     }
 
     void Actor::RelinkComponentOwners()
@@ -113,7 +113,7 @@ namespace husky::engine
     void Actor::GetChildren(std::vector<Actor*>& out) const
     {
         out.clear();
-        Scene* scene = GetScene();
+        World* scene = GetWorld();
         if (scene == nullptr)
         {
             return;
@@ -128,7 +128,7 @@ namespace husky::engine
 
     void Actor::GetDescendants(std::vector<Actor*>& out) const
     {
-        Scene* scene = GetScene();
+        World* scene = GetWorld();
         if (scene == nullptr)
         {
             return;

@@ -1,6 +1,6 @@
-// Scene と Actor のテスト。dt は固定値を渡すので、結果は毎回同じになる。
+// World と Actor のテスト。dt は固定値を渡すので、結果は毎回同じになる。
 #include "engine/Input.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <doctest/doctest.h>
 
@@ -9,7 +9,7 @@
 using husky::core::ObjectHandle;
 using husky::core::ObjectRegistry;
 using husky::engine::Actor;
-using husky::engine::Scene;
+using husky::engine::World;
 
 namespace
 {
@@ -31,9 +31,9 @@ namespace
     {
         HUSKY_OBJECT_INLINE(Spawner, Actor)
     public:
-        explicit Spawner(Scene& owner) : scene(&owner) {}
+        explicit Spawner(World& owner) : scene(&owner) {}
         void Tick(double) override { scene->Spawn<Mover>(); }
-        Scene* scene;
+        World* scene;
     };
 
     // Tick の中で、自分を Destroy する。
@@ -45,25 +45,25 @@ namespace
     };
 
     // シーンを作って根にするまでの、毎回同じ準備。
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
 
     // フレームの終わりの処理(ゲームループと同じ順番)。
-    void EndFrame(ObjectRegistry& registry, Scene& scene)
+    void EndFrame(ObjectRegistry& registry, World& scene)
     {
         scene.RemoveDestroyedActors();
         registry.FlushDestroyed();
     }
 }
 
-TEST_CASE("Scene: Spawn したアクターは一覧に入り、シーンが根なら GC で回収されない")
+TEST_CASE("World: Spawn したアクターは一覧に入り、シーンが根なら GC で回収されない")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Mover* mover = scene->Spawn<Mover>();
 
     REQUIRE(mover != nullptr);
@@ -72,10 +72,10 @@ TEST_CASE("Scene: Spawn したアクターは一覧に入り、シーンが根�
     CHECK(registry.Resolve(mover->GetHandle()) == mover);
 }
 
-TEST_CASE("Scene: Tick は全アクターの Tick を、渡した dt で呼ぶ")
+TEST_CASE("World: Tick は全アクターの Tick を、渡した dt で呼ぶ")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Mover* a = scene->Spawn<Mover>();
     Mover* b = scene->Spawn<Mover>();
 
@@ -87,10 +87,10 @@ TEST_CASE("Scene: Tick は全アクターの Tick を、渡した dt で呼ぶ")
     CHECK(b->transform.position.x == doctest::Approx(100.0f)); // 秒速 100 で1秒
 }
 
-TEST_CASE("Scene: Destroy したアクターは、そのフレームの残りでは更新されず、フレームの終わりに消える")
+TEST_CASE("World: Destroy したアクターは、そのフレームの残りでは更新されず、フレームの終わりに消える")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Mover* mover = scene->Spawn<Mover>();
     const ObjectHandle handle = mover->GetHandle();
 
@@ -103,10 +103,10 @@ TEST_CASE("Scene: Destroy したアクターは、そのフレームの残りで
     CHECK(registry.Resolve(handle) == nullptr);
 }
 
-TEST_CASE("Scene: Tick の中で自分を Destroy しても大丈夫")
+TEST_CASE("World: Tick の中で自分を Destroy しても大丈夫")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     scene->Spawn<SelfDestroyer>();
     scene->Spawn<Mover>();
 
@@ -115,10 +115,10 @@ TEST_CASE("Scene: Tick の中で自分を Destroy しても大丈夫")
     CHECK(scene->actors.size() == 1); // Mover だけが残る
 }
 
-TEST_CASE("Scene: Tick の中で Spawn したアクターは、次のフレームから更新される")
+TEST_CASE("World: Tick の中で Spawn したアクターは、次のフレームから更新される")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     scene->Spawn<Spawner>(*scene);
 
     scene->Tick(0.1); // Spawner が Mover を1つ作る(作られた Mover は、このフレームでは更新されない)
@@ -136,10 +136,10 @@ TEST_CASE("Scene: Tick の中で Spawn したアクターは、次のフレー�
     CHECK(first->tickCount == 100);
 }
 
-TEST_CASE("Scene: 一覧から外したアクターは、次の GC で回収される")
+TEST_CASE("World: 一覧から外したアクターは、次の GC で回収される")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const ObjectHandle handle = scene->Spawn<Mover>()->GetHandle();
 
     scene->actors.clear(); // Destroy せずに一覧から外すだけ
@@ -147,10 +147,10 @@ TEST_CASE("Scene: 一覧から外したアクターは、次の GC で回収さ�
     CHECK(registry.Resolve(handle) == nullptr);
 }
 
-TEST_CASE("Scene: ForEachActor は、生きているアクターだけを一覧の順に渡す")
+TEST_CASE("World: ForEachActor は、生きているアクターだけを一覧の順に渡す")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Mover* a = scene->Spawn<Mover>();
     Mover* b = scene->Spawn<Mover>();
     Mover* c = scene->Spawn<Mover>();
@@ -177,7 +177,7 @@ namespace
     public:
         void Tick(double dt) override
         {
-            const Scene* scene = GetScene();
+            const World* scene = GetWorld();
             const husky::engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
             if (input != nullptr && input->IsDown(husky::platform::Key::Space))
             {
@@ -190,28 +190,28 @@ namespace
 TEST_CASE("Actor: Spawn したアクターは自分のシーンを知っている。シーンの外で作ったものは知らない")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
-    CHECK(scene->Spawn<Mover>()->GetScene() == scene);
-    CHECK(registry.Create<Mover>()->GetScene() == nullptr);
+    CHECK(scene->Spawn<Mover>()->GetWorld() == scene);
+    CHECK(registry.Create<Mover>()->GetWorld() == nullptr);
 }
 
 TEST_CASE("Actor: シーンへの参照は弱い。アクターだけが残っても、シーンは回収される")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Mover* mover = scene->Spawn<Mover>();
     registry.AddRoot(mover->GetHandle()); // アクターだけを根にする
     registry.RemoveRoot(scene->GetHandle());
 
     CHECK(registry.CollectGarbage() == 1); // シーンだけが回収される
-    CHECK(mover->GetScene() == nullptr);   // シーンがもう無いと分かる
+    CHECK(mover->GetWorld() == nullptr);   // シーンがもう無いと分かる
 }
 
-TEST_CASE("Scene: 入力は SetInput で渡したものを返し、アクターはシーンから入力を読める")
+TEST_CASE("World: 入力は SetInput で渡したものを返し、アクターはシーンから入力を読める")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     InputReader* reader = scene->Spawn<InputReader>();
 
     CHECK(scene->GetInput() == nullptr);

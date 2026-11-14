@@ -7,7 +7,7 @@
 #if HUSKY_DEVELOPMENT
 
 #include "core/Handle.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "render/RenderDevice.h"
 
 #include <vector>
@@ -16,13 +16,13 @@ namespace husky::tools
 {
     // 枠の線(細いスプライト)を out に作り直す(GPU を使わないのでテストできる)。行列は画面ちょうどのカメラの前提。
     // selected: 選んでいるアクター(UIActor なら橙色で、ほかより手前に描く)。
-    void BuildUIRectOutlines(engine::Scene& scene, core::ObjectHandle selected, std::vector<render::Sprite>& out);
+    void BuildUIRectOutlines(engine::World& scene, core::ObjectHandle selected, std::vector<render::Sprite>& out);
 
     class UIRectOverlay final
     {
     public:
         // 枠を作り直して積む。editing が false(再生中など)なら何もしない。
-        void Draw(engine::Scene& scene, core::ObjectHandle selected, bool editing, render::RenderDevice& renderDevice);
+        void Draw(engine::World& scene, core::ObjectHandle selected, bool editing, render::RenderDevice& renderDevice);
 
     private:
         std::vector<render::Sprite> m_lines; // 使い回す入れ物

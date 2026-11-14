@@ -198,7 +198,7 @@ namespace husky::core
 
     protected:
         // このオブジェクトを作ったレジストリ。レジストリで作っていなければ nullptr。
-        // 子クラス(Scene など)が、ほかのオブジェクトを作ったり引いたりするのに使う。
+        // 子クラス(World など)が、ほかのオブジェクトを作ったり引いたりするのに使う。
         // 注意: レジストリが設定するのはコンストラクタの後なので、コンストラクタの中では nullptr。
         // protected: 外からは見えないが、子クラスからは使える(C# の protected と同じ)。
         ObjectRegistry* GetRegistry() const { return m_registry; }

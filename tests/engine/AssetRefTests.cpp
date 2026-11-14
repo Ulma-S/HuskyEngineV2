@@ -33,7 +33,7 @@ namespace
 TEST_CASE("AssetRef: 保存すると GUID の文字列になり、読み戻すと同じ GUID を指す(ハンドルは保存しない)")
 {
     Application app;
-    SpriteComponent* sprite = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    SpriteComponent* sprite = app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     sprite->texture.guid = MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a43ull);
     sprite->texture.asset = husky::core::ObjectHandle{5, 1}; // 実行中だけの値(保存されないこと)
 
@@ -43,7 +43,7 @@ TEST_CASE("AssetRef: 保存すると GUID の文字列になり、読み戻す�
     REQUIRE(texture->GetType() == ArchiveValue::Type::String);
     CHECK(texture->AsString() == "3f2a9c1e-7b40-4d2e-9a1f-0c5e8b7d6a43");
 
-    SpriteComponent* loaded = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    SpriteComponent* loaded = app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     loaded->texture.asset = husky::core::ObjectHandle{9, 9};
     const ObjectSerializer::ReadReport report = ObjectSerializer::ReadProperties(saved, *loaded);
     CHECK(report.warnings.empty());
@@ -54,7 +54,7 @@ TEST_CASE("AssetRef: 保存すると GUID の文字列になり、読み戻す�
 TEST_CASE("AssetRef: 何も指さなければ null で保存する。GUID でない文字列は読まずに警告する")
 {
     Application app;
-    SpriteComponent* sprite = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    SpriteComponent* sprite = app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     const ArchiveValue saved = ObjectSerializer::Write(*sprite);
     CHECK(saved.Find("properties")->Find("texture")->IsNull());
 
@@ -77,7 +77,7 @@ TEST_CASE("AssetRef: 使うとき(Resolve)に読み、参照している間は G
     const Guid guid = ScanAndFind(app, "textures/test_sprite.png");
     auto& loader = app.GetAssetLoader();
 
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
     sprite->texture.guid = guid;
     CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0); // GUID を入れただけでは、まだ読まない
@@ -110,7 +110,7 @@ TEST_CASE("AssetRef: 指す GUID を変えると(インスペクタで選び直�
     REQUIRE(second != nullptr);
     auto& loader = app.GetAssetLoader();
 
-    SpriteComponent* sprite = app.GetScene().Spawn<Actor>()->AddComponent<SpriteComponent>();
+    SpriteComponent* sprite = app.GetWorld().Spawn<Actor>()->AddComponent<SpriteComponent>();
     sprite->texture.guid = first;
     REQUIRE(loader.Resolve(sprite->texture) != nullptr);
 

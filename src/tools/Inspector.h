@@ -48,7 +48,7 @@ namespace husky::tools
     class SceneInspector
     {
     public:
-        // 「Scene」の窓を作る。上にアクターの一覧、下に選んだアクターのプロパティとコンポーネントを出す。
+        // 「World」の窓を作る。上にアクターの一覧、下に選んだアクターのプロパティとコンポーネントを出す。
         // commands があれば、値の書き換えは property.set を通す(Undo できる。ドラッグは手を離したときに1件)。
         // nullptr なら、その場で書き換えるだけ(テストなど)。
         void Draw(engine::Application& app, EditorCommandRegistry* commands = nullptr);
@@ -83,7 +83,7 @@ namespace husky::tools
 
         // ---- アクターの木(HIER-3)----
         // 一覧を親子の木で描く。毎フレーム、シーンの一覧から作り直す(入れ物は使い回し、温まった後は確保しない)。
-        void BuildTreeRows(engine::Scene& scene, core::ObjectRegistry& registry);
+        void BuildTreeRows(engine::World& scene, core::ObjectRegistry& registry);
         // i 番目(シーンの一覧の位置)のアクターと、開いていればその子孫を、行に足す。
         void AppendTreeRows(int i, int depth);
         // 親を付け替える(編集中は actor.setParent を通して Undo できる。使えなければ、その場で付け替えるだけ)。
@@ -99,7 +99,7 @@ namespace husky::tools
         std::vector<char> m_isRoot;      // シーンの一覧の位置 → 親が無い(か、親が一覧にいない)か
         std::vector<std::pair<int, int>> m_treeRows; // 描く行(シーンの一覧の位置、深さ)
         core::ObjectHandle m_revealedFor;            // 先祖を開いて見えるようにした選択(選び直したら、もう一度開く)
-        engine::Scene* m_sceneForRows = nullptr;     // 行を作っている間だけ使う(AppendTreeRows がアクターのハンドルを引くため)
+        engine::World* m_sceneForRows = nullptr;     // 行を作っている間だけ使う(AppendTreeRows がアクターのハンドルを引くため)
     };
 }
 

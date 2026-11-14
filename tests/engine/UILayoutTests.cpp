@@ -33,7 +33,7 @@ namespace
     // Canvas(1280 × 720)の根を1つ作る。
     UIActor* SpawnCanvas(Application& app)
     {
-        UIActor* canvas = app.GetScene().Spawn<UIActor>();
+        UIActor* canvas = app.GetWorld().Spawn<UIActor>();
         REQUIRE(canvas != nullptr);
         REQUIRE(canvas->AddComponent<CanvasComponent>() != nullptr);
         return canvas;
@@ -41,7 +41,7 @@ namespace
 
     UIActor* SpawnChild(Application& app, UIActor& parent, const RectTransform& rect)
     {
-        UIActor* child = app.GetScene().Spawn<UIActor>();
+        UIActor* child = app.GetWorld().Spawn<UIActor>();
         REQUIRE(child != nullptr);
         child->rectTransform = rect;
         REQUIRE(child->SetParent(&parent, false));
@@ -106,7 +106,7 @@ TEST_CASE("UILayout: Canvas は画面の高さに合わせて拡大し、子の�
     // パネルの真ん中に 50 × 50
     UIActor* icon = SpawnChild(app, *panel, MakeRect(0.5f, 0.5f, 0.5f, 0.5f, 0.0f, 0.0f, 50.0f, 50.0f));
 
-    LayoutCanvases(app.GetScene(), 1920.0f, 1080.0f); // 1.5 倍
+    LayoutCanvases(app.GetWorld(), 1920.0f, 1080.0f); // 1.5 倍
     REQUIRE(canvas->IsInCanvas());
     CHECK(canvas->GetRect().width == doctest::Approx(1280.0f));
     CHECK(canvas->transform.scale.x == doctest::Approx(1.5f));
@@ -122,7 +122,7 @@ TEST_CASE("UILayout: Canvas は画面の高さに合わせて拡大し、子の�
     CHECK(icon->GetWorldPosition().y == doctest::Approx((720.0f - 20.0f - 50.0f) * 1.5f));
 
     // 横長の画面(2560 × 1080): 高さに合わせるので拡大は同じ 1.5、Canvas の幅が広がり、右上に付けたものは右上に付く
-    LayoutCanvases(app.GetScene(), 2560.0f, 1080.0f);
+    LayoutCanvases(app.GetWorld(), 2560.0f, 1080.0f);
     CHECK(canvas->GetRect().width == doctest::Approx(2560.0f / 1.5f));
     CHECK(panel->GetWorldPosition().x == doctest::Approx(2560.0f - 20.0f * 1.5f));
 }
@@ -130,12 +130,12 @@ TEST_CASE("UILayout: Canvas は画面の高さに合わせて拡大し、子の�
 TEST_CASE("UILayout: Canvas の外の UIActor は置かない。画面の大きさが 0 なら基準の解像度")
 {
     Application app;
-    UIActor* lonely = app.GetScene().Spawn<UIActor>(); // Canvas の下ではない
+    UIActor* lonely = app.GetWorld().Spawn<UIActor>(); // Canvas の下ではない
     REQUIRE(lonely != nullptr);
     UIActor* canvas = SpawnCanvas(app);
     UIActor* child = SpawnChild(app, *canvas, MakeRect(0.0f, 0.0f, 0.0f, 0.0f, 5.0f, 5.0f, 10.0f, 10.0f));
 
-    LayoutCanvases(app.GetScene(), 0.0f, 0.0f);
+    LayoutCanvases(app.GetWorld(), 0.0f, 0.0f);
     CHECK_FALSE(lonely->IsInCanvas());
     REQUIRE(child->IsInCanvas());
     CHECK(canvas->transform.scale.x == doctest::Approx(1.0f));
@@ -154,9 +154,9 @@ TEST_CASE("UILayout: シーンのファイルには RectTransform を書き、tr
     UIActor* canvas = SpawnCanvas(source);
     UIActor* child = SpawnChild(source, *canvas, MakeRect(0.0f, 1.0f, 0.0f, 1.0f, 16.0f, -16.0f, 120.0f, 40.0f));
     child->name = "Label";
-    LayoutCanvases(source.GetScene(), 1920.0f, 1080.0f); // transform に値が入った状態で書く
+    LayoutCanvases(source.GetWorld(), 1920.0f, 1080.0f); // transform に値が入った状態で書く
 
-    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(source.GetScene());
+    const husky::engine::SceneSerializer::WriteResult saved = husky::engine::SceneSerializer::Write(source.GetWorld());
     CHECK(saved.warnings.empty());
     std::string text;
     REQUIRE(husky::engine::JsonFormat::Write(saved.value, text));
@@ -168,14 +168,14 @@ TEST_CASE("UILayout: シーンのファイルには RectTransform を書き、tr
     husky::engine::ArchiveValue value;
     REQUIRE(husky::engine::JsonFormat::Read(text, value));
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(value, loaded.GetScene(), loaded.GetTypeRegistry());
+        husky::engine::SceneSerializer::Read(value, loaded.GetWorld(), loaded.GetTypeRegistry());
     CHECK(report.warnings.empty());
-    REQUIRE(loaded.GetScene().actors.size() == 2);
-    UIActor* loadedChild = loaded.GetRegistry().Resolve<UIActor>(loaded.GetScene().actors[1]);
+    REQUIRE(loaded.GetWorld().actors.size() == 2);
+    UIActor* loadedChild = loaded.GetRegistry().Resolve<UIActor>(loaded.GetWorld().actors[1]);
     REQUIRE(loadedChild != nullptr);
     CHECK(loadedChild->name == "Label");
     CHECK(loadedChild->rectTransform.sizeDelta.x == doctest::Approx(120.0f));
-    LayoutCanvases(loaded.GetScene(), 1280.0f, 720.0f);
+    LayoutCanvases(loaded.GetWorld(), 1280.0f, 720.0f);
     REQUIRE(loadedChild->IsInCanvas());
     CHECK(loadedChild->GetRect().x == doctest::Approx(16.0f));
     CHECK(loadedChild->GetRect().y == doctest::Approx(720.0f - 16.0f - 40.0f));

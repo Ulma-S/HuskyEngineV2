@@ -20,7 +20,7 @@ namespace husky::engine::Prefab
     WriteResult Write(Actor& actor)
     {
         WriteResult result;
-        Scene* scene = actor.GetScene();
+        World* scene = actor.GetWorld();
         if (scene == nullptr || actor.IsPendingDestroy())
         {
             result.warnings.push_back("アクターがシーンに入っていないか、Destroy 済みです");
@@ -78,7 +78,7 @@ namespace husky::engine::Prefab
         return result;
     }
 
-    InstantiateResult Instantiate(const ArchiveValue& prefab, Scene& scene, const core::TypeRegistry& types)
+    InstantiateResult Instantiate(const ArchiveValue& prefab, World& scene, const core::TypeRegistry& types)
     {
         InstantiateResult result;
 
@@ -109,7 +109,7 @@ namespace husky::engine::Prefab
         return result;
     }
 
-    InstantiateResult Instantiate(const PrefabAsset& prefab, Scene& scene, const core::TypeRegistry& types)
+    InstantiateResult Instantiate(const PrefabAsset& prefab, World& scene, const core::TypeRegistry& types)
     {
         if (!prefab.IsLoaded())
         {
@@ -323,7 +323,7 @@ namespace husky::engine::Prefab
     OverridesResult FindOverrides(const Actor& actor, const core::TypeRegistry* types)
     {
         OverridesResult result;
-        const Scene* scene = actor.GetScene();
+        const World* scene = actor.GetWorld();
         const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
         if (actor.prefab.IsNull())
         {
@@ -633,7 +633,7 @@ namespace husky::engine::Prefab
 
     std::size_t FollowChanges(Actor& actor, const std::vector<ValueChange>& changes)
     {
-        const Scene* scene = actor.GetScene();
+        const World* scene = actor.GetWorld();
         const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
         std::size_t changed = 0;
         for (const ValueChange& change : changes)
@@ -736,7 +736,7 @@ namespace husky::engine::Prefab
         // 持ち主のプレハブの中のアクターの番号(HIER-2b。子のコンポーネントなら、その子の番号)
         const std::int64_t actorId =
             SceneSerializer::FindPrefabActorNumber(data, owner != nullptr ? owner->prefabActorId : core::Guid{});
-        const Scene* scene = owner != nullptr ? owner->GetScene() : nullptr;
+        const World* scene = owner != nullptr ? owner->GetWorld() : nullptr;
         const core::ObjectRegistry* registry = scene != nullptr ? scene->GetObjectRegistry() : nullptr;
         // ハンドルは、持ち主のアクターを指すものだけを、プレハブのアクターの番号にする(Prefab::Write と同じ決まり)。
         ArchiveValue entry = ObjectSerializer::Write(component, [&](core::ObjectHandle handle) -> std::int64_t {
@@ -814,7 +814,7 @@ namespace husky::engine::Prefab
             return raw;
         }
         // 一時的なシーンに、シーンのファイルを読むのと同じ道具で作る(入れ子は元のプレハブから作って違いを重ねる)
-        Scene* temporary = registry.Create<Scene>();
+        World* temporary = registry.Create<World>();
         if (temporary == nullptr)
         {
             warnings.push_back("not enough object memory to open nested prefabs");
@@ -901,7 +901,7 @@ namespace husky::engine::Prefab
         return entry != nullptr ? GuidOf(*entry, "prefab") : core::Guid{};
     }
 
-    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, Scene& scene,
+    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, World& scene,
                                          const core::TypeRegistry& types, std::string& error)
     {
         std::vector<Actor*> created;
@@ -989,7 +989,7 @@ namespace husky::engine::Prefab
             child.GetDescendants(descendants);
             targets.insert(targets.end(), descendants.begin(), descendants.end());
         }
-        core::ObjectRegistry* registry = child.GetScene() != nullptr ? child.GetScene()->GetObjectRegistry() : nullptr;
+        core::ObjectRegistry* registry = child.GetWorld() != nullptr ? child.GetWorld()->GetObjectRegistry() : nullptr;
         if (registry == nullptr)
         {
             error = "the actor is not in a scene";

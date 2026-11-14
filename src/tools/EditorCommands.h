@@ -281,7 +281,7 @@ namespace husky::tools
     //   - そうでなければ名前で探す。1体だけなら、それを返す
     // 見つからない、または名前が複数のアクターに当てはまるときは nullptr を返し、error に人が読める理由を書く
     // (複数なら、候補を guid、型、位置つきで並べる。黙ってどれかを選ばない)。
-    engine::Actor* FindActorFromArg(engine::Scene& scene, const std::string& actorText, std::string& error);
+    engine::Actor* FindActorFromArg(engine::World& scene, const std::string& actorText, std::string& error);
 
     // アクターを人に見せる文字("Player (PlayerActor)"。名前が無ければ "PlayerActor at (12, 34)")。
     std::string DescribeActor(const engine::Actor& actor);

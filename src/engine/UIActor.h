@@ -23,7 +23,7 @@
 
 namespace husky::engine
 {
-    class Scene;
+    class World;
 
     struct RectTransform
     {
@@ -67,7 +67,7 @@ namespace husky::engine
         HUSKY_REFLECTION_END()
 
     private:
-        friend void LayoutCanvases(Scene& scene, float screenWidth, float screenHeight);
+        friend void LayoutCanvases(World& scene, float screenWidth, float screenHeight);
         friend class UILayout; // 計算の中身(UIActor.cpp)
 
         UIRect m_rect;
@@ -96,5 +96,5 @@ namespace husky::engine
     // シーンの全部の Canvas の下の UIActor を置く(四角を求め、transform を書く)。毎フレーム1回、描く前に呼ぶ
     // (Application が StepFrame の終わりで呼ぶ。編集中も止めない)。screenWidth / screenHeight は画面のピクセル。
     // 0 以下なら基準の解像度の画面とみなす(テストや CLI)。
-    void LayoutCanvases(Scene& scene, float screenWidth, float screenHeight);
+    void LayoutCanvases(World& scene, float screenWidth, float screenHeight);
 }

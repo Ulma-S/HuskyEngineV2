@@ -20,10 +20,10 @@ namespace
     // Canvas の下に、右上の角に付けた 200 × 100 のパネルを置く。
     UIActor* SpawnPanel(Application& app)
     {
-        UIActor* canvas = app.GetScene().Spawn<UIActor>();
+        UIActor* canvas = app.GetWorld().Spawn<UIActor>();
         REQUIRE(canvas != nullptr);
         REQUIRE(canvas->AddComponent<CanvasComponent>() != nullptr);
-        UIActor* panel = app.GetScene().Spawn<UIActor>();
+        UIActor* panel = app.GetWorld().Spawn<UIActor>();
         REQUIRE(panel != nullptr);
         panel->name = "Panel";
         panel->rectTransform.anchorMin = {1.0f, 1.0f};
@@ -40,7 +40,7 @@ TEST_CASE("UIComponents: UIActor の四角の画面での位置(ピクセル)は
 {
     Application app;
     UIActor* panel = SpawnPanel(app);
-    husky::engine::LayoutCanvases(app.GetScene(), 1920.0f, 1080.0f); // 1.5 倍
+    husky::engine::LayoutCanvases(app.GetWorld(), 1920.0f, 1080.0f); // 1.5 倍
 
     const husky::engine::UIScreenRect rect = husky::engine::ComputeUIScreenRect(*panel);
     CHECK(rect.scale == doctest::Approx(1.5f));
@@ -80,7 +80,7 @@ TEST_CASE("UIComponents: 画像と文字の値は保存して読み戻せる。�
     text->wrap = false;
 
     std::string json;
-    REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetScene()).value, json));
+    REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::Write(source.GetWorld()).value, json));
     CHECK(json.find("\"Center\"") != std::string::npos);
     CHECK(json.find("\"Middle\"") != std::string::npos);
 
@@ -88,10 +88,10 @@ TEST_CASE("UIComponents: 画像と文字の値は保存して読み戻せる。�
     husky::engine::ArchiveValue value;
     REQUIRE(husky::engine::JsonFormat::Read(json, value));
     const husky::engine::SceneSerializer::ReadReport report =
-        husky::engine::SceneSerializer::Read(value, loaded.GetScene(), loaded.GetTypeRegistry());
+        husky::engine::SceneSerializer::Read(value, loaded.GetWorld(), loaded.GetTypeRegistry());
     CHECK(report.warnings.empty());
-    REQUIRE(loaded.GetScene().actors.size() == 2);
-    UIActor* loadedPanel = loaded.GetRegistry().Resolve<UIActor>(loaded.GetScene().actors[1]);
+    REQUIRE(loaded.GetWorld().actors.size() == 2);
+    UIActor* loadedPanel = loaded.GetRegistry().Resolve<UIActor>(loaded.GetWorld().actors[1]);
     REQUIRE(loadedPanel != nullptr);
     const UIImageComponent* loadedImage = loadedPanel->GetComponent<UIImageComponent>();
     const UITextComponent* loadedText = loadedPanel->GetComponent<UITextComponent>();

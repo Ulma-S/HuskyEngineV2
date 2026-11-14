@@ -23,7 +23,7 @@ TEST_CASE("Application: シーンの更新を止めている間は Tick を呼�
 {
     Application app;
     app.GetClock().SetFixedDelta(0.01);
-    Walker* walker = app.GetScene().Spawn<Walker>();
+    Walker* walker = app.GetWorld().Spawn<Walker>();
     REQUIRE(walker != nullptr);
     CHECK(app.IsSceneTickEnabled()); // 既定は動かす(製品とテスト)
 
@@ -60,7 +60,7 @@ namespace
     {
         Walker* first = nullptr;
         count = 0;
-        app.GetScene().ForEachActor([&](Actor& actor) {
+        app.GetWorld().ForEachActor([&](Actor& actor) {
             if (Walker* walker = husky::core::Cast<Walker>(&actor))
             {
                 ++count;
@@ -79,7 +79,7 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     Application app;
     app.GetTypeRegistry().Register<Walker>(); // 控えから作り直すときに、型の名前から作るため
     app.GetClock().SetFixedDelta(0.01);
-    Walker* original = app.GetScene().Spawn<Walker>();
+    Walker* original = app.GetWorld().Spawn<Walker>();
     REQUIRE(original != nullptr);
     original->transform.position.x = 10.0f;
     const husky::core::Guid originalGuid = original->guid;
@@ -111,7 +111,7 @@ TEST_CASE("EditorPlayMode: 編集中は動かず、Play で動き、Stop で Pla
     REQUIRE(restored != nullptr);
     CHECK(restored->transform.position.x == 10.0f); // Play を押す前の位置
     CHECK(restored->guid == originalGuid); // 作り直しても、変わらない ID は同じ(コマンドが Stop の後も同じアクターを指せる)
-    CHECK(app.GetScene().actors.size() == 1);
+    CHECK(app.GetWorld().actors.size() == 1);
 
     app.StepFrame(0, {});
     CHECK(restored->transform.position.x == 10.0f); // 戻った後は、また編集中なので動かない
@@ -122,7 +122,7 @@ TEST_CASE("EditorPlayMode: 一時停止すると止まり、コマ送りで1フ�
     Application app;
     app.GetTypeRegistry().Register<Walker>();
     app.GetClock().SetFixedDelta(0.01);
-    Walker* walker = app.GetScene().Spawn<Walker>();
+    Walker* walker = app.GetWorld().Spawn<Walker>();
     EditorPlayMode mode;
     EditorCommandRegistry commands;
     mode.RegisterCommands(commands);

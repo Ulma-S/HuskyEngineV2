@@ -63,7 +63,7 @@ namespace
 TEST_CASE("PropertyEditRecorder: ドラッグ中の連続した変更は、手を離したときに property.set の1件になり、Undo で前の値に戻る")
 {
     Application app;
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     actor->name = "Player";
     bool editing = true;
     EditorCommandRegistry commands;
@@ -101,7 +101,7 @@ TEST_CASE("PropertyEditRecorder: ドラッグ中の連続した変更は、手�
 TEST_CASE("PropertyEditRecorder: 一度で変わる部品(色やチェックボックス)は、そのフレームで1件になる。コンポーネントは型の名前で指す")
 {
     Application app;
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     actor->name = "Player";
     auto* sprite = actor->AddComponent<husky::engine::SpriteComponent>();
     bool editing = true;
@@ -129,7 +129,7 @@ TEST_CASE("PropertyEditRecorder: 一度で変わる部品(色やチェックボ�
 TEST_CASE("PropertyEditRecorder: 編集の途中の部品が描かれなくなったら確定する。再生中(property.set が使えない)は履歴に残さない")
 {
     Application app;
-    Actor* actor = app.GetScene().Spawn<Actor>();
+    Actor* actor = app.GetWorld().Spawn<Actor>();
     bool editing = true;
     EditorCommandRegistry commands;
     RegisterHistoryCommands(commands, editing);

@@ -9,7 +9,7 @@
 #include "engine/JsonFormat.h"
 #include "engine/Prefab.h"
 #include "engine/PrefabAsset.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 #include "engine/SceneSerializer.h"
 #include "engine/Application.h"
 #include "engine/AssetDatabase.h"
@@ -28,7 +28,7 @@ using husky::core::PropertyType;
 using husky::core::TypeRegistry;
 using husky::engine::Actor;
 using husky::engine::ArchiveValue;
-using husky::engine::Scene;
+using husky::engine::World;
 namespace SceneSerializer = husky::engine::SceneSerializer;
 
 namespace
@@ -73,9 +73,9 @@ namespace
         HUSKY_REFLECTION_END()
     };
 
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
@@ -128,7 +128,7 @@ TEST_CASE("SF-2a: 配列を保存して読み直すと、数・文字列・構�
 {
     const TypeRegistry types = MakeTypes();
     ObjectRegistry sourceRegistry;
-    Scene* source = CreateRootScene(sourceRegistry);
+    World* source = CreateRootScene(sourceRegistry);
     Waypoint* a = source->Spawn<Waypoint>();
     Waypoint* b = source->Spawn<Waypoint>();
     Actor* holder = source->Spawn<Actor>();
@@ -152,7 +152,7 @@ TEST_CASE("SF-2a: 配列を保存して読み直すと、数・文字列・構�
 
     ObjectRegistry targetRegistry;
     targetRegistry.Create<Actor>(); // ハンドルの場所をずらす
-    Scene* target = CreateRootScene(targetRegistry);
+    World* target = CreateRootScene(targetRegistry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(ThroughJson(saved.value), *target, types);
     CHECK(report.warnings.empty());
     REQUIRE(target->actors.size() == 3);
@@ -182,7 +182,7 @@ TEST_CASE("SF-2a: 配列を保存して読み直すと、数・文字列・構�
 TEST_CASE("SF-2a: 配列の中の参照も GC がたどる(強い参照)")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Waypoint* direct = scene->Spawn<Waypoint>();
     Waypoint* inStruct = scene->Spawn<Waypoint>();
     Actor* holder = scene->Spawn<Actor>();
@@ -211,7 +211,7 @@ TEST_CASE("SF-2a: 読めない要素があっても、ほかの要素は読み�
         { "id": 1, "type": "Route", "properties": { "ids": [7, "x", 9], "speeds": 3 } }
     ], "actors": [0] })", file));
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
     REQUIRE(report.warnings.size() == 2);
     CHECK(report.warnings[0].find("[1]") != std::string::npos);
@@ -241,7 +241,7 @@ TEST_CASE("SF-2a: プレハブとの違いは、配列まるごとを1つの値�
     const husky::engine::PrefabAsset* prefab = app.FindPrefabForScene(guid);
     REQUIRE(prefab != nullptr);
     const husky::engine::Prefab::InstantiateResult placed =
-        husky::engine::Prefab::Instantiate(*prefab, app.GetScene(), app.GetTypeRegistry());
+        husky::engine::Prefab::Instantiate(*prefab, app.GetWorld(), app.GetTypeRegistry());
     REQUIRE(placed.actor != nullptr);
     Route* route = placed.actor->GetComponent<Route>();
     REQUIRE(route != nullptr);
@@ -251,7 +251,7 @@ TEST_CASE("SF-2a: プレハブとの違いは、配列まるごとを1つの値�
 
     route->ids.push_back(5);
     route->points.resize(1);
-    route->points[0].Set(app.GetScene().Spawn<Waypoint>()); // 参照の配列は違いに数えない(ハンドルと同じ)
+    route->points[0].Set(app.GetWorld().Spawn<Waypoint>()); // 参照の配列は違いに数えない(ハンドルと同じ)
     const husky::engine::Prefab::OverridesResult found = husky::engine::Prefab::FindOverrides(*placed.actor, &types);
     REQUIRE(found.overrides.size() == 1);
     CHECK(found.overrides[0].component == "Route");
@@ -266,7 +266,7 @@ TEST_CASE("SF-2a: プレハブとの違いは、配列まるごとを1つの値�
     ArchiveValue written;
     std::string error;
     REQUIRE(husky::engine::Prefab::WriteChanges(prefab->GetData(), {change}, written, error));
-    const husky::engine::Prefab::InstantiateResult again = husky::engine::Prefab::Instantiate(written, app.GetScene(), types);
+    const husky::engine::Prefab::InstantiateResult again = husky::engine::Prefab::Instantiate(written, app.GetWorld(), types);
     REQUIRE(again.actor != nullptr);
     CHECK(again.actor->GetComponent<Route>()->ids == std::vector<std::int32_t>{1, 2, 5});
 }
@@ -288,7 +288,7 @@ TEST_CASE("SF-2a: std::vector<bool> は要素の場所が取れないので、�
         { "id": 1, "type": "Route", "properties": { "flags": [true, 3, true] } }
     ], "actors": [0] })", file));
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     const SceneSerializer::ReadReport report = SceneSerializer::Read(file, *scene, types);
     REQUIRE(report.warnings.size() == 1);
     CHECK(report.warnings[0].find("[1]") != std::string::npos);

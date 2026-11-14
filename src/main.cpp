@@ -272,7 +272,7 @@ int main(int argc, char** argv)
     // ゲーム用 UI の四角の枠(編集中だけ。選んでいる UIActor は橙色)。UI そのものは Application が先に描いている
     tools::UIRectOverlay uiRects;
     app.SetScreenDrawCallback([&app, &inspector, &playMode, &screenTest, &uiRects](husky::render::RenderDevice& renderDevice) {
-        uiRects.Draw(app.GetScene(), inspector.GetSelected(), playMode.GetState() == tools::EditorPlayMode::State::Edit,
+        uiRects.Draw(app.GetWorld(), inspector.GetSelected(), playMode.GetState() == tools::EditorPlayMode::State::Edit,
                      renderDevice);
         screenTest.Draw(app, renderDevice);
     });

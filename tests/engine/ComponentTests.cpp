@@ -1,5 +1,5 @@
 // Component と、Actor への取り付けのテスト。dt は固定値を渡すので、結果は毎回同じになる。
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <doctest/doctest.h>
 
@@ -8,7 +8,7 @@
 using husky::core::ObjectRegistry;
 using husky::engine::Actor;
 using husky::engine::Component;
-using husky::engine::Scene;
+using husky::engine::World;
 namespace TickOrder = husky::engine::TickOrder;
 
 namespace
@@ -107,15 +107,15 @@ namespace
         void Tick(double) override { GetOwner()->Destroy(); }
     };
 
-    Scene* CreateRootScene(ObjectRegistry& registry)
+    World* CreateRootScene(ObjectRegistry& registry)
     {
-        Scene* scene = registry.Create<Scene>();
+        World* scene = registry.Create<World>();
         registry.AddRoot(scene->GetHandle());
         return scene;
     }
 
     // フレームの終わりの処理(ゲームループと同じ順番)。
-    void EndFrame(ObjectRegistry& registry, Scene& scene)
+    void EndFrame(ObjectRegistry& registry, World& scene)
     {
         scene.RemoveDestroyedActors();
         registry.FlushDestroyed();
@@ -125,7 +125,7 @@ namespace
 TEST_CASE("Component: AddComponent で取り付けると、持ち主が分かり、型で探せる")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     Counter* counter = actor->AddComponent<Counter>();
 
@@ -140,7 +140,7 @@ TEST_CASE("Component: AddComponent で取り付けると、持ち主が分かり
 TEST_CASE("Component: GetComponent は子孫の型も見つけ、一覧で最初のものを返す")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     Other* other = actor->AddComponent<Other>();
     FastCounter* fast = actor->AddComponent<FastCounter>();
@@ -150,11 +150,11 @@ TEST_CASE("Component: GetComponent は子孫の型も見つけ、一覧で最初
     CHECK(actor->GetComponent<Component>() == other);
 }
 
-TEST_CASE("Component: Scene::Tick は、アクターの Tick の直後に、そのアクターのコンポーネントの Tick を呼ぶ")
+TEST_CASE("Component: World::Tick は、アクターの Tick の直後に、そのアクターのコンポーネントの Tick を呼ぶ")
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     LoggingActor* first = scene->Spawn<LoggingActor>();
     first->AddComponent<Counter>();
     first->AddComponent<Counter>();
@@ -172,7 +172,7 @@ TEST_CASE("Component: Destroy したコンポーネントは更新されず、�
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     Counter* counter = actor->AddComponent<Counter>();
     const auto counterHandle = counter->GetHandle();
@@ -191,7 +191,7 @@ TEST_CASE("Component: Destroy したコンポーネントは更新されず、�
 TEST_CASE("Component: アクターを Destroy すると、そのコンポーネントも同じフレームの終わりに消える")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     const auto counterHandle = actor->AddComponent<Counter>()->GetHandle();
     const auto otherHandle = actor->AddComponent<Other>()->GetHandle();
@@ -208,7 +208,7 @@ TEST_CASE("Component: アクターを Destroy すると、そのコンポーネ�
 TEST_CASE("Component: シーンにいるアクターのコンポーネントは GC で回収されない。アクターごと届かなくなると回収される")
 {
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     Counter* counter = actor->AddComponent<Counter>();
     const auto counterHandle = counter->GetHandle();
@@ -238,11 +238,11 @@ TEST_CASE("TickOrder: コンポーネントの既定の実行順は Default(0)")
     CHECK(counter.GetTickOrder() == 0);
 }
 
-TEST_CASE("TickOrder: Scene::Tick は、実行順の小さい順に、全アクターを回す")
+TEST_CASE("TickOrder: World::Tick は、実行順の小さい順に、全アクターを回す")
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
 
     // 一覧の順番は実行順とは関係ない、ということも確かめるため、わざとばらばらの順に付ける。
     LoggingActor* first = scene->Spawn<LoggingActor>();
@@ -264,7 +264,7 @@ TEST_CASE("TickOrder: 名前付きの値の間の実行順も使える")
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     actor->AddComponent<LateLogger>();    // 1000
     actor->AddComponent<BetweenLogger>(); // 500
@@ -279,7 +279,7 @@ TEST_CASE("TickOrder: フレームの途中で足したコンポーネントは�
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     actor->AddComponent<LateAdder>(); // Default で LateLogger を足す
 
@@ -295,7 +295,7 @@ TEST_CASE("TickOrder: Tick の途中でアクターが Destroy されたら、�
 {
     g_log.clear();
     ObjectRegistry registry;
-    Scene* scene = CreateRootScene(registry);
+    World* scene = CreateRootScene(registry);
     Actor* actor = scene->Spawn<Actor>();
     actor->AddComponent<InputLogger>();
     actor->AddComponent<OwnerDestroyer>();

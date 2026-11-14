@@ -351,7 +351,7 @@ namespace husky::tools
         }
 
         // 参照の相手を選べるシーン(SceneInspector::Draw が描く間だけ設定する。無ければ、参照は表示だけ)。
-        engine::Scene* g_pickScene = nullptr;
+        engine::World* g_pickScene = nullptr;
         // transform が計算の結果のアクター(UIActor。UI-5b)。このアクターの transform は、灰色で読むだけにする。
         // SceneInspector::Draw の間だけ入れる(g_pickScene と同じ)。
         const void* g_drivenTransformOwner = nullptr;
@@ -821,7 +821,7 @@ namespace husky::tools
 
     void SceneInspector::Draw(engine::Application& app, EditorCommandRegistry* commands)
     {
-        engine::Scene& scene = app.GetScene();
+        engine::World& scene = app.GetWorld();
         core::ObjectRegistry& registry = app.GetRegistry();
         m_recorder.BeginFrame(app, commands);
         g_pickScene = &scene; // 参照の相手は、このシーンのアクター・コンポーネントから選ぶ(描き終わったら外す)
@@ -1238,7 +1238,7 @@ namespace husky::tools
         }
     }
 
-    void SceneInspector::BuildTreeRows(engine::Scene& scene, core::ObjectRegistry& registry)
+    void SceneInspector::BuildTreeRows(engine::World& scene, core::ObjectRegistry& registry)
     {
         m_sceneForRows = &scene;
         // 1. ハンドルの場所 → シーンの一覧の位置の表を作る(親のハンドルから、親の位置を引くため)。
@@ -1360,7 +1360,7 @@ namespace husky::tools
         m_addedChildren.clear();
         for (const engine::Prefab::ChildChange& added : found.addedChildren)
         {
-            const engine::Actor* child = actor.GetScene() != nullptr ? actor.GetScene()->GetObjectRegistry()->Resolve<engine::Actor>(added.actor) : nullptr;
+            const engine::Actor* child = actor.GetWorld() != nullptr ? actor.GetWorld()->GetObjectRegistry()->Resolve<engine::Actor>(added.actor) : nullptr;
             if (child != nullptr)
             {
                 m_addedChildren.emplace_back(added.name, child->guid.ToString());
@@ -1372,7 +1372,7 @@ namespace husky::tools
             m_removedChildren.emplace_back(removed.name, removed.prefabActorId.ToString());
         }
         m_nestedSource = {};
-        const engine::Scene* scene = actor.GetScene();
+        const engine::World* scene = actor.GetWorld();
         const engine::PrefabAsset* prefab =
             scene != nullptr ? scene->GetObjectRegistry()->Resolve<engine::PrefabAsset>(actor.prefab.asset) : nullptr;
         if (prefab != nullptr && prefab->IsLoaded())

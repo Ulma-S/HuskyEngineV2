@@ -27,7 +27,7 @@ namespace husky::tools
         }
     }
 
-    void BuildUIRectOutlines(engine::Scene& scene, core::ObjectHandle selected, std::vector<render::Sprite>& out)
+    void BuildUIRectOutlines(engine::World& scene, core::ObjectHandle selected, std::vector<render::Sprite>& out)
     {
         out.clear();
         constexpr render::Color LineColor = {0.75f, 0.75f, 0.75f, 0.5f};    // ほかの UI: 薄い灰色
@@ -53,7 +53,7 @@ namespace husky::tools
         }
     }
 
-    void UIRectOverlay::Draw(engine::Scene& scene, core::ObjectHandle selected, bool editing, render::RenderDevice& renderDevice)
+    void UIRectOverlay::Draw(engine::World& scene, core::ObjectHandle selected, bool editing, render::RenderDevice& renderDevice)
     {
         if (!editing)
         {

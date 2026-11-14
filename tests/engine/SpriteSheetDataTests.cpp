@@ -233,7 +233,7 @@ TEST_CASE("ChooseSpriteTexture: スプライトシートを指せば、その画
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     auto& loader = app.GetAssetLoader();
 
-    auto* sprite = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    auto* sprite = app.GetWorld().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
     sprite->sheet.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull);
     sprite->sprite = 6; // "right"(16, 0, 16x32)
     sprite->texture.guid = husky::tests::MakeGuid(1, 1); // スプライトシートが優先されるので、使われない
@@ -264,7 +264,7 @@ TEST_CASE("ChooseSpriteTexture: スプライトシートを指さなければ、
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
 
-    auto* sprite = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    auto* sprite = app.GetWorld().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
     sprite->texture.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a45ull); // sheet.png
     sprite->region = {8, 8, 8, 8};
     husky::engine::PixelRect region;
@@ -275,7 +275,7 @@ TEST_CASE("ChooseSpriteTexture: スプライトシートを指さなければ、
     CHECK(region.width == 8);
 
     // 何も指さなければ nullptr(呼んだ側が、既定のテクスチャを使う)。
-    auto* empty = app.GetScene().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
+    auto* empty = app.GetWorld().Spawn<husky::engine::Actor>()->AddComponent<husky::engine::SpriteComponent>();
     CHECK(husky::engine::ChooseSpriteTexture(*empty, app.GetAssetLoader(), region) == nullptr);
 }
 
@@ -287,7 +287,7 @@ TEST_CASE("SpriteComponent: スプライトシートを指している間は、�
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     auto& loader = app.GetAssetLoader();
 
-    husky::engine::Actor* actor = app.GetScene().Spawn<husky::engine::Actor>();
+    husky::engine::Actor* actor = app.GetWorld().Spawn<husky::engine::Actor>();
     auto* sprite = actor->AddComponent<husky::engine::SpriteComponent>();
     sprite->sheet.guid = husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull);
     husky::engine::PixelRect region;

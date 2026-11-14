@@ -3,7 +3,7 @@
 
 #include "engine/Actor.h"
 #include "engine/Application.h"
-#include "engine/Scene.h"
+#include "engine/World.h"
 
 #include <doctest/doctest.h>
 
@@ -31,8 +31,8 @@ TEST_CASE("CameraFollow: 相手が動いた同じフレームのうちに、相�
 {
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    FollowTestRunner* runner = app.GetScene().Spawn<FollowTestRunner>();
-    Actor* camera = app.GetScene().Spawn<Actor>();
+    FollowTestRunner* runner = app.GetWorld().Spawn<FollowTestRunner>();
+    Actor* camera = app.GetWorld().Spawn<Actor>();
     REQUIRE(runner != nullptr);
     REQUIRE(camera != nullptr);
     runner->transform.position = {10.0f, 20.0f, 0.0f};
@@ -54,8 +54,8 @@ TEST_CASE("CameraFollow: 相手がいない(何も指さない、Destroy され�
 {
     Application app;
     app.GetClock().SetFixedDelta(0.1);
-    Actor* camera = app.GetScene().Spawn<Actor>();
-    FollowTestRunner* runner = app.GetScene().Spawn<FollowTestRunner>();
+    Actor* camera = app.GetWorld().Spawn<Actor>();
+    FollowTestRunner* runner = app.GetWorld().Spawn<FollowTestRunner>();
     REQUIRE(camera != nullptr);
     REQUIRE(runner != nullptr);
     camera->transform.position = {7.0f, 8.0f, 0.0f};

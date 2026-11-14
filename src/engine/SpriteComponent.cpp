@@ -23,7 +23,7 @@ namespace husky::engine
         }
     }
 
-    Actor* FindSpriteActorAt(Scene& scene, float worldX, float worldY)
+    Actor* FindSpriteActorAt(World& scene, float worldX, float worldY)
     {
         Actor* found = nullptr;
         ForEachSprite(scene, [&](render::Sprite& sprite, SpriteComponent& component) {
@@ -104,7 +104,7 @@ namespace husky::engine
         return texture;
     }
 
-    void DrawSprites(Scene& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
+    void DrawSprites(World& scene, render::RenderDevice& renderDevice, AssetLoader& loader,
                      core::ObjectHandle defaultTexture, SpritePass pass)
     {
         // 既定のテクスチャは、スプライトごとに引き直さず、最初に1回だけ引く。
