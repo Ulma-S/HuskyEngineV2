@@ -1,4 +1,4 @@
-// AssetLoader.h と、TextureAsset.h、SpriteSheetAsset.h、PrefabAsset.h の実装。ScriptableData.h の箱(ScriptableDataAsset)のデストラクタも。
+// AssetLoader.h と、Asset.h の箱の土台、PrefabAsset.h の実装。ScriptableData.h の箱(ScriptableDataAsset)のデストラクタも。
 #include "engine/AssetLoader.h"
 #include "engine/EngineLog.h"
 
@@ -17,52 +17,6 @@ namespace husky::engine
 {
     namespace
     {
-        // ---- テクスチャ(ジョブの中で呼ぶ) ----
-
-        // 1段目「元のファイルを読む」: PNG を読み、CPU のメモリ上の画像にする。
-        bool ReadTextureSource(const std::string& path, platform::Image& outImage)
-        {
-            return platform::LoadPng(path.c_str(), outImage); // 失敗の理由は platform がログに出す
-        }
-
-        // 2段目「実行用のデータにする」: 今は素通し(受け取った画像を、そのまま返す)。
-        // std::move で受け取って返すので、画像のピクセルはコピーされない(中身の持ち主が移るだけ)。
-        platform::Image CookTexture(platform::Image source)
-        {
-            return source;
-        }
-
-        // ---- スプライトシート(ジョブの中で呼ぶ) ----
-
-        // .spritesheet(JSON)を読み、中の画像の GUID と、切り出しとアニメーションの一覧を取り出す。読めなければ false。
-        bool ReadSpriteSheet(const std::string& path, core::Guid& outTexture, std::vector<SpriteSlice>& outSlices,
-                             std::vector<SpriteAnimation>& outAnimations,
-                             std::vector<std::string>& outWarnings)
-        {
-            std::string text;
-            ArchiveValue root;
-            std::string error;
-            if (!platform::ReadTextFile(path.c_str(), text))
-            {
-                return false; // 理由は platform がログに出す
-            }
-            if (!JsonFormat::Read(text, root, &error))
-            {
-                outWarnings.push_back("JSON として読めません: " + error);
-                return false;
-            }
-            const ArchiveValue* texture = root.Find("texture");
-            if (texture == nullptr || texture->GetType() != ArchiveValue::Type::String
-                || !core::Guid::Parse(texture->AsString(), outTexture))
-            {
-                outWarnings.push_back("texture に、画像の GUID の文字列がありません");
-                return false;
-            }
-            outSlices = ReadSpriteSlices(root, &outWarnings);
-            outAnimations = ReadSpriteAnimations(root, outSlices, &outWarnings);
-            return true;
-        }
-
         // ---- プレハブと ScriptableData(ジョブの中で呼ぶ) ----
 
         // JSON のファイル(.prefab、.sdata)を読んで、値の木にする。形(プレハブならアクターが1つか)は、使う側が確かめる。
@@ -88,14 +42,6 @@ namespace husky::engine
         }
     }
 
-    TextureAsset::~TextureAsset()
-    {
-        if (m_loader != nullptr)
-        {
-            m_loader->OnTextureDestroyed(*this);
-        }
-    }
-
     Asset::~Asset()
     {
         if (m_loader != nullptr)
@@ -110,39 +56,6 @@ namespace husky::engine
         {
             m_released = true;
             m_loader->ReleaseAssetData(*this);
-        }
-    }
-
-    FontAsset::~FontAsset()
-    {
-        if (m_loader != nullptr)
-        {
-            m_loader->OnFontDestroyed(*this);
-        }
-    }
-
-    FontAtlas* FontAsset::GetAtlas(float pixelHeight)
-    {
-        if (m_face == nullptr || pixelHeight <= 0.0f)
-        {
-            return nullptr;
-        }
-        for (const std::unique_ptr<FontAtlas>& atlas : m_atlases)
-        {
-            if (atlas->GetPixelHeight() == pixelHeight)
-            {
-                return atlas.get();
-            }
-        }
-        m_atlases.push_back(std::make_unique<FontAtlas>(*m_face, pixelHeight));
-        return m_atlases.back().get();
-    }
-
-    SpriteSheetAsset::~SpriteSheetAsset()
-    {
-        if (m_loader != nullptr)
-        {
-            m_loader->OnSpriteSheetDestroyed(*this);
         }
     }
 
@@ -190,43 +103,36 @@ namespace husky::engine
             return;
         }
 
-        // 前の GPU のテクスチャを、すべて手放す(GPU が外れる、または別の GPU に替わるため)。
+        // 前の GPU で作ったものを、種類ごとに手放させる(GPU が外れる、または別の GPU に替わるため)。
         if (m_device != nullptr)
         {
-            // 字のアトラスは捨てる(次に使うとき、新しい GPU で作り直す。中の字も絵にし直す)。
-            for (const auto& entry : m_fonts)
+            for (const KindEntry& entry : m_kinds)
             {
-                if (FontAsset* font = ResolveFont(entry.second))
+                for (const auto& cached : entry.cache) // cached.first が GUID、cached.second がハンドル
                 {
-                    for (const std::unique_ptr<FontAtlas>& atlas : font->m_atlases)
+                    if (Asset* asset = m_registry.Resolve<Asset>(cached.second))
                     {
-                        atlas->ReleaseTexture(*m_device);
+                        entry.kind->ReleaseRenderResources(*this, *asset, *m_device);
                     }
-                    font->m_atlases.clear();
-                }
-            }
-            for (const auto& entry : m_textures) // entry.first が GUID、entry.second がハンドル
-            {
-                if (TextureAsset* asset = ResolveTexture(entry.second))
-                {
-                    m_device->ReleaseTexture(asset->m_texture);
-                    asset->m_texture = {};
                 }
             }
         }
         m_device = device;
 
-        // 新しい GPU のために、読み終わっていて GPU のテクスチャを持っていないアセットを、読み直す。
-        // (読み込み中のものは、終わったとき(FinishTexture)に、その時点の GPU に送られるので、読み直さない)
-        // StartTextureLoad はキャッシュ(m_textures)を書き換えないので、回しながら呼んでよい。
+        // 新しい GPU のために、読み終わっていて、種類が「読み直しが要る」と答えた箱を、読み直す。
+        // (読み込み中のものは、終わったとき(Finish)に、その時点の GPU に送られるので、読み直さない)
+        // StartKindLoad はキャッシュを書き換えないので、回しながら呼んでよい。
         if (m_device != nullptr)
         {
-            for (const auto& entry : m_textures)
+            for (const KindEntry& entry : m_kinds)
             {
-                TextureAsset* asset = ResolveTexture(entry.second);
-                if (asset != nullptr && asset->IsLoaded() && asset->m_texture.IsNull())
+                for (const auto& cached : entry.cache)
                 {
-                    StartTextureLoad(*asset);
+                    Asset* asset = m_registry.Resolve<Asset>(cached.second);
+                    if (asset != nullptr && asset->IsLoaded() && entry.kind->NeedsReloadForRenderDevice(*asset))
+                    {
+                        StartKindLoad(*asset);
+                    }
                 }
             }
         }
@@ -379,7 +285,7 @@ namespace husky::engine
         // アセットの型ごとに、読めるファイルの拡張子を決める。新しい型を足したら、ここにも足す。
         if (assetType.IsA(TextureAsset::StaticType()))
         {
-            return EndsWith(relativePath, ".png"); // 1段目の ReadTextureSource が PNG を読むため
+            return EndsWith(relativePath, ".png"); // 1段目(TextureAsset.cpp)が PNG を読むため
         }
         if (assetType.IsA(FontAsset::StaticType()))
         {
@@ -423,125 +329,6 @@ namespace husky::engine
         core::JobCounter& counter = raw->counter;
         m_pending.push_back(std::move(record));
         m_jobs.Schedule([raw, job] { job(*raw); }, counter);
-    }
-
-    // ================= テクスチャ =================
-
-    core::ObjectHandle AssetLoader::LoadTexture(const core::Guid& guid)
-    {
-        // 1. キャッシュ: まだ生きていれば、それを返す(読み込み中でも)。破棄を予約済み(この後で消える)なら、作り直す。
-        const auto found = m_textures.find(guid);
-        if (found != m_textures.end())
-        {
-            const TextureAsset* cached = ResolveTexture(found->second);
-            if (cached != nullptr && !cached->IsPendingDestroy())
-            {
-                return found->second;
-            }
-        }
-
-        // 2. アセットのオブジェクトを「読み込み中」で作り、ジョブを積む。
-        TextureAsset* asset = m_registry.Create<TextureAsset>();
-        if (asset == nullptr)
-        {
-            HUSKY_LOG(AssetLog::OutOfObjectMemory, "テクスチャ", guid.ToString());
-            return {};
-        }
-        asset->m_guid = guid;
-        asset->m_loader = this;
-        StartTextureLoad(*asset);
-        m_textures[guid] = asset->GetHandle(); // 古いもの(破棄を予約済み)があれば置き換える
-        return asset->GetHandle();
-    }
-
-    TextureAsset* AssetLoader::ResolveTexture(core::ObjectHandle handle) const
-    {
-        return m_registry.Resolve<TextureAsset>(handle);
-    }
-
-    TextureAsset* AssetLoader::Resolve(core::AssetRef<TextureAsset>& reference)
-    {
-        if (reference.IsNull())
-        {
-            reference.asset = {};
-            return nullptr;
-        }
-        // 前に読んだアセットが、まだ生きていて、同じ GUID なら、それを使う(毎フレーム呼ばれるので、ここは速く済ませる)。
-        TextureAsset* asset = ResolveTexture(reference.asset);
-        if (asset != nullptr && asset->GetGuid() == reference.guid)
-        {
-            return asset;
-        }
-        reference.asset = LoadTexture(reference.guid);
-        return ResolveTexture(reference.asset);
-    }
-
-    void AssetLoader::StartTextureLoad(TextureAsset& asset)
-    {
-        asset.m_state = AssetState::Loading;
-        std::string path = FindPathOrLog(asset.m_guid); // 表はゲームスレッドでだけ引く
-        if (path.empty())
-        {
-            asset.m_state = AssetState::Failed;
-            return;
-        }
-
-        auto record = std::make_unique<PendingTextureLoad>();
-        record->asset = asset.GetHandle();
-        record->guid = asset.m_guid;
-        record->path = std::move(path);
-        // ジョブ(ワーカースレッド): 記録のパスを読み、記録の image と succeeded に書く。ほかは触らない。
-        Schedule(std::move(record), [](PendingTextureLoad& load) {
-            load.succeeded = ReadTextureSource(load.path, load.image);
-            if (load.succeeded)
-            {
-                load.image = CookTexture(std::move(load.image));
-            }
-        });
-    }
-
-    void AssetLoader::FinishTexture(PendingTextureLoad& load)
-    {
-        // 書く先のアセットが、まだ生きていて、読み込み中のままか(途中で回収された、作り直された、なら捨てる)。
-        TextureAsset* asset = ResolveTexture(load.asset);
-        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
-        {
-            return;
-        }
-        if (!load.succeeded)
-        {
-            asset->m_state = AssetState::Failed;
-            return;
-        }
-        asset->m_width = load.image.width;
-        asset->m_height = load.image.height;
-
-        // GPU に送る(描画の準備ができていれば)
-        if (m_device != nullptr)
-        {
-            asset->m_texture = m_device->CreateTexture(load.image);
-            if (asset->m_texture.IsNull())
-            {
-                asset->m_state = AssetState::Failed;
-                return;
-            }
-        }
-        asset->m_state = AssetState::Loaded;
-    }
-
-    void AssetLoader::OnTextureDestroyed(TextureAsset& asset)
-    {
-        if (m_device != nullptr && !asset.m_texture.IsNull())
-        {
-            m_device->ReleaseTexture(asset.m_texture); // GPU のメモリは、描画層が数フレーム遅らせて解放する
-        }
-        // キャッシュが、このアセットを指しているときだけ外す(同じ GUID で、もう新しいものを作っていることがある)。
-        // 読み込み中の記録は、ここでは消さない(ジョブがまだ書き込んでいるかもしれない)。終わったときに捨てる。
-        const auto found = m_textures.find(asset.m_guid);
-        if (found != m_textures.end() && found->second == asset.GetHandle())
-        {
-            m_textures.erase(found);
-        }
     }
 
     // ================= 登録した種類の共通の流れ(AL-1) =================
@@ -710,219 +497,6 @@ namespace husky::engine
         if (found != entry->cache.end() && found->second == asset.GetHandle())
         {
             entry->cache.erase(found);
-        }
-    }
-
-    // ================= フォント(UI-3b) =================
-
-    core::ObjectHandle AssetLoader::LoadFont(const core::Guid& guid)
-    {
-        // 流れは音と同じ: キャッシュにあれば返し、無ければ「読み込み中」で作ってジョブを積む。
-        const auto found = m_fonts.find(guid);
-        if (found != m_fonts.end())
-        {
-            const FontAsset* cached = ResolveFont(found->second);
-            if (cached != nullptr && !cached->IsPendingDestroy())
-            {
-                return found->second;
-            }
-        }
-
-        FontAsset* asset = m_registry.Create<FontAsset>();
-        if (asset == nullptr)
-        {
-            HUSKY_LOG(AssetLog::OutOfObjectMemory, "フォント", guid.ToString());
-            return {};
-        }
-        asset->m_guid = guid;
-        asset->m_loader = this;
-        StartFontLoad(*asset);
-        m_fonts[guid] = asset->GetHandle();
-        return asset->GetHandle();
-    }
-
-    FontAsset* AssetLoader::ResolveFont(core::ObjectHandle handle) const
-    {
-        return m_registry.Resolve<FontAsset>(handle);
-    }
-
-    FontAsset* AssetLoader::Resolve(core::AssetRef<FontAsset>& reference)
-    {
-        if (reference.IsNull())
-        {
-            reference.asset = {};
-            return nullptr;
-        }
-        FontAsset* asset = ResolveFont(reference.asset);
-        if (asset != nullptr && asset->GetGuid() == reference.guid)
-        {
-            return asset;
-        }
-        reference.asset = LoadFont(reference.guid);
-        return ResolveFont(reference.asset);
-    }
-
-    void AssetLoader::StartFontLoad(FontAsset& asset)
-    {
-        asset.m_state = AssetState::Loading;
-        std::string path = FindPathOrLog(asset.m_guid);
-        if (path.empty())
-        {
-            asset.m_state = AssetState::Failed;
-            return;
-        }
-
-        auto record = std::make_unique<PendingFontLoad>();
-        record->asset = asset.GetHandle();
-        record->guid = asset.m_guid;
-        record->path = std::move(path);
-        // ジョブ(ワーカースレッド): ファイルを読み、フォントとして開く。結果は記録にだけ書く。
-        Schedule(std::move(record), [](PendingFontLoad& load) {
-            std::string bytes; // ReadTextFile は中身をそのままのバイトで読む
-            if (!platform::ReadTextFile(load.path.c_str(), bytes))
-            {
-                return;
-            }
-            load.face = CreateFontFace(std::move(bytes));
-            load.succeeded = load.face != nullptr;
-        });
-    }
-
-    void AssetLoader::FinishFont(PendingFontLoad& load)
-    {
-        FontAsset* asset = ResolveFont(load.asset);
-        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
-        {
-            return;
-        }
-        if (!load.succeeded)
-        {
-            HUSKY_LOG(AssetLog::LoadWarning, "フォント", load.path, "could not read the file as a font");
-            asset->m_state = AssetState::Failed;
-            return;
-        }
-        asset->m_face = std::move(load.face);
-        asset->m_state = AssetState::Loaded;
-    }
-
-    void AssetLoader::OnFontDestroyed(FontAsset& asset)
-    {
-        if (m_device != nullptr)
-        {
-            for (const std::unique_ptr<FontAtlas>& atlas : asset.m_atlases)
-            {
-                atlas->ReleaseTexture(*m_device);
-            }
-        }
-        const auto found = m_fonts.find(asset.m_guid);
-        if (found != m_fonts.end() && found->second == asset.GetHandle())
-        {
-            m_fonts.erase(found);
-        }
-    }
-
-    // ================= スプライトシート =================
-
-    core::ObjectHandle AssetLoader::LoadSpriteSheet(const core::Guid& guid)
-    {
-        const auto found = m_spriteSheets.find(guid);
-        if (found != m_spriteSheets.end())
-        {
-            const SpriteSheetAsset* cached = ResolveSpriteSheet(found->second);
-            if (cached != nullptr && !cached->IsPendingDestroy())
-            {
-                return found->second;
-            }
-        }
-
-        SpriteSheetAsset* asset = m_registry.Create<SpriteSheetAsset>();
-        if (asset == nullptr)
-        {
-            HUSKY_LOG(AssetLog::OutOfObjectMemory, "スプライトシート", guid.ToString());
-            return {};
-        }
-        asset->m_guid = guid;
-        asset->m_loader = this;
-        StartSpriteSheetLoad(*asset);
-        m_spriteSheets[guid] = asset->GetHandle();
-        return asset->GetHandle();
-    }
-
-    SpriteSheetAsset* AssetLoader::ResolveSpriteSheet(core::ObjectHandle handle) const
-    {
-        return m_registry.Resolve<SpriteSheetAsset>(handle);
-    }
-
-    SpriteSheetAsset* AssetLoader::Resolve(core::AssetRef<SpriteSheetAsset>& reference)
-    {
-        if (reference.IsNull())
-        {
-            reference.asset = {};
-            return nullptr;
-        }
-        SpriteSheetAsset* asset = ResolveSpriteSheet(reference.asset);
-        if (asset != nullptr && asset->GetGuid() == reference.guid)
-        {
-            return asset;
-        }
-        reference.asset = LoadSpriteSheet(reference.guid);
-        return ResolveSpriteSheet(reference.asset);
-    }
-
-    void AssetLoader::StartSpriteSheetLoad(SpriteSheetAsset& asset)
-    {
-        asset.m_state = AssetState::Loading;
-        std::string path = FindPathOrLog(asset.m_guid);
-        if (path.empty())
-        {
-            asset.m_state = AssetState::Failed;
-            return;
-        }
-
-        auto record = std::make_unique<PendingSpriteSheetLoad>();
-        record->asset = asset.GetHandle();
-        record->guid = asset.m_guid;
-        record->path = std::move(path);
-        // ジョブ(ワーカースレッド): ファイルを読み、記録の texture、slices、animations、warnings、succeeded に書く。
-        Schedule(std::move(record), [](PendingSpriteSheetLoad& load) {
-            load.succeeded = ReadSpriteSheet(load.path, load.texture, load.slices, load.animations, load.warnings);
-        });
-    }
-
-    void AssetLoader::FinishSpriteSheet(PendingSpriteSheetLoad& load)
-    {
-        for (const std::string& warning : load.warnings)
-        {
-            HUSKY_LOG(AssetLog::LoadWarning, "スプライトシート", load.path, warning);
-        }
-        SpriteSheetAsset* asset = ResolveSpriteSheet(load.asset);
-        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
-        {
-            return;
-        }
-        if (!load.succeeded)
-        {
-            asset->m_state = AssetState::Failed;
-            return;
-        }
-        asset->m_slices = std::move(load.slices);
-        asset->m_animations = std::move(load.animations);
-        asset->texture.guid = load.texture;
-        asset->texture.asset = {};
-        asset->m_state = AssetState::Loaded;
-
-        // 依存の読み込み: 中で指している画像の読み込みを、すぐに始める(描くときまで待たない)。
-        // Resolve は AssetRef に、読み始めたテクスチャのハンドルを書く。AssetRef はプロパティなので、
-        // このスプライトシートが生きている間、テクスチャも GC に回収されない。
-        Resolve(asset->texture);
-    }
-
-    void AssetLoader::OnSpriteSheetDestroyed(SpriteSheetAsset& asset)
-    {
-        const auto found = m_spriteSheets.find(asset.m_guid);
-        if (found != m_spriteSheets.end() && found->second == asset.GetHandle())
-        {
-            m_spriteSheets.erase(found);
         }
     }
 

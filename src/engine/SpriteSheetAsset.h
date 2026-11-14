@@ -22,29 +22,24 @@
 #pragma once
 
 #include "core/AssetRef.h"
-#include "core/Guid.h"
-#include "core/Object.h"
-#include "engine/AssetState.h"
+#include "engine/Asset.h"
 #include "engine/SpriteSheetData.h"
 #include "engine/TextureAsset.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace husky::engine
 {
-    class AssetLoader;
+    class SpriteSheetAssetKind;
 
-    class SpriteSheetAsset : public core::Object
+    class SpriteSheetAsset : public Asset
     {
-        HUSKY_OBJECT(SpriteSheetAsset, core::Object)
+        HUSKY_OBJECT(SpriteSheetAsset, Asset)
     public:
-        // 回収されるとき、ローダのキャッシュから外してもらう。
+        // 回収されるとき、ローダのキャッシュから外れる(Asset のデストラクタ)。
         ~SpriteSheetAsset() override;
-
-        const core::Guid& GetGuid() const { return m_guid; }
-        AssetState GetState() const { return m_state; }
-        bool IsLoaded() const { return m_state == AssetState::Loaded; }
 
         // 切り出しの一覧。読み終わる(IsLoaded)までは空。
         const std::vector<SpriteSlice>& GetSlices() const { return m_slices; }
@@ -87,12 +82,12 @@ namespace husky::engine
         HUSKY_REFLECTION_END()
 
     private:
-        friend class AssetLoader; // 中身を書くのは AssetLoader だけ
+        friend class SpriteSheetAssetKind; // 中身を書くのは読み方(SpriteSheetAsset.cpp)だけ
 
-        core::Guid m_guid;
-        AssetState m_state = AssetState::Loading;
         std::vector<SpriteSlice> m_slices;
         std::vector<SpriteAnimation> m_animations;
-        AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ)
     };
+
+    // スプライトシート(.spritesheet)の読み方を作る。ローダに RegisterKind で登録する(AL-2)。
+    std::unique_ptr<AssetKind> CreateSpriteSheetAssetKind();
 }

@@ -9,9 +9,7 @@
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
 
-#include "core/Guid.h"
-#include "core/Object.h"
-#include "engine/AssetState.h"
+#include "engine/Asset.h"
 #include "engine/FontAtlas.h"
 #include "engine/FontFace.h"
 
@@ -20,18 +18,14 @@
 
 namespace husky::engine
 {
-    class AssetLoader;
+    class FontAssetKind;
 
-    class FontAsset : public core::Object
+    class FontAsset : public Asset
     {
-        HUSKY_OBJECT(FontAsset, core::Object)
+        HUSKY_OBJECT(FontAsset, Asset)
     public:
-        // 回収されるとき、アトラスのテクスチャを手放すよう、ローダに伝える。
+        // 回収されるとき、アトラスのテクスチャを手放す(FontAssetKind::Release)。
         ~FontAsset() override;
-
-        const core::Guid& GetGuid() const { return m_guid; }
-        AssetState GetState() const { return m_state; }
-        bool IsLoaded() const { return m_state == AssetState::Loaded; }
 
         // 読んだフォント。読み終わっていない・読めなかったときは nullptr。
         const FontFace* GetFace() const { return m_face.get(); }
@@ -42,12 +36,12 @@ namespace husky::engine
         std::size_t GetAtlasCount() const { return m_atlases.size(); }
 
     private:
-        friend class AssetLoader; // 中身を書くのはローダだけ
+        friend class FontAssetKind; // 中身を書くのは読み方(FontAsset.cpp)だけ
 
-        core::Guid m_guid;
-        AssetState m_state = AssetState::Loading;
         std::unique_ptr<FontFace> m_face;
         std::vector<std::unique_ptr<FontAtlas>> m_atlases; // FontAtlas は m_face を借りるので、m_face より後に宣言する
-        AssetLoader* m_loader = nullptr;                  // 作ったローダ(借りているだけ)
     };
+
+    // フォント(.ttf / .otf)の読み方を作る。ローダに RegisterKind で登録する(AL-2)。
+    std::unique_ptr<AssetKind> CreateFontAssetKind();
 }

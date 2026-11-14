@@ -1,40 +1,33 @@
 // アセットのローダ。アセットを読み込む処理は、すべてここを通す(読み込みの入口を1か所にする)。
 //
-// 読み込みの流れ(テクスチャの場合)。重い部分(3、4)は、ジョブとしてワーカースレッドで行う(非同期):
-//   LoadTexture(guid)                                         … ゲームスレッド
-//     1. キャッシュ: 同じ GUID のアセットがまだ生きていれば、それを返す(同じ画像を2回読まない)
+// ローダは種類ごとの違いを知らず、共通の流れだけを持つ。種類ごとの違いは AssetKind(Asset.h)に書き、RegisterKind で登録する。
+// 読み込みの流れ。重い部分(3、4)は、ジョブとしてワーカースレッドで行う(非同期):
+//   Load(箱の型, guid)                                        … ゲームスレッド
+//     1. キャッシュ: 同じ GUID の箱がまだ生きていれば、それを返す(同じファイルを2回読まない)
 //     2. GUID → パス: AssetDatabase の表で引く。無ければ、その場で「失敗」
-//        アセットを「読み込み中」で作り、ジョブを積んで、すぐに返す
+//        箱を「読み込み中」で作り(AssetKind::CreateAsset)、記録(AssetKind::CreateLoad)とジョブを積んで、すぐに返す
 //   ジョブ                                                     … ワーカースレッド
-//     3. 1段目「元のファイルを読む」: PNG を読み、CPU のメモリ上の画像にする
-//     4. 2段目「実行用のデータにする」: 今は何もしない(素通し)。
-//        将来、GPU 向けの圧縮やミップマップ(縮小版)作りをここに入れ、結果をファイルに残しておけば、
-//        製品では1段目と2段目を飛ばして、出来上がったデータを読むだけにできる
+//     3. 1段目「元のファイルを読む」(AssetLoad::ReadSource。テクスチャなら PNG を CPU のメモリ上の画像にする)
+//     4. 2段目「実行用のデータにする」(AssetLoad::Cook。テクスチャは今は素通し)
 //   Update(毎フレーム)                                         … ゲームスレッド
-//     5. 終わったジョブを見つけ、GPU に送り(描画の準備ができていれば)、「読めた」か「失敗」にする
+//     5. 終わったジョブを見つけ、結果を箱に書き(AssetKind::Finish。テクスチャなら GPU に送る)、「読めた」か「失敗」にする
 //
-// ジョブは、GC 管理のオブジェクト(TextureAsset)を触らない。触るのは「読み込み中の記録」(PendingTextureLoad)の
-// パスと画像(ただのデータ)だけ。アセットに結果を書くのは、ゲームスレッドの Update。
-// 読み込み中にアセットが GC で回収されても、記録はアセットを弱い参照で指しているだけなので、終わったときに捨てるだけ。
+// ジョブは、GC 管理のオブジェクト(箱)を触らない。触るのは「読み込み中の記録」(AssetLoad)のパスと結果(ただのデータ)だけ。
+// 箱に結果を書くのは、ゲームスレッドの Update。
+// 読み込み中に箱が GC で回収されても、記録は箱を弱い参照で指しているだけなので、終わったときに捨てるだけ。
 //
-// Load は必ずハンドルを返す。戻ったときは、ふつう「読み込み中」。状態は TextureAsset::GetState で分かる
-// (オブジェクト用のメモリを使い切ったときだけは、何も指さないハンドルを返す)。
+// Load は必ずハンドルを返す。戻ったときは、ふつう「読み込み中」。状態は Asset::GetState で分かる
+// (オブジェクト用のメモリを使い切った・種類が登録されていないときだけは、何も指さないハンドルを返す)。
 // テストなどで、読み終わるまで待ちたいときは WaitForAllLoads を呼ぶ。
 //
 // 描画の準備(RenderDevice)は Run の中でしか用意できないので、それより前にも読めるようにしている:
 //   - GPU が無いときに読み終わったテクスチャは、ファイルを読めれば「読めた」にし、GPU のテクスチャは作らない
-//   - SetRenderDevice で GPU が付いたら、GPU のテクスチャを持っていないアセットを、もう一度読む(「読み込み中」に戻る)
-//     (【仮】1回目の画像を取っておけば読み直さずに済むが、メモリを使うので、今は単純に読み直す)
-//   - SetRenderDevice(nullptr) で GPU が外れるときは、すべての GPU のテクスチャを手放す
+//   - SetRenderDevice で GPU が付いたら、種類が「読み直しが要る」と答えた箱(GPU のテクスチャを持っていないもの)を、もう一度読む
+//   - SetRenderDevice(nullptr) で GPU が外れるときは、種類ごとに GPU のものを手放させる(AssetKind::ReleaseRenderResources)
 //
-// スプライトシート(LoadSpriteSheet)も同じ流れ。ジョブが .spritesheet(JSON)を読み、Update で結果を書く。
-// 書き終わったら、中で指している画像(テクスチャ)の読み込みを始める(依存の読み込み)。
-// プレハブ(LoadPrefab)も同じ流れ。ジョブが .prefab(JSON)を値の木にし、Update で値をアセットに移す(アクターは作らない)。
-//
-// ScriptableData(LoadScriptableData)も同じ流れ。ジョブが .sdata(JSON)を値の木にし、Update で型の名前から中身を作って値を入れる。
-//
-// アセットの種類を足すときは、AssetKind(Asset.h)の子を作り、RegisterKind で登録する(AL-1。音はこの形)。
-// まだ移していない種類(テクスチャなど)は、読み込み中の記録の型(PendingLoad の子)と、Start〜 / Finish〜 の組で書いてある。
+// スプライトシートは、読み終わったら中で指している画像(テクスチャ)の読み込みを始める(依存の読み込み)。
+// プレハブ(LoadPrefab)と ScriptableData(LoadScriptableData)は、まだ読み込み中の記録の型(PendingLoad の子)と
+// Start〜 / Finish〜 の組で書いてある(AL-3 で AssetKind に移す)。
 //
 // 動作スレッド: ゲームスレッドのみ(中で積んだジョブだけが、ワーカースレッドで動く)
 #pragma once
@@ -120,11 +113,6 @@ namespace husky::engine
         // キャッシュにある(まだ回収されていない)assetType の箱の数。確認とテスト用。
         std::size_t GetLoadedCount(const core::TypeInfo& assetType) const;
 
-        // テクスチャの読み込みを始め、TextureAsset を指すハンドルを返す(ふつうは「読み込み中」)。
-        // 返すハンドルは弱い参照。使い続けるなら、根に加えるか、プロパティ(強い参照)で持つこと。
-        // どこからも強く指されていないアセットは、次の GC で回収される。
-        core::ObjectHandle LoadTexture(const core::Guid& guid);
-
         // 毎フレーム1回、ゲームスレッドで呼ぶ。読み終わったジョブの結果をアセットに書く(GPU に送る)。
         // ワーカーが 0 本(同期実行)のときは、積まれている読み込みのジョブも、ここで実行する。
         void Update();
@@ -132,43 +120,27 @@ namespace husky::engine
         // 読み込み中のものが、すべて終わるまで待ち、結果をアセットに書く。テストや、読み込み画面などで使う。
         void WaitForAllLoads();
 
-        // ---- テクスチャ ----
+        // ---- 古い名前の入口(AL-4 で外す) ----
+        // 中身は共通の Load と、レジストリの Resolve。AssetRef<T> は、上の共通の Resolve(テンプレート)が受ける。
 
-        // ハンドルが指す TextureAsset を返す。もう無い、またはテクスチャのアセットでなければ nullptr。
-        TextureAsset* ResolveTexture(core::ObjectHandle handle) const;
+        core::ObjectHandle LoadTexture(const core::Guid& guid) { return Load(TextureAsset::StaticType(), guid); }
+        TextureAsset* ResolveTexture(core::ObjectHandle handle) const { return m_registry.Resolve<TextureAsset>(handle); }
+        std::size_t GetLoadedTextureCount() const { return GetLoadedCount(TextureAsset::StaticType()); }
 
-        // アセットの参照(プロパティの AssetRef)が指すテクスチャを返す。何も指していなければ nullptr。
-        // まだ読んでいない、または指す GUID が変わった(インスペクタで選び直したなど)ときは、ここで読み始め、
-        // アセットのハンドルを reference.asset に書く(これで、参照している間は GC に回収されない)。
-        // 読み始めたばかりなら「読み込み中」のアセットを返す(状態は IsLoaded で分かる)。
-        TextureAsset* Resolve(core::AssetRef<TextureAsset>& reference);
-
-        // ---- 音 ----
-
-        // 古い名前の入口(AL-4 で外す)。中身は共通の Load と、レジストリの Resolve。
-        // AssetRef<SoundAsset> は、上の共通の Resolve(テンプレート)が受ける。
         core::ObjectHandle LoadSound(const core::Guid& guid) { return Load(SoundAsset::StaticType(), guid); }
         SoundAsset* ResolveSound(core::ObjectHandle handle) const { return m_registry.Resolve<SoundAsset>(handle); }
         std::size_t GetLoadedSoundCount() const { return GetLoadedCount(SoundAsset::StaticType()); }
 
-        // ---- フォント(UI-3b) ----
+        core::ObjectHandle LoadFont(const core::Guid& guid) { return Load(FontAsset::StaticType(), guid); }
+        FontAsset* ResolveFont(core::ObjectHandle handle) const { return m_registry.Resolve<FontAsset>(handle); }
+        std::size_t GetLoadedFontCount() const { return GetLoadedCount(FontAsset::StaticType()); }
 
-        // フォント(.ttf / .otf)の読み込みを始め、FontAsset を指すハンドル(弱い参照)を返す。使い方はテクスチャと同じ。
-        // ファイルを読んでフォントとして開くところまでジョブで行う。字のアトラスは使うときに作る(FontAsset::GetAtlas)。
-        core::ObjectHandle LoadFont(const core::Guid& guid);
-        FontAsset* ResolveFont(core::ObjectHandle handle) const;
-        // アセットの参照が指すフォントを返す(必要なら読み始める)。何も指していなければ nullptr。
-        FontAsset* Resolve(core::AssetRef<FontAsset>& reference);
-        std::size_t GetLoadedFontCount() const { return m_fonts.size(); }
-
-        // ---- スプライトシート ----
-
-        // スプライトシートの読み込みを始め、SpriteSheetAsset を指すハンドル(弱い参照)を返す。
-        // 読み終わると、中で指している画像(テクスチャ)の読み込みも始める。
-        core::ObjectHandle LoadSpriteSheet(const core::Guid& guid);
-        SpriteSheetAsset* ResolveSpriteSheet(core::ObjectHandle handle) const;
-        // テクスチャの Resolve と同じ(まだ読んでいなければ読み始め、reference.asset に書く)。
-        SpriteSheetAsset* Resolve(core::AssetRef<SpriteSheetAsset>& reference);
+        core::ObjectHandle LoadSpriteSheet(const core::Guid& guid) { return Load(SpriteSheetAsset::StaticType(), guid); }
+        SpriteSheetAsset* ResolveSpriteSheet(core::ObjectHandle handle) const
+        {
+            return m_registry.Resolve<SpriteSheetAsset>(handle);
+        }
+        std::size_t GetLoadedSpriteSheetCount() const { return GetLoadedCount(SpriteSheetAsset::StaticType()); }
 
         // ---- プレハブ ----
 
@@ -232,10 +204,6 @@ namespace husky::engine
         // インスペクタが、選べるアセットを絞り込むのに使う。
         static bool CanLoadAs(const core::TypeInfo& assetType, std::string_view relativePath);
 
-        // キャッシュにある(まだ回収されていない)テクスチャのアセットの数。確認とテスト用。
-        std::size_t GetLoadedTextureCount() const { return m_textures.size(); }
-        // キャッシュにある(まだ回収されていない)スプライトシートのアセットの数。確認とテスト用。
-        std::size_t GetLoadedSpriteSheetCount() const { return m_spriteSheets.size(); }
         // キャッシュにある(まだ回収されていない)プレハブのアセットの数。確認とテスト用。
         std::size_t GetLoadedPrefabCount() const { return m_prefabs.size(); }
         // キャッシュにある(まだ回収されていない)ScriptableData の箱の数。確認とテスト用。
@@ -245,12 +213,9 @@ namespace husky::engine
         std::size_t GetPendingLoadCount() const { return m_pending.size(); }
 
     private:
-        friend class TextureAsset;     // 回収されるときに OnTextureDestroyed を呼べるようにする
-        friend class SpriteSheetAsset; // 回収されるときに OnSpriteSheetDestroyed を呼べるようにする
         friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
         friend class ScriptableDataAsset; // 回収されるときに OnScriptableDataDestroyed を呼べるようにする
         friend class Asset;               // 回収されるときに OnAssetDestroyed / ReleaseAssetData を呼べるようにする
-        friend class FontAsset;           // 回収されるときに OnFontDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
         // アセットの種類ごとに、この型を継承して「ジョブが書く結果」を足し、Finish(結果をアセットに書く)を用意する。
@@ -270,23 +235,6 @@ namespace husky::engine
             core::JobCounter counter; // ジョブの完了の印
         };
 
-        struct PendingTextureLoad final : PendingLoad
-        {
-            void Finish(AssetLoader& loader) override { loader.FinishTexture(*this); }
-            platform::Image image;  // ジョブが書く: 読んだ画像
-            bool succeeded = false; // ジョブが書く: 読めたか
-        };
-
-        struct PendingSpriteSheetLoad final : PendingLoad
-        {
-            void Finish(AssetLoader& loader) override { loader.FinishSpriteSheet(*this); }
-            core::Guid texture;                // ジョブが書く: 中で指している画像の GUID
-            std::vector<SpriteSlice> slices;   // ジョブが書く: 切り出しの一覧
-            std::vector<SpriteAnimation> animations; // ジョブが書く: アニメーションの一覧
-            std::vector<std::string> warnings; // ジョブが書く: 読んだときの注意(Finish がログに出す)
-            bool succeeded = false;            // ジョブが書く: 読めたか
-        };
-
         struct PendingPrefabLoad final : PendingLoad
         {
             void Finish(AssetLoader& loader) override { loader.FinishPrefab(*this); }
@@ -303,13 +251,6 @@ namespace husky::engine
             bool succeeded = false;            // ジョブが書く: 読めたか
         };
 
-        struct PendingFontLoad final : PendingLoad
-        {
-            void Finish(AssetLoader& loader) override { loader.FinishFont(*this); }
-            std::unique_ptr<FontFace> face; // ジョブが書く: 開いたフォント(ただのデータなので、ジョブで作ってよい)
-            bool succeeded = false;          // ジョブが書く: 読めたか
-        };
-
         // 登録した種類(AssetKind)の読み込み中の記録。中身(load)は種類が作り、ジョブは load の 1段目・2段目だけを動かす。
         struct PendingKindLoad final : PendingLoad
         {
@@ -323,14 +264,6 @@ namespace husky::engine
         // 記録を m_pending に入れてから、job をジョブとして積む(記録の場所は動かない)。
         template <typename Record, typename Job>
         void Schedule(std::unique_ptr<Record> record, Job&& job);
-
-        void StartTextureLoad(TextureAsset& asset);
-        void FinishTexture(PendingTextureLoad& load);
-        void OnTextureDestroyed(TextureAsset& asset);
-
-        void StartSpriteSheetLoad(SpriteSheetAsset& asset);
-        void FinishSpriteSheet(PendingSpriteSheetLoad& load);
-        void OnSpriteSheetDestroyed(SpriteSheetAsset& asset);
 
         void StartPrefabLoad(PrefabAsset& asset);
         void FinishPrefab(PendingPrefabLoad& load);
@@ -353,10 +286,6 @@ namespace husky::engine
         void ReleaseAssetData(Asset& asset);  // 箱の子のデストラクタから(種類の片付け)
         void OnAssetDestroyed(Asset& asset);  // 箱のデストラクタから(キャッシュから外す)
 
-        void StartFontLoad(FontAsset& asset);
-        void FinishFont(PendingFontLoad& load);
-        void OnFontDestroyed(FontAsset& asset);
-
         const AssetDatabase& m_database;
         core::ObjectRegistry& m_registry;
         const core::TypeRegistry& m_types; // ScriptableData の中身を、ファイルの型の名前から作るため
@@ -365,11 +294,8 @@ namespace husky::engine
         audio::AudioDevice* m_audio = nullptr;    // 借りているだけ(持ち主は Application)
 
         // GUID → アセット(弱い参照のキャッシュ)。アセットが回収されると、そのデストラクタから外される。
-        std::unordered_map<core::Guid, core::ObjectHandle> m_textures;
-        std::unordered_map<core::Guid, core::ObjectHandle> m_spriteSheets;
         std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
         std::unordered_map<core::Guid, core::ObjectHandle> m_scriptableData; // 箱(ScriptableDataAsset)を指す
-        std::unordered_map<core::Guid, core::ObjectHandle> m_fonts;
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。

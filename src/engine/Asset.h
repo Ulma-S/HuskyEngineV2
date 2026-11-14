@@ -28,6 +28,11 @@ namespace husky::core
     class ObjectRegistry;
 }
 
+namespace husky::render
+{
+    class RenderDevice;
+}
+
 namespace husky::engine
 {
     class AssetKind;
@@ -106,6 +111,23 @@ namespace husky::engine
         {
             (void)loader;
             (void)asset;
+        }
+
+        // ---- GPU の付け替え(AL-2。GPU を使う種類だけが上書きする) ----
+
+        // GPU が外れる・別の GPU に替わる直前に、キャッシュにある箱ごとに呼ぶ。device(前の GPU)で作ったものを手放す。
+        virtual void ReleaseRenderResources(AssetLoader& loader, Asset& asset, render::RenderDevice& device) const
+        {
+            (void)loader;
+            (void)asset;
+            (void)device;
+        }
+        // 新しい GPU が付いた後、読み終わっている箱ごとに聞く。true なら、ローダがもう一度読む(「読み込み中」に戻る)。
+        // (読み込み中のものは、終わったときにその時点の GPU に送られるので、聞かない)
+        virtual bool NeedsReloadForRenderDevice(const Asset& asset) const
+        {
+            (void)asset;
+            return false;
         }
     };
 }

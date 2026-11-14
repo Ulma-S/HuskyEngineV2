@@ -160,3 +160,29 @@ TEST_CASE("AssetLoader(ワーカーあり): 読み込み中に Application を�
     }
     // ここで app が壊れる。ローダはジョブを待ち、ジョブシステムはワーカーを止める(ASan のビルドで、誤用が無いことも確かめる)。
 }
+
+TEST_CASE("AssetLoader: Application はテクスチャ・音・フォント・スプライトシートの読み方を登録する(AL-2)")
+{
+    using husky::engine::AssetKind;
+    Application app;
+    husky::engine::AssetLoader& loader = app.GetAssetLoader();
+
+    const AssetKind* texture = loader.FindKind(TextureAsset::StaticType());
+    const AssetKind* sound = loader.FindKind(husky::engine::SoundAsset::StaticType());
+    const AssetKind* font = loader.FindKind(husky::engine::FontAsset::StaticType());
+    const AssetKind* sheet = loader.FindKind(husky::engine::SpriteSheetAsset::StaticType());
+    REQUIRE(texture != nullptr);
+    REQUIRE(sound != nullptr);
+    REQUIRE(font != nullptr);
+    REQUIRE(sheet != nullptr);
+    // 種類ごとに別の読み方で、拡張子で見分ける。
+    CHECK(texture->CanLoad("a.png"));
+    CHECK_FALSE(texture->CanLoad("a.wav"));
+    CHECK(font->CanLoad("a.ttf"));
+    CHECK(font->CanLoad("a.otf"));
+    CHECK(sheet->CanLoad("a.spritesheet"));
+    CHECK_FALSE(sheet->CanLoad("a.png"));
+    // 何も読んでいなければ、どのキャッシュも空。
+    CHECK(loader.GetLoadedCount(TextureAsset::StaticType()) == 0);
+    CHECK(loader.GetLoadedCount(husky::engine::SpriteSheetAsset::StaticType()) == 0);
+}
