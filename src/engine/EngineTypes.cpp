@@ -31,5 +31,6 @@ namespace husky::engine
         types.Register<CanvasComponent>();
         types.Register<UIImageComponent>(); // UI の画像と文字(UI-6a)
         types.Register<UITextComponent>();
+        types.Register<UIButtonComponent>(); // UI のボタン(UI-6b)
     }
 }

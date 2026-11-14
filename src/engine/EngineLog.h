@@ -77,6 +77,7 @@ namespace husky::engine
         Saved = 6,
         ParentRefused = 7,
         ChildBodyIgnored = 8,
+        UIButtonTargetMissing = 9,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Engine.Scene")
@@ -97,6 +98,8 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(ChildBodyIgnored, Warning,
                           "親を持つアクター {actor} の Rigidbody2D は使いません(動く体は親を持てません)。コライダーは形だけで置きます",
                           HUSKY_LOG_ARG(actor, String))
+        HUSKY_LOG_MESSAGE(UIButtonTargetMissing, Warning, "ボタン {button} の呼び先を呼べません: {reason}",
+                          HUSKY_LOG_ARG(button, String), HUSKY_LOG_ARG(reason, String))
     HUSKY_LOG_CHANNEL_END()
 
     // 毎秒の統計(テレメトリで、値ごとに追えるように1つずつの値にする)。

@@ -59,6 +59,8 @@ namespace husky::engine
             HUSKY_PROPERTY(loop)
             HUSKY_PROPERTY(playOnStart)
             HUSKY_PROPERTY(bus)
+            HUSKY_METHOD(Play) // UI のボタンなどから名前で呼べるように(UI-6b)
+            HUSKY_METHOD(Stop)
         HUSKY_REFLECTION_END()
 
     private:

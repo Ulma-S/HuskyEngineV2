@@ -11,6 +11,9 @@
 #pragma once
 
 #include "core/AssetRef.h"
+#include "core/ObjectRef.h"
+#include "engine/Actor.h"
+#include "engine/Input.h"
 #include "core/EnumReflection.h"
 #include "engine/Component.h"
 #include "engine/FontAsset.h"
@@ -94,6 +97,77 @@ namespace husky::engine
             HUSKY_PROPERTY(lineSpacing)
         HUSKY_REFLECTION_END()
     };
+
+    enum class UIButtonState
+    {
+        Normal,  // 何もしていない
+        Hovered, // マウスが乗っている
+        Pressed, // 押していて、マウスがまだボタンの上にある
+    };
+
+    // 押せるボタン(Unity の Button)。同じ UIActor の四角が当たりになる。
+    //   - 見た目: 状態に合わせた色(normalColor / hoveredColor / pressedColor)を、同じアクターの UIImageComponent の
+    //     color に掛けて描く(値は書き換えない)。interactable が false なら disabledColor で、押せない。
+    //   - 押したとき(左ボタンで押して、ボタンの上で離した): 先に、このアクターと全コンポーネントの OnUIClick(コードで受ける)、
+    //     次に、target(+ targetComponent)の、引数の無いメソッド method をリフレクションで呼ぶ(インスペクタで選べる)。
+    //     2026-11-14 にユーザーが「両方」を選んだ。
+    // マウスを押したときにいちばん手前の UI がボタンなら、そのフレームからマウスはゲームに渡さない(Input::ConsumeMouse)。
+    // 再生中だけ動く(編集中のクリックはエディタが使う)。
+    class UIButtonComponent : public Component
+    {
+        HUSKY_OBJECT(UIButtonComponent, Component)
+    public:
+        bool interactable = true;
+        render::Color normalColor = {1.0f, 1.0f, 1.0f, 1.0f};
+        render::Color hoveredColor = {0.85f, 0.85f, 0.85f, 1.0f};
+        render::Color pressedColor = {0.65f, 0.65f, 0.65f, 1.0f};
+        render::Color disabledColor = {0.5f, 0.5f, 0.5f, 0.6f};
+        // 押したときに呼ぶ先(何も指さなければ呼ばない)。targetComponent が空ならアクターのメソッド、
+        // 型の名前なら、そのアクターの最初のその型のコンポーネントのメソッド。
+        core::ObjectRef<Actor> target;
+        std::string targetComponent;
+        std::string method;
+
+        UIButtonState GetState() const { return m_state; }
+        // 今の状態の色(interactable でなければ disabledColor)。
+        const render::Color& GetTintColor() const;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(interactable)
+            HUSKY_PROPERTY(normalColor)
+            HUSKY_PROPERTY(hoveredColor)
+            HUSKY_PROPERTY(pressedColor)
+            HUSKY_PROPERTY(disabledColor)
+            HUSKY_PROPERTY(target)
+            HUSKY_PROPERTY(targetComponent)
+            HUSKY_PROPERTY(method)
+        HUSKY_REFLECTION_END()
+
+    private:
+        friend class UIEventSystem;
+        UIButtonState m_state = UIButtonState::Normal; // 保存しない
+    };
+
+    // UI の入力(UI-6b): マウスの下のいちばん手前の UI を調べ、ボタンの状態を進め、押されたボタンを呼ぶ。
+    // Application が持ち、再生中のフレームだけ、入力を受けた後・シーンの更新(Tick)の前に Update を呼ぶ
+    // (ゲームのコードが同じフレームで「UI が使ったマウス」を見ないように)。当たりは前のフレームの配置(LayoutCanvases)で調べる。
+    // 当たりになるのは、Canvas の下の UIActor のうち UIImageComponent か UIButtonComponent を持つもの(文字だけのものは当たらない)。
+    class UIEventSystem
+    {
+    public:
+        void Update(Scene& scene, Input& input);
+        // 全部のボタンを Normal に戻し、押しているボタンを忘れる(編集中になったときなど)。
+        void Reset(Scene& scene);
+        // マウスの下のいちばん手前の当たり(無ければ null)。テストと確かめ用。
+        core::ObjectHandle GetHovered() const { return m_hovered; }
+
+    private:
+        core::ObjectHandle m_hovered; // マウスの下のいちばん手前の当たり(弱い参照)
+        core::ObjectHandle m_pressed; // 押しているボタンのアクター(弱い参照。離すまで覚える)
+    };
+
+    // 押されたボタンの呼び先を呼ぶ(OnUIClick を届けてから、target の method)。UIEventSystem が使う。テストからも呼べる。
+    void ClickUIButton(Actor& buttonActor, UIButtonComponent& button);
 
     // UIActor の四角の、画面での位置(ピクセル。左下が原点、上が +)。LayoutCanvases の後なら正しい。
     struct UIScreenRect

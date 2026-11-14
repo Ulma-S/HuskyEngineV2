@@ -41,6 +41,9 @@ namespace husky::engine
         // このアクターのコライダーが、物理でほかのコライダーとぶつかり始めた・離れたときに呼ばれる(PHY-3)。
         // 同じイベントは、このアクターの全コンポーネントの Component::OnCollision にも届く。
         virtual void OnCollision(const CollisionEvent& event) { (void)event; }
+        // このアクターの UI のボタン(UIButtonComponent)が押されたときに呼ばれる(UI-6b)。同じイベントは、
+        // このアクターの全コンポーネントの Component::OnUIClick にも届く。再生中だけ。
+        virtual void OnUIClick(const UIClickEvent& event) { (void)event; }
 
         // transform が、ほかの値から毎フレーム計算される(人やコードが直接書かない)なら true(UI-5a)。
         // UI のアクター(UIActor)は RectTransform が元の値で、transform はその計算の結果なので true を返す。
@@ -190,6 +193,7 @@ namespace husky::engine
             HUSKY_PROPERTY(prefab)
             HUSKY_PROPERTY(prefabActorId)
             HUSKY_PROPERTY(components)
+            HUSKY_METHOD(Destroy) // UI のボタンなどから名前で呼べるように(UI-6b。消えるのはフレームの終わり)
         HUSKY_REFLECTION_END()
 
     private:

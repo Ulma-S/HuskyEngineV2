@@ -26,6 +26,7 @@
 #include "engine/PhysicsScene2D.h"
 #include "engine/Scene.h"
 #include "engine/TextLayout.h"
+#include "engine/UIComponents.h"
 #include "platform/InputEvents.h"
 #include "render/RenderDevice.h"
 
@@ -228,6 +229,8 @@ namespace husky::engine
         render::FrameStats m_lastRenderStats;
         ScreenDrawCallback m_screenDraw; // 画面の座標で描くもの(SetScreenDrawCallback)
         TextLayoutResult m_uiTextLayout; // UI の文字を並べる入れ物(DrawUI。毎フレーム使い回す)
+        UIEventSystem m_uiEvents;        // UI の入力(ボタン。UI-6b)
+        bool m_uiEventsActive = false;   // 前のフレームで UI の入力を動かしたか(止めたときに一度だけ Reset する)
 
 #if HUSKY_DEVELOPMENT
         DevUiCallback m_devUiCallback;

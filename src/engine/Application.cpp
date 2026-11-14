@@ -84,6 +84,20 @@ namespace husky::engine
             m_audio.Update(); // 音のスレッドが手放した音の波を捨てる
         }
 
+        // 2''. UI の入力(UI-6b): ボタンを押す・離す。ゲームのコード(更新コールバック、Tick)より先に行い、
+        //      UI の上で押したマウスはゲームに見せない(Input::ConsumeMouse)。シーンを更新するフレームだけ
+        //      (編集中のクリックはエディタが使う)。止めたら一度だけ、ボタンの見た目を戻す。
+        if (m_sceneTickEnabled || m_sceneStepRequested)
+        {
+            m_uiEvents.Update(*m_scene, m_input);
+            m_uiEventsActive = true;
+        }
+        else if (m_uiEventsActive)
+        {
+            m_uiEvents.Reset(*m_scene);
+            m_uiEventsActive = false;
+        }
+
         // 3. 更新: ゲーム固有の処理 → シーンの全アクターとコンポーネント
         //    std::function は、中身が入っているかを if で確かめられる(空のまま呼ぶとプログラムが止まる)。
         if (m_updateCallback)

@@ -20,6 +20,7 @@
 #include "core/Guid.h"
 #include "core/Object.h"
 #include "engine/PhysicsTypes.h" // OverlapEvent
+#include "engine/UIClickEvent.h"
 
 #include <cstdint>
 
@@ -62,6 +63,9 @@ namespace husky::engine
         // 持ち主のアクターのコライダーが、物理でほかのコライダーとぶつかり始めた・離れたときに呼ばれる(PHY-3。Unity の
         // OnCollisionEnter2D / Exit2D にあたる)。
         virtual void OnCollision(const CollisionEvent& event) { (void)event; }
+        // 持ち主のアクターの UI のボタン(UIButtonComponent)が押された(押して、ボタンの上で離した)ときに呼ばれる(UI-6b。
+        // Unity の Button.onClick を、コードで受ける形)。再生中だけ。
+        virtual void OnUIClick(const UIClickEvent& event) { (void)event; }
 
         // このコンポーネントの実行順(宣言)。既定は TickOrder::Default(0)。
         // 先に、または後に動かしたい子クラスは、override して返す値を変える。

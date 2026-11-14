@@ -108,6 +108,97 @@ namespace husky::tools
                                 const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
                                 OverrideMarks* marks);
 
+        // UIButtonComponent の呼び先(UI-6b): target のアクターの、どのコンポーネントか(空ならアクター)を選ぶ箱。
+        bool DrawButtonTargetComponentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                                             const engine::AssetDatabase* /*assets*/)
+        {
+            auto* button = static_cast<engine::UIButtonComponent*>(container);
+            std::string* value = property.GetValuePtrAt<std::string>(container);
+            const engine::Actor* target = button->target.Resolve(registry);
+            bool changed = false;
+            if (ImGui::BeginCombo(property.GetName(), value->empty() ? "(actor)" : value->c_str()))
+            {
+                if (ImGui::Selectable("(actor)", value->empty()) && !value->empty())
+                {
+                    value->clear();
+                    changed = true;
+                }
+                if (target != nullptr)
+                {
+                    for (std::size_t i = 0; i < target->components.size(); ++i)
+                    {
+                        const engine::Component* component = registry.Resolve<engine::Component>(target->components[i]);
+                        if (component == nullptr)
+                        {
+                            continue;
+                        }
+                        const char* name = component->GetType().GetName();
+                        ImGui::PushID(static_cast<int>(i));
+                        if (ImGui::Selectable(name, *value == name) && *value != name)
+                        {
+                            *value = name;
+                            changed = true;
+                        }
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
+        // UIButtonComponent の呼び先のメソッド(UI-6b): 呼び先の型(と親の型)の、引数の無いメソッドの名前から選ぶ箱。
+        bool DrawButtonMethodPicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                                    const engine::AssetDatabase* /*assets*/)
+        {
+            auto* button = static_cast<engine::UIButtonComponent*>(container);
+            std::string* value = property.GetValuePtrAt<std::string>(container);
+            const engine::Actor* target = button->target.Resolve(registry);
+            const core::TypeInfo* receiverType = target != nullptr ? &target->GetType() : nullptr;
+            if (target != nullptr && !button->targetComponent.empty())
+            {
+                receiverType = nullptr;
+                for (const core::ObjectHandle handle : target->components)
+                {
+                    const engine::Component* component = registry.Resolve<engine::Component>(handle);
+                    if (component != nullptr && button->targetComponent == component->GetType().GetName())
+                    {
+                        receiverType = &component->GetType();
+                        break;
+                    }
+                }
+            }
+            bool changed = false;
+            if (ImGui::BeginCombo(property.GetName(), value->empty() ? "(none)" : value->c_str()))
+            {
+                if (ImGui::Selectable("(none)", value->empty()) && !value->empty())
+                {
+                    value->clear();
+                    changed = true;
+                }
+                // 子の型から親の型へたどり、引数の無いメソッドだけを並べる(ボタンからは引数を渡せないため)
+                for (const core::TypeInfo* type = receiverType; type != nullptr; type = type->GetParent())
+                {
+                    for (const core::Method& method : type->GetOwnMethods())
+                    {
+                        if (!method.GetParameterTypes().empty())
+                        {
+                            continue;
+                        }
+                        ImGui::PushID(&method);
+                        if (ImGui::Selectable(method.GetName(), *value == method.GetName()) && *value != method.GetName())
+                        {
+                            *value = method.GetName();
+                            changed = true;
+                        }
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
         // SpriteComponent::sprite(切り出しの ID)を、スプライトシートの切り出しの名前から選ぶ箱で並べる。
         // スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
         // Owner は sheet(AssetRef<SpriteSheetAsset>)を持つ型(SpriteComponent、UIImageComponent)。
@@ -211,6 +302,8 @@ namespace husky::tools
             RegisterPropertyDrawer(engine::UIImageComponent::StaticType(), "sprite", DrawSpriteSlicePicker<engine::UIImageComponent>);
             RegisterPropertyDrawer(engine::SpriteAnimatorComponent::StaticType(), "animation", DrawSpriteAnimationPicker);
             RegisterPropertyDrawer(engine::Actor::StaticType(), "parent", DrawParentPicker);
+            RegisterPropertyDrawer(engine::UIButtonComponent::StaticType(), "targetComponent", DrawButtonTargetComponentPicker);
+            RegisterPropertyDrawer(engine::UIButtonComponent::StaticType(), "method", DrawButtonMethodPicker);
         }
 
         PropertyDrawer FindDrawer(const Property& property)

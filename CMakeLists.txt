@@ -501,6 +501,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp
         tests/engine/UIComponentsTests.cpp
+        tests/engine/UIButtonTests.cpp
         tests/engine/SceneTests.cpp
         tests/engine/HierarchyTests.cpp
         tests/engine/ComponentTests.cpp
