@@ -223,7 +223,7 @@ int main()
     // 画面の座標で描く試し(UI-2a): 出している間、四隅に四角。カメラを動かしても動かないことを目で確かめる
     tools::ScreenTestOverlay screenTest;
     screenTest.RegisterCommands(commands); // view.screenTest
-    app.SetScreenDrawCallback([&screenTest](husky::render::RenderDevice& renderDevice) { screenTest.Draw(renderDevice); });
+    app.SetScreenDrawCallback([&app, &screenTest](husky::render::RenderDevice& renderDevice) { screenTest.Draw(app, renderDevice); });
     app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く

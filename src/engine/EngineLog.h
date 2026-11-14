@@ -24,6 +24,7 @@ namespace husky::engine
         SpriteSheetNormalized = 15,
         DefaultTextureMissing = 16,
         DevUiFontMissing = 17,
+        FontAtlasFull = 18,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Engine.Asset")
@@ -60,6 +61,9 @@ namespace husky::engine
                           HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(DevUiFontMissing, Warning, "開発用の UI のフォントを読めません({path})。既定のフォント(英数字だけ)で続けます",
                           HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(FontAtlasFull, Warning,
+                          "字のアトラス({size} ピクセルの字、{textureSize} × {textureSize})がいっぱいで、これより後に初めて出た字は描きません",
+                          HUSKY_LOG_ARG(size, Float), HUSKY_LOG_ARG(textureSize, Int))
     HUSKY_LOG_CHANNEL_END()
 
     // シーンのファイルの読み書き。

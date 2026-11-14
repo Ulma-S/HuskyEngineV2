@@ -105,6 +105,31 @@ namespace husky::engine
         }
     }
 
+    FontAsset::~FontAsset()
+    {
+        if (m_loader != nullptr)
+        {
+            m_loader->OnFontDestroyed(*this);
+        }
+    }
+
+    FontAtlas* FontAsset::GetAtlas(float pixelHeight)
+    {
+        if (m_face == nullptr || pixelHeight <= 0.0f)
+        {
+            return nullptr;
+        }
+        for (const std::unique_ptr<FontAtlas>& atlas : m_atlases)
+        {
+            if (atlas->GetPixelHeight() == pixelHeight)
+            {
+                return atlas.get();
+            }
+        }
+        m_atlases.push_back(std::make_unique<FontAtlas>(*m_face, pixelHeight));
+        return m_atlases.back().get();
+    }
+
     SpriteSheetAsset::~SpriteSheetAsset()
     {
         if (m_loader != nullptr)
@@ -160,6 +185,18 @@ namespace husky::engine
         // 前の GPU のテクスチャを、すべて手放す(GPU が外れる、または別の GPU に替わるため)。
         if (m_device != nullptr)
         {
+            // 字のアトラスは捨てる(次に使うとき、新しい GPU で作り直す。中の字も絵にし直す)。
+            for (const auto& entry : m_fonts)
+            {
+                if (FontAsset* font = ResolveFont(entry.second))
+                {
+                    for (const std::unique_ptr<FontAtlas>& atlas : font->m_atlases)
+                    {
+                        atlas->ReleaseTexture(*m_device);
+                    }
+                    font->m_atlases.clear();
+                }
+            }
             for (const auto& entry : m_textures) // entry.first が GUID、entry.second がハンドル
             {
                 if (TextureAsset* asset = ResolveTexture(entry.second))
@@ -335,6 +372,10 @@ namespace husky::engine
         if (assetType.IsA(TextureAsset::StaticType()))
         {
             return EndsWith(relativePath, ".png"); // 1段目の ReadTextureSource が PNG を読むため
+        }
+        if (assetType.IsA(FontAsset::StaticType()))
+        {
+            return EndsWith(relativePath, ".ttf") || EndsWith(relativePath, ".otf");
         }
         if (assetType.IsA(SoundAsset::StaticType()))
         {
@@ -613,6 +654,114 @@ namespace husky::engine
         if (found != m_sounds.end() && found->second == asset.GetHandle())
         {
             m_sounds.erase(found);
+        }
+    }
+
+    // ================= フォント(UI-3b) =================
+
+    core::ObjectHandle AssetLoader::LoadFont(const core::Guid& guid)
+    {
+        // 流れは音と同じ: キャッシュにあれば返し、無ければ「読み込み中」で作ってジョブを積む。
+        const auto found = m_fonts.find(guid);
+        if (found != m_fonts.end())
+        {
+            const FontAsset* cached = ResolveFont(found->second);
+            if (cached != nullptr && !cached->IsPendingDestroy())
+            {
+                return found->second;
+            }
+        }
+
+        FontAsset* asset = m_registry.Create<FontAsset>();
+        if (asset == nullptr)
+        {
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, "フォント", guid.ToString());
+            return {};
+        }
+        asset->m_guid = guid;
+        asset->m_loader = this;
+        StartFontLoad(*asset);
+        m_fonts[guid] = asset->GetHandle();
+        return asset->GetHandle();
+    }
+
+    FontAsset* AssetLoader::ResolveFont(core::ObjectHandle handle) const
+    {
+        return m_registry.Resolve<FontAsset>(handle);
+    }
+
+    FontAsset* AssetLoader::Resolve(core::AssetRef<FontAsset>& reference)
+    {
+        if (reference.IsNull())
+        {
+            reference.asset = {};
+            return nullptr;
+        }
+        FontAsset* asset = ResolveFont(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        {
+            return asset;
+        }
+        reference.asset = LoadFont(reference.guid);
+        return ResolveFont(reference.asset);
+    }
+
+    void AssetLoader::StartFontLoad(FontAsset& asset)
+    {
+        asset.m_state = AssetState::Loading;
+        std::string path = FindPathOrLog(asset.m_guid);
+        if (path.empty())
+        {
+            asset.m_state = AssetState::Failed;
+            return;
+        }
+
+        auto record = std::make_unique<PendingFontLoad>();
+        record->asset = asset.GetHandle();
+        record->guid = asset.m_guid;
+        record->path = std::move(path);
+        // ジョブ(ワーカースレッド): ファイルを読み、フォントとして開く。結果は記録にだけ書く。
+        Schedule(std::move(record), [](PendingFontLoad& load) {
+            std::string bytes; // ReadTextFile は中身をそのままのバイトで読む
+            if (!platform::ReadTextFile(load.path.c_str(), bytes))
+            {
+                return;
+            }
+            load.face = CreateFontFace(std::move(bytes));
+            load.succeeded = load.face != nullptr;
+        });
+    }
+
+    void AssetLoader::FinishFont(PendingFontLoad& load)
+    {
+        FontAsset* asset = ResolveFont(load.asset);
+        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        {
+            return;
+        }
+        if (!load.succeeded)
+        {
+            HUSKY_LOG(AssetLog::LoadWarning, "フォント", load.path, "could not read the file as a font");
+            asset->m_state = AssetState::Failed;
+            return;
+        }
+        asset->m_face = std::move(load.face);
+        asset->m_state = AssetState::Loaded;
+    }
+
+    void AssetLoader::OnFontDestroyed(FontAsset& asset)
+    {
+        if (m_device != nullptr)
+        {
+            for (const std::unique_ptr<FontAtlas>& atlas : asset.m_atlases)
+            {
+                atlas->ReleaseTexture(*m_device);
+            }
+        }
+        const auto found = m_fonts.find(asset.m_guid);
+        if (found != m_fonts.end() && found->second == asset.GetHandle())
+        {
+            m_fonts.erase(found);
         }
     }
 

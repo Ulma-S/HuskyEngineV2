@@ -47,6 +47,7 @@
 #include "engine/AssetDatabase.h"
 #include "engine/PrefabAsset.h"
 #include "engine/ScriptableData.h"
+#include "engine/FontAsset.h"
 #include "engine/SoundAsset.h"
 #include "engine/SpriteSheetAsset.h"
 #include "engine/TextureAsset.h"
@@ -119,6 +120,16 @@ namespace husky::engine
         SoundAsset* Resolve(core::AssetRef<SoundAsset>& reference);
         // キャッシュにある(まだ回収されていない)音の数。確認とテスト用。
         std::size_t GetLoadedSoundCount() const { return m_sounds.size(); }
+
+        // ---- フォント(UI-3b) ----
+
+        // フォント(.ttf / .otf)の読み込みを始め、FontAsset を指すハンドル(弱い参照)を返す。使い方はテクスチャと同じ。
+        // ファイルを読んでフォントとして開くところまでジョブで行う。字のアトラスは使うときに作る(FontAsset::GetAtlas)。
+        core::ObjectHandle LoadFont(const core::Guid& guid);
+        FontAsset* ResolveFont(core::ObjectHandle handle) const;
+        // アセットの参照が指すフォントを返す(必要なら読み始める)。何も指していなければ nullptr。
+        FontAsset* Resolve(core::AssetRef<FontAsset>& reference);
+        std::size_t GetLoadedFontCount() const { return m_fonts.size(); }
 
         // ---- スプライトシート ----
 
@@ -203,6 +214,7 @@ namespace husky::engine
         friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
         friend class ScriptableDataAsset; // 回収されるときに OnScriptableDataDestroyed を呼べるようにする
         friend class SoundAsset;          // 回収されるときに OnSoundDestroyed を呼べるようにする
+        friend class FontAsset;           // 回収されるときに OnFontDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
         // アセットの種類ごとに、この型を継承して「ジョブが書く結果」を足し、Finish(結果をアセットに書く)を用意する。
@@ -255,6 +267,13 @@ namespace husky::engine
             bool succeeded = false;            // ジョブが書く: 読めたか
         };
 
+        struct PendingFontLoad final : PendingLoad
+        {
+            void Finish(AssetLoader& loader) override { loader.FinishFont(*this); }
+            std::unique_ptr<FontFace> face; // ジョブが書く: 開いたフォント(ただのデータなので、ジョブで作ってよい)
+            bool succeeded = false;          // ジョブが書く: 読めたか
+        };
+
         struct PendingSoundLoad final : PendingLoad
         {
             void Finish(AssetLoader& loader) override { loader.FinishSound(*this); }
@@ -289,6 +308,10 @@ namespace husky::engine
         void FinishSound(PendingSoundLoad& load);
         void OnSoundDestroyed(SoundAsset& asset);
 
+        void StartFontLoad(FontAsset& asset);
+        void FinishFont(PendingFontLoad& load);
+        void OnFontDestroyed(FontAsset& asset);
+
         const AssetDatabase& m_database;
         core::ObjectRegistry& m_registry;
         const core::TypeRegistry& m_types; // ScriptableData の中身を、ファイルの型の名前から作るため
@@ -302,6 +325,7 @@ namespace husky::engine
         std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
         std::unordered_map<core::Guid, core::ObjectHandle> m_scriptableData; // 箱(ScriptableDataAsset)を指す
         std::unordered_map<core::Guid, core::ObjectHandle> m_sounds;
+        std::unordered_map<core::Guid, core::ObjectHandle> m_fonts;
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。

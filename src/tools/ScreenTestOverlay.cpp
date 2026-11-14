@@ -3,12 +3,32 @@
 
 #if HUSKY_DEVELOPMENT
 
+#include "engine/AssetLoader.h"
+#include "engine/FontAsset.h"
+#include "engine/Utf8.h"
+
 #include <cstddef> // std::size_t
 #include <cstdint>
 #include <utility> // std::move
 
 namespace husky::tools
 {
+    namespace
+    {
+        const char* const TestFontPath = "fonts/BIZUDGothic-Regular.ttf"; // assets の中のパス
+        constexpr float TestFontSize = 32.0f;
+        // 試しの文字: 日本語(ひらがな・カタカナ・漢字)、英数字、記号、カーニングのある組(AV)
+        const char* const TestText = "日本語のテスト AVATAR 123 ゲーム用UI!";
+    }
+
+    ScreenTestOverlay::~ScreenTestOverlay()
+    {
+        if (m_rootRegistry != nullptr && !m_font.IsNull())
+        {
+            m_rootRegistry->RemoveRoot(m_font);
+        }
+    }
+
     void ScreenTestOverlay::RegisterCommands(EditorCommandRegistry& commands)
     {
         EditorCommand command;
@@ -23,7 +43,7 @@ namespace husky::tools
         commands.Register(std::move(command));
     }
 
-    void ScreenTestOverlay::Draw(render::RenderDevice& renderDevice)
+    void ScreenTestOverlay::Draw(engine::Application& app, render::RenderDevice& renderDevice)
     {
         if (!m_visible)
         {
@@ -100,6 +120,84 @@ namespace husky::tools
         center.height = textureSize * 2.0f;
         center.texture = m_texture;
         renderDevice.DrawSprite(center);
+
+        // 真ん中の上: 試しの文字(左端は真ん中より少し左)
+        DrawTestText(app, renderDevice, width * 0.5f - 280.0f, height * 0.5f + 120.0f);
+    }
+
+    void ScreenTestOverlay::DrawTestText(engine::Application& app, render::RenderDevice& renderDevice, float x,
+                                         float baselineY)
+    {
+        engine::AssetLoader& loader = app.GetAssetLoader();
+        // 最初の1回: パスで GUID を引いて読み始め、根に入れる(読み終わるまで数フレームかかる。その間は描かない)
+        if (m_font.IsNull())
+        {
+            const core::Guid* guid = app.GetAssetDatabase().FindGuid(TestFontPath);
+            if (guid == nullptr)
+            {
+                return;
+            }
+            m_font = loader.LoadFont(*guid);
+            if (app.GetRegistry().AddRoot(m_font))
+            {
+                m_rootRegistry = &app.GetRegistry();
+            }
+        }
+        engine::FontAsset* font = loader.ResolveFont(m_font);
+        engine::FontAtlas* atlas = font != nullptr ? font->GetAtlas(TestFontSize) : nullptr;
+        if (atlas == nullptr)
+        {
+            return; // 読み込み中か、読めなかった
+        }
+
+        // 1. 先に全部の字をアトラスに置き(初めての字だけ絵にする)、まとめて GPU に送る(最初の1回はテクスチャも作る)
+        const std::string_view text = TestText;
+        std::size_t index = 0;
+        char32_t codepoint = 0;
+        while (engine::NextCodepoint(text, index, codepoint))
+        {
+            atlas->FindOrAdd(codepoint);
+        }
+        atlas->Upload(renderDevice);
+
+        // 2. 左から並べる。ペン(字の基準点)はベースラインの上を右へ進む。
+        //    字の絵の左上は「ペン + (offsetX, offsetY)」。フォントの offsetY は下が + だが、画面のカメラは上が + なので引く。
+        float penX = x;
+        char32_t previous = 0;
+        index = 0;
+        while (engine::NextCodepoint(text, index, codepoint))
+        {
+            const engine::AtlasGlyph* glyph = atlas->FindOrAdd(codepoint);
+            if (glyph == nullptr)
+            {
+                previous = 0;
+                continue; // フォントに無い字は飛ばす(後で「豆腐」を出すかは UI-4 で決める)
+            }
+            if (previous != 0)
+            {
+                penX += font->GetFace()->GetKerning(previous, codepoint, TestFontSize);
+            }
+            if (glyph->hasImage)
+            {
+                render::Sprite sprite;
+                // ピクセルの境目に合わせる(点で読むサンプラーなので、半端な位置だと字がにじまずに欠ける)
+                sprite.model.m[12] = static_cast<float>(static_cast<int>(penX + 0.5f)) + static_cast<float>(glyph->offsetX);
+                sprite.model.m[13] = baselineY - static_cast<float>(glyph->offsetY);
+                sprite.width = static_cast<float>(glyph->width);
+                sprite.height = static_cast<float>(glyph->height);
+                sprite.pivotX = 0.0f; // 左上の角を位置に合わせる
+                sprite.pivotY = 1.0f;
+                sprite.color = {1.0f, 1.0f, 1.0f, 1.0f};
+                sprite.texture = atlas->GetTexture();
+                sprite.u0 = glyph->u0;
+                sprite.v0 = glyph->v0;
+                sprite.u1 = glyph->u1;
+                sprite.v1 = glyph->v1;
+                renderDevice.DrawSprite(sprite);
+            }
+            penX += glyph->advance;
+            previous = codepoint;
+        }
     }
 }
 
