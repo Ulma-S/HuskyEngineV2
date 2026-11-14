@@ -307,6 +307,7 @@ add_library(husky_engine ${HUSKY_MODULE_TYPE}
     src/engine/Application.cpp
     src/engine/AssetDatabase.cpp
     src/engine/AssetLoader.cpp
+    src/engine/SoundAsset.cpp
     src/engine/Camera.cpp
     src/engine/Collider2D.cpp
     src/engine/AudioSourceComponent.cpp

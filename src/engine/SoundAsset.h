@@ -1,9 +1,10 @@
-// 音のアセット。WAV ファイル1つ(と .meta)を読み込んだもので、GC 管理のオブジェクト(core::Object)。
+// 音のアセット。WAV ファイル1つ(と .meta)を読み込んだもので、GC 管理のオブジェクト(Asset の子)。
 // テクスチャ(TextureAsset)と同じ形: ファイル + .meta をそのままアセットにし、AssetRef<SoundAsset> で指す。
 //
 // 中身の波(ミキサーの形に直したもの)は音の層(audio::AudioDevice)が預かり、ここは番号(SoundHandle)だけを持つ。
 // 鳴らすときは AudioDevice::Play(sound->GetSound(), params)。
 //
+// 読み方(SoundAssetKind、SoundAsset.cpp)はローダに登録する(AL-1。Application が CreateSoundAssetKind で登録)。
 // 寿命は GC が決める。回収されるとき、預けた波を手放す。鳴っている音は止まり、メモリは音のスレッドが
 // もう読まないと分かってから捨てる(AudioDevice::ReleaseSound)。
 //
@@ -11,24 +12,20 @@
 #pragma once
 
 #include "audio/AudioDevice.h"
-#include "core/Guid.h"
-#include "core/Object.h"
-#include "engine/AssetState.h"
+#include "engine/Asset.h"
+
+#include <memory>
 
 namespace husky::engine
 {
-    class AssetLoader;
+    class SoundAssetKind;
 
-    class SoundAsset : public core::Object
+    class SoundAsset : public Asset
     {
-        HUSKY_OBJECT(SoundAsset, core::Object)
+        HUSKY_OBJECT(SoundAsset, Asset)
     public:
-        // 回収されるとき、預けた波を手放すよう、ローダに伝える。
+        // 回収されるとき、預けた波を手放す(SoundAssetKind::Release)。
         ~SoundAsset() override;
-
-        const core::Guid& GetGuid() const { return m_guid; }
-        AssetState GetState() const { return m_state; }
-        bool IsLoaded() const { return m_state == AssetState::Loaded; }
 
         // 長さ(ミキサーの形でのフレーム数と秒)。読み込めていなければ 0。
         int GetFrameCount() const { return m_frameCount; }
@@ -38,12 +35,12 @@ namespace husky::engine
         audio::SoundHandle GetSound() const { return m_sound; }
 
     private:
-        friend class AssetLoader; // 中身を書くのはローダだけ
+        friend class SoundAssetKind; // 中身を書くのは読み方だけ
 
-        core::Guid m_guid;
-        AssetState m_state = AssetState::Loading;
         int m_frameCount = 0;
         audio::SoundHandle m_sound;
-        AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ)
     };
+
+    // 音(.wav)の読み方を作る。ローダに RegisterKind で登録する。
+    std::unique_ptr<AssetKind> CreateSoundAssetKind();
 }

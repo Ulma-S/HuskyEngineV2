@@ -8,7 +8,6 @@
 #include "engine/SceneSerializer.h"
 #include "platform/FileSystem.h"
 #include "platform/Image.h"
-#include "audio/WavFile.h"
 
 
 #include <algorithm> // std::find
@@ -97,11 +96,20 @@ namespace husky::engine
         }
     }
 
-    SoundAsset::~SoundAsset()
+    Asset::~Asset()
     {
         if (m_loader != nullptr)
         {
-            m_loader->OnSoundDestroyed(*this);
+            m_loader->OnAssetDestroyed(*this);
+        }
+    }
+
+    void Asset::ReleaseLoadedData()
+    {
+        if (m_loader != nullptr && !m_released)
+        {
+            m_released = true;
+            m_loader->ReleaseAssetData(*this);
         }
     }
 
@@ -536,124 +544,172 @@ namespace husky::engine
         }
     }
 
-    // ================= 音 =================
+    // ================= 登録した種類の共通の流れ(AL-1) =================
 
-    core::ObjectHandle AssetLoader::LoadSound(const core::Guid& guid)
+    void AssetLoader::RegisterKind(std::unique_ptr<AssetKind> kind)
     {
-        // 流れはテクスチャと同じ: キャッシュにあれば返し、無ければ「読み込み中」で作ってジョブを積む。
-        const auto found = m_sounds.find(guid);
-        if (found != m_sounds.end())
+        if (kind == nullptr)
         {
-            const SoundAsset* cached = ResolveSound(found->second);
+            return;
+        }
+        const core::TypeInfo& type = kind->GetAssetType();
+        for (const KindEntry& entry : m_kinds)
+        {
+            if (&entry.kind->GetAssetType() == &type)
+            {
+                HUSKY_LOG(AssetLog::KindAlreadyRegistered, type.GetName());
+                return;
+            }
+        }
+        KindEntry entry;
+        entry.kind = std::move(kind);
+        m_kinds.push_back(std::move(entry));
+    }
+
+    AssetLoader::KindEntry* AssetLoader::FindKindEntry(const core::TypeInfo& assetType)
+    {
+        for (KindEntry& entry : m_kinds)
+        {
+            if (assetType.IsA(entry.kind->GetAssetType()))
+            {
+                return &entry;
+            }
+        }
+        return nullptr;
+    }
+
+    const AssetLoader::KindEntry* AssetLoader::FindKindEntry(const core::TypeInfo& assetType) const
+    {
+        return const_cast<AssetLoader*>(this)->FindKindEntry(assetType); // 中身は同じ(書き換えない)
+    }
+
+    const AssetKind* AssetLoader::FindKind(const core::TypeInfo& assetType) const
+    {
+        const KindEntry* entry = FindKindEntry(assetType);
+        return entry != nullptr ? entry->kind.get() : nullptr;
+    }
+
+    std::size_t AssetLoader::GetLoadedCount(const core::TypeInfo& assetType) const
+    {
+        const KindEntry* entry = FindKindEntry(assetType);
+        return entry != nullptr ? entry->cache.size() : 0;
+    }
+
+    core::ObjectHandle AssetLoader::Load(const core::TypeInfo& assetType, const core::Guid& guid)
+    {
+        KindEntry* entry = FindKindEntry(assetType);
+        if (entry == nullptr)
+        {
+            HUSKY_LOG(AssetLog::KindNotRegistered, assetType.GetName(), guid.ToString());
+            return {};
+        }
+
+        // 1. キャッシュ: まだ生きていれば、それを返す(読み込み中でも)。破棄を予約済み(この後で消える)なら、作り直す。
+        const auto found = entry->cache.find(guid);
+        if (found != entry->cache.end())
+        {
+            const Asset* cached = m_registry.Resolve<Asset>(found->second);
             if (cached != nullptr && !cached->IsPendingDestroy())
             {
                 return found->second;
             }
         }
 
-        SoundAsset* asset = m_registry.Create<SoundAsset>();
+        // 2. 箱を「読み込み中」で作り、ジョブを積む。
+        Asset* asset = entry->kind->CreateAsset(m_registry);
         if (asset == nullptr)
         {
-            HUSKY_LOG(AssetLog::OutOfObjectMemory, "音", guid.ToString());
+            HUSKY_LOG(AssetLog::OutOfObjectMemory, entry->kind->GetDisplayName(), guid.ToString());
             return {};
         }
         asset->m_guid = guid;
         asset->m_loader = this;
-        StartSoundLoad(*asset);
-        m_sounds[guid] = asset->GetHandle();
+        asset->m_kind = entry->kind.get();
+        StartKindLoad(*asset);
+        entry->cache[guid] = asset->GetHandle(); // 古いもの(破棄を予約済み)があれば置き換える
         return asset->GetHandle();
     }
 
-    SoundAsset* AssetLoader::ResolveSound(core::ObjectHandle handle) const
-    {
-        return m_registry.Resolve<SoundAsset>(handle);
-    }
-
-    SoundAsset* AssetLoader::Resolve(core::AssetRef<SoundAsset>& reference)
+    Asset* AssetLoader::ResolveReference(core::AssetReference& reference, const core::TypeInfo& assetType)
     {
         if (reference.IsNull())
         {
             reference.asset = {};
             return nullptr;
         }
-        SoundAsset* asset = ResolveSound(reference.asset);
-        if (asset != nullptr && asset->GetGuid() == reference.guid)
+        // 前に読んだ箱が、まだ生きていて、同じ GUID で、型が合うなら、それを使う(毎フレーム呼ばれるので、ここは速く済ませる)。
+        Asset* asset = m_registry.Resolve<Asset>(reference.asset);
+        if (asset != nullptr && asset->GetGuid() == reference.guid && asset->GetType().IsA(assetType))
         {
             return asset;
         }
-        reference.asset = LoadSound(reference.guid);
-        return ResolveSound(reference.asset);
+        reference.asset = Load(assetType, reference.guid);
+        asset = m_registry.Resolve<Asset>(reference.asset);
+        return (asset != nullptr && asset->GetType().IsA(assetType)) ? asset : nullptr;
     }
 
-    void AssetLoader::StartSoundLoad(SoundAsset& asset)
+    void AssetLoader::StartKindLoad(Asset& asset)
     {
         asset.m_state = AssetState::Loading;
-        std::string path = FindPathOrLog(asset.m_guid);
+        std::string path = FindPathOrLog(asset.m_guid); // 表はゲームスレッドでだけ引く
         if (path.empty())
         {
             asset.m_state = AssetState::Failed;
             return;
         }
 
-        auto record = std::make_unique<PendingSoundLoad>();
-        record->asset = asset.GetHandle();
-        record->guid = asset.m_guid;
-        record->path = std::move(path);
-        // ジョブ(ワーカースレッド): ファイルを読み(1段目)、ミキサーの形に直す(2段目)。結果は記録にだけ書く。
-        Schedule(std::move(record), [](PendingSoundLoad& load) {
-            std::string bytes; // ReadTextFile は中身をそのままのバイトで読む(文字として直さない)
-            if (!platform::ReadTextFile(load.path.c_str(), bytes))
-            {
-                load.error = "could not read the file";
-                return;
-            }
-            audio::DecodedSound decoded;
-            if (!audio::DecodeWav(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), decoded, load.error))
-            {
-                return;
-            }
-            load.samples = audio::ConvertToOutputFormat(decoded);
-            if (load.samples.empty())
-            {
-                load.error = "the sound is empty";
-                return;
-            }
-            load.succeeded = true;
+        auto pending = std::make_unique<PendingKindLoad>();
+        pending->asset = asset.GetHandle();
+        pending->guid = asset.m_guid;
+        pending->path = path;
+        pending->kind = asset.m_kind;
+        pending->load = asset.m_kind->CreateLoad(asset);
+        pending->load->guid = asset.m_guid;
+        pending->load->path = std::move(path);
+        // ジョブ(ワーカースレッド): 種類の記録の 1段目と 2段目だけを動かす。記録の外は触らない。
+        Schedule(std::move(pending), [](PendingKindLoad& record) {
+            AssetLoad& load = *record.load;
+            load.succeeded = load.ReadSource() && load.Cook();
         });
     }
 
-    void AssetLoader::FinishSound(PendingSoundLoad& load)
+    void AssetLoader::FinishKindLoad(PendingKindLoad& pending)
     {
-        SoundAsset* asset = ResolveSound(load.asset);
-        if (asset == nullptr || asset->m_guid != load.guid || asset->m_state != AssetState::Loading)
+        // 書く先の箱が、まだ生きていて、読み込み中のままか(途中で回収された、作り直された、なら捨てる)。
+        Asset* asset = m_registry.Resolve<Asset>(pending.asset);
+        if (asset == nullptr || asset->m_guid != pending.guid || asset->m_kind != pending.kind
+            || asset->m_state != AssetState::Loading)
         {
             return;
         }
-        if (!load.succeeded)
-        {
-            HUSKY_LOG(AssetLog::LoadWarning, "音", load.path, load.error != nullptr ? load.error : "unknown error");
-            asset->m_state = AssetState::Failed;
-            return;
-        }
-        asset->m_frameCount = static_cast<int>(load.samples.size()) / audio::OutputChannels;
-        // 音の層に波を預ける(付いていなければ、長さだけを覚えて「読めた」にする)。
-        if (m_audio != nullptr)
-        {
-            asset->m_sound = m_audio->CreateSound(std::move(load.samples));
-        }
-        asset->m_state = AssetState::Loaded;
+        asset->m_state = pending.kind->Finish(*this, *asset, *pending.load) ? AssetState::Loaded : AssetState::Failed;
     }
 
-    void AssetLoader::OnSoundDestroyed(SoundAsset& asset)
+    void AssetLoader::ReleaseAssetData(Asset& asset)
     {
-        if (m_audio != nullptr && !asset.m_sound.IsNull())
+        if (asset.m_kind != nullptr)
         {
-            m_audio->ReleaseSound(asset.m_sound); // 鳴っていれば止め、音のスレッドが手放してから捨てる
+            asset.m_kind->Release(*this, asset);
         }
-        const auto found = m_sounds.find(asset.m_guid);
-        if (found != m_sounds.end() && found->second == asset.GetHandle())
+    }
+
+    void AssetLoader::OnAssetDestroyed(Asset& asset)
+    {
+        if (asset.m_kind == nullptr)
         {
-            m_sounds.erase(found);
+            return;
+        }
+        KindEntry* entry = FindKindEntry(asset.m_kind->GetAssetType());
+        if (entry == nullptr)
+        {
+            return;
+        }
+        // キャッシュが、この箱を指しているときだけ外す(同じ GUID で、もう新しいものを作っていることがある)。
+        // 読み込み中の記録は、ここでは消さない(ジョブがまだ書き込んでいるかもしれない)。終わったときに捨てる。
+        const auto found = entry->cache.find(asset.m_guid);
+        if (found != entry->cache.end() && found->second == asset.GetHandle())
+        {
+            entry->cache.erase(found);
         }
     }
 

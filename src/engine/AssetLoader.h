@@ -33,7 +33,8 @@
 //
 // ScriptableData(LoadScriptableData)も同じ流れ。ジョブが .sdata(JSON)を値の木にし、Update で型の名前から中身を作って値を入れる。
 //
-// アセットの種類を足すときは、読み込み中の記録の型(PendingLoad の子)と、Start〜 / Finish〜 の組を足す。
+// アセットの種類を足すときは、AssetKind(Asset.h)の子を作り、RegisterKind で登録する(AL-1。音はこの形)。
+// まだ移していない種類(テクスチャなど)は、読み込み中の記録の型(PendingLoad の子)と、Start〜 / Finish〜 の組で書いてある。
 //
 // 動作スレッド: ゲームスレッドのみ(中で積んだジョブだけが、ワーカースレッドで動く)
 #pragma once
@@ -44,6 +45,7 @@
 #include "core/ObjectRegistry.h"
 #include "core/TypeInfo.h"
 #include "core/TypeRegistry.h"
+#include "engine/Asset.h"
 #include "engine/AssetDatabase.h"
 #include "engine/PrefabAsset.h"
 #include "engine/ScriptableData.h"
@@ -88,6 +90,36 @@ namespace husky::engine
         // 付いていない(テストなど)ときは、読んで長さだけを覚える。Application がコンストラクタで付ける。
         void SetAudioDevice(audio::AudioDevice* audio) { m_audio = audio; }
 
+        // 付いている GPU と音の層(読み方が、結果を箱に書くときに使う)。付いていなければ nullptr。
+        render::RenderDevice* GetRenderDevice() const { return m_device; }
+        audio::AudioDevice* GetAudioDevice() const { return m_audio; }
+
+        // ---- 種類の登録と、共通の入口(AL-1) ----
+
+        // アセットの種類の読み方を登録する(持ち主はローダになる)。同じ箱の型の種類が先にあれば、登録せずにエラーを出す。
+        // 読み込みを始める前に登録すること(エンジンの種類は Application がコンストラクタで登録する)。
+        void RegisterKind(std::unique_ptr<AssetKind> kind);
+        // assetType(箱の型。その子でもよい)の読み方。登録されていなければ nullptr。
+        const AssetKind* FindKind(const core::TypeInfo& assetType) const;
+
+        // assetType のアセットの読み込みを始め、箱を指すハンドル(弱い参照)を返す(ふつうは「読み込み中」)。
+        // 同じ GUID の箱がまだ生きていれば、それを返す。種類が登録されていない・メモリが足りないときは、何も指さないハンドル。
+        core::ObjectHandle Load(const core::TypeInfo& assetType, const core::Guid& guid);
+        // アセットの参照が指す箱を返す(assetType として。テンプレートを使わない入口)。何も指していなければ nullptr。
+        // まだ読んでいない、または指す GUID が変わったときは、ここで読み始め、箱のハンドルを reference.asset に書く。
+        Asset* ResolveReference(core::AssetReference& reference, const core::TypeInfo& assetType);
+
+        // AssetRef<T>(T は Asset の子)の入口。中身は ResolveReference。
+        template <typename T, std::enable_if_t<std::is_base_of_v<Asset, T>, int> = 0>
+        T* Resolve(core::AssetRef<T>& reference)
+        {
+            // 型は ResolveReference が IsA で確かめてあるので、static_cast で子の型に変えてよい。
+            return static_cast<T*>(ResolveReference(reference, T::StaticType()));
+        }
+
+        // キャッシュにある(まだ回収されていない)assetType の箱の数。確認とテスト用。
+        std::size_t GetLoadedCount(const core::TypeInfo& assetType) const;
+
         // テクスチャの読み込みを始め、TextureAsset を指すハンドルを返す(ふつうは「読み込み中」)。
         // 返すハンドルは弱い参照。使い続けるなら、根に加えるか、プロパティ(強い参照)で持つこと。
         // どこからも強く指されていないアセットは、次の GC で回収される。
@@ -113,13 +145,11 @@ namespace husky::engine
 
         // ---- 音 ----
 
-        // 音(.wav)の読み込みを始め、SoundAsset を指すハンドル(弱い参照)を返す。使い方はテクスチャと同じ。
-        core::ObjectHandle LoadSound(const core::Guid& guid);
-        SoundAsset* ResolveSound(core::ObjectHandle handle) const;
-        // アセットの参照が指す音を返す(必要なら読み始める)。何も指していなければ nullptr。
-        SoundAsset* Resolve(core::AssetRef<SoundAsset>& reference);
-        // キャッシュにある(まだ回収されていない)音の数。確認とテスト用。
-        std::size_t GetLoadedSoundCount() const { return m_sounds.size(); }
+        // 古い名前の入口(AL-4 で外す)。中身は共通の Load と、レジストリの Resolve。
+        // AssetRef<SoundAsset> は、上の共通の Resolve(テンプレート)が受ける。
+        core::ObjectHandle LoadSound(const core::Guid& guid) { return Load(SoundAsset::StaticType(), guid); }
+        SoundAsset* ResolveSound(core::ObjectHandle handle) const { return m_registry.Resolve<SoundAsset>(handle); }
+        std::size_t GetLoadedSoundCount() const { return GetLoadedCount(SoundAsset::StaticType()); }
 
         // ---- フォント(UI-3b) ----
 
@@ -219,7 +249,7 @@ namespace husky::engine
         friend class SpriteSheetAsset; // 回収されるときに OnSpriteSheetDestroyed を呼べるようにする
         friend class PrefabAsset;      // 回収されるときに OnPrefabDestroyed を呼べるようにする
         friend class ScriptableDataAsset; // 回収されるときに OnScriptableDataDestroyed を呼べるようにする
-        friend class SoundAsset;          // 回収されるときに OnSoundDestroyed を呼べるようにする
+        friend class Asset;               // 回収されるときに OnAssetDestroyed / ReleaseAssetData を呼べるようにする
         friend class FontAsset;           // 回収されるときに OnFontDestroyed を呼べるようにする
 
         // 読み込み中の記録(どの種類のアセットにも共通の部分)。ジョブとゲームスレッドの受け渡し場所。
@@ -280,12 +310,12 @@ namespace husky::engine
             bool succeeded = false;          // ジョブが書く: 読めたか
         };
 
-        struct PendingSoundLoad final : PendingLoad
+        // 登録した種類(AssetKind)の読み込み中の記録。中身(load)は種類が作り、ジョブは load の 1段目・2段目だけを動かす。
+        struct PendingKindLoad final : PendingLoad
         {
-            void Finish(AssetLoader& loader) override { loader.FinishSound(*this); }
-            std::vector<float> samples;  // ジョブが書く: ミキサーの形に直した波
-            const char* error = nullptr; // ジョブが書く: 読めなかった理由(文字列の定数。Finish がログに出す)
-            bool succeeded = false;      // ジョブが書く: 読めたか
+            void Finish(AssetLoader& loader) override { loader.FinishKindLoad(*this); }
+            std::unique_ptr<AssetLoad> load;
+            const AssetKind* kind = nullptr;
         };
 
         // 読むファイルのパスを表で引く。無ければ空(呼んだ側が、その場で「失敗」にする)。
@@ -310,9 +340,18 @@ namespace husky::engine
         void FinishScriptableData(PendingScriptableDataLoad& load);
         void OnScriptableDataDestroyed(ScriptableDataAsset& asset);
 
-        void StartSoundLoad(SoundAsset& asset);
-        void FinishSound(PendingSoundLoad& load);
-        void OnSoundDestroyed(SoundAsset& asset);
+        // 登録した種類の共通の流れ。
+        struct KindEntry
+        {
+            std::unique_ptr<AssetKind> kind;
+            std::unordered_map<core::Guid, core::ObjectHandle> cache; // GUID → 箱(弱い参照のキャッシュ)
+        };
+        KindEntry* FindKindEntry(const core::TypeInfo& assetType);
+        const KindEntry* FindKindEntry(const core::TypeInfo& assetType) const;
+        void StartKindLoad(Asset& asset);
+        void FinishKindLoad(PendingKindLoad& pending);
+        void ReleaseAssetData(Asset& asset);  // 箱の子のデストラクタから(種類の片付け)
+        void OnAssetDestroyed(Asset& asset);  // 箱のデストラクタから(キャッシュから外す)
 
         void StartFontLoad(FontAsset& asset);
         void FinishFont(PendingFontLoad& load);
@@ -330,12 +369,14 @@ namespace husky::engine
         std::unordered_map<core::Guid, core::ObjectHandle> m_spriteSheets;
         std::unordered_map<core::Guid, core::ObjectHandle> m_prefabs;
         std::unordered_map<core::Guid, core::ObjectHandle> m_scriptableData; // 箱(ScriptableDataAsset)を指す
-        std::unordered_map<core::Guid, core::ObjectHandle> m_sounds;
         std::unordered_map<core::Guid, core::ObjectHandle> m_fonts;
 
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。
         std::vector<std::unique_ptr<PendingLoad>> m_pending;
+
+        // 登録した種類(数は少ないので、探すときは順に見る)。
+        std::vector<KindEntry> m_kinds;
 
         // 入れ子のプレハブが読み終わるのを待っているプレハブ(HIER)。待っている間、入れ子のプレハブは根にして回収させない。
         struct WaitingPrefab

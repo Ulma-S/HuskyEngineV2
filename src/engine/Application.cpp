@@ -40,6 +40,8 @@ namespace husky::engine
         m_scene->SetInput(&m_input); // アクターは GetScene()->GetInput() で入力を読む
         m_scene->SetAssetLoader(&m_loader); // アクターは GetScene()->GetAssetLoader() でアセットの参照を引く
         m_loader.SetAudioDevice(&m_audio); // 読んだ音の波を音の層に預ける(出す先が無くても預けられる)
+        // エンジンのアセットの種類の読み方を、ローダに登録する(AL-1。移し終えた種類から順に、ここへ足す)。
+        m_loader.RegisterKind(CreateSoundAssetKind());
         m_scene->SetAudio(&m_audio); // アクターやコンポーネントは GetScene()->GetAudio() で音を鳴らす
     }
 

@@ -76,3 +76,42 @@ TEST_CASE("SoundAsset: WAV として読めなければ「失敗」")
     CHECK(sound->GetState() == AssetState::Failed);
     CHECK(sound->GetSound().IsNull());
 }
+
+TEST_CASE("AssetLoader: 登録した種類は、共通の入口 Load(型, GUID) と Resolve(AssetRef) で読める(AL-1)")
+{
+    TestFolder folder("husky_test_asset_kind_sound");
+    WriteWav(folder, "sounds/beep.wav", MakeWav16(48000, 2, {100, -100}), MakeGuid(5, 3));
+
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    AssetLoader& loader = app.GetAssetLoader();
+
+    // 音の種類は Application が登録してある。同じ箱の型の種類を2回登録しても、後のほうは入らない。
+    const husky::engine::AssetKind* kind = loader.FindKind(SoundAsset::StaticType());
+    REQUIRE(kind != nullptr);
+    loader.RegisterKind(husky::engine::CreateSoundAssetKind());
+    CHECK(loader.FindKind(SoundAsset::StaticType()) == kind);
+    CHECK(kind->CanLoad("a/b.wav"));
+    CHECK_FALSE(kind->CanLoad("a/b.png"));
+
+    // 共通の入口と、古い名前の入口は、同じ箱を返す。
+    const ObjectHandle handle = loader.Load(SoundAsset::StaticType(), MakeGuid(5, 3));
+    CHECK(loader.LoadSound(MakeGuid(5, 3)) == handle);
+    CHECK(loader.GetLoadedCount(SoundAsset::StaticType()) == 1);
+
+    // AssetRef<SoundAsset> は、テンプレートの Resolve が受ける(読み始めたハンドルを reference.asset に書く)。
+    husky::core::AssetRef<SoundAsset> reference;
+    reference.guid = MakeGuid(5, 3);
+    SoundAsset* sound = loader.Resolve(reference);
+    REQUIRE(sound != nullptr);
+    CHECK(reference.asset == handle);
+    CHECK(sound->GetKind() == kind);
+    loader.WaitForAllLoads();
+    CHECK(sound->IsLoaded());
+    CHECK(sound->GetFrameCount() == 1);
+
+    // 何も指さない参照は nullptr。読み方が登録されていない型は読めない(何も指さないハンドル)。
+    husky::core::AssetRef<SoundAsset> empty;
+    CHECK(loader.Resolve(empty) == nullptr);
+    CHECK(loader.Load(husky::engine::Asset::StaticType(), MakeGuid(5, 3)).IsNull());
+}

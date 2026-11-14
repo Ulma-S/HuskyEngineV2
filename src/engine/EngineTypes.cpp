@@ -49,6 +49,7 @@ namespace husky::engine
     HUSKY_OBJECT_DEFINE(SpriteSheetAsset)
     HUSKY_OBJECT_DEFINE(PrefabAsset)
     HUSKY_OBJECT_DEFINE(FontAsset)
+    HUSKY_OBJECT_DEFINE(Asset)
     HUSKY_OBJECT_DEFINE(SoundAsset)
 
     void RegisterEngineTypes(core::TypeRegistry& types)

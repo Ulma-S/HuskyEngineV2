@@ -25,6 +25,8 @@ namespace husky::engine
         DefaultTextureMissing = 16,
         DevUiFontMissing = 17,
         FontAtlasFull = 18,
+        KindAlreadyRegistered = 19,
+        KindNotRegistered = 20,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(AssetLog, "Engine.Asset")
@@ -64,6 +66,10 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(FontAtlasFull, Warning,
                           "字のアトラス({size} ピクセルの字、{textureSize} × {textureSize})がいっぱいで、これより後に初めて出た字は描きません",
                           HUSKY_LOG_ARG(size, Float), HUSKY_LOG_ARG(textureSize, Int))
+        HUSKY_LOG_MESSAGE(KindAlreadyRegistered, Error, "アセットの種類 {type} は、もう登録されています(後のほうは登録しません)",
+                          HUSKY_LOG_ARG(type, String))
+        HUSKY_LOG_MESSAGE(KindNotRegistered, Error, "アセットの種類 {type} の読み方が登録されていないので、読めません({guid})",
+                          HUSKY_LOG_ARG(type, String), HUSKY_LOG_ARG(guid, String))
     HUSKY_LOG_CHANNEL_END()
 
     // シーンのファイルの読み書き。
