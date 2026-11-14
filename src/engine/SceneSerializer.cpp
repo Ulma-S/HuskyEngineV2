@@ -510,6 +510,11 @@ namespace husky::engine::SceneSerializer
             // アクターかどうかは、actorIds(アクターの番号の一覧)で分かる(RTTI を使わないので dynamic_cast はしない)
             const bool isActor =
                 std::find(actorIds.begin(), actorIds.end(), static_cast<std::int64_t>(i)) != actorIds.end();
+            // transform がほかの値から計算されるアクター(UIActor の RectTransform。UI-5a)は、transform を書かない
+            if (isActor && static_cast<const Actor*>(objects[i])->IsTransformDriven())
+            {
+                properties.Remove("transform");
+            }
             if (baseOf[i] != nullptr)
             {
                 // アクターの guid、prefab、components は、同じでも書く(この1体であること、元のプレハブ、番号の対応に要る)。

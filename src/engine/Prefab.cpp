@@ -432,7 +432,12 @@ namespace husky::engine::Prefab
         auto defaultsOf = [&](const core::TypeInfo& type) -> const ArchiveValue* {
             return types != nullptr ? FindDefaultProperties(type, *types, *writableRegistry) : nullptr;
         };
-        CompareMembers(*ObjectSerializer::Write(actor).Find("properties"), *actorProperties, defaultsOf(actor.GetType()),
+        ArchiveValue actorWritten = *ObjectSerializer::Write(actor).Find("properties");
+        if (actor.IsTransformDriven())
+        {
+            actorWritten.Remove("transform"); // 計算の結果(UIActor)はプレハブとの違いに数えない(UI-5a)
+        }
+        CompareMembers(actorWritten, *actorProperties, defaultsOf(actor.GetType()),
                        actor.GetType(), std::string(), std::string(), result.overrides);
         if (!isRoot)
         {

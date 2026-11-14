@@ -42,6 +42,11 @@ namespace husky::engine
         // 同じイベントは、このアクターの全コンポーネントの Component::OnCollision にも届く。
         virtual void OnCollision(const CollisionEvent& event) { (void)event; }
 
+        // transform が、ほかの値から毎フレーム計算される(人やコードが直接書かない)なら true(UI-5a)。
+        // UI のアクター(UIActor)は RectTransform が元の値で、transform はその計算の結果なので true を返す。
+        // true のアクターの transform は、保存しない(シーン・プレハブのファイルに書かない)。
+        virtual bool IsTransformDriven() const { return false; }
+
         // T 型のコンポーネントを作り、このアクターに取り付ける。メモリが足りなければ nullptr。
         // アクターをレジストリで作っていない場合も nullptr。
         // 一覧の順番が、コンポーネントの更新の順番になる。

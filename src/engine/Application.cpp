@@ -10,6 +10,7 @@
 
 #include "core/MemoryTracker.h"
 #include "engine/CameraComponent.h"
+#include "engine/UIActor.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/SceneSerializer.h"
@@ -101,6 +102,13 @@ namespace husky::engine
             // 受け取った側は同じフレームのうちに反応でき、Destroy などはこの後のフレームの終わりで確定する。
             m_physics2D.Update(*m_scene, dt); // 中で区間 "Physics2D.*" を測る
             m_sceneStepRequested = false;
+        }
+
+        // 3'. UI の配置(UI-5a): Canvas の下の UIActor の四角を求め、transform に書く。編集中(Tick が止まっている)も
+        //     インスペクタで直した RectTransform が見えるように、毎フレーム行う。画面の大きさは入力と一緒に届いたもの。
+        {
+            HUSKY_PROFILE_SCOPE("UILayout");
+            LayoutCanvases(*m_scene, m_input.GetScreenWidth(), m_input.GetScreenHeight());
         }
 
         // 4. フレームの終わり: 破棄の確定と、必要なら GC。
