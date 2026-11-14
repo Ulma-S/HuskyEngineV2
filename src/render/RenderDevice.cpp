@@ -19,6 +19,7 @@
 #include <imgui_impl_sdlgpu3.h>
 #endif
 
+#include <array>   // std::array(大きさが固定の配列)
 #include <cstddef> // std::size_t, offsetof
 #include <cstdint>
 #include <cstring> // std::memcpy
@@ -148,7 +149,13 @@ namespace husky::render
         SDL_GPUTexture* swapchainTexture = nullptr;    // 今回描き込む画面(持ち主は SDL。借りているだけ)
         Uint32 screenWidth = 0;                        // 今回の画面の大きさ(ピクセル)
         Uint32 screenHeight = 0;
-        core::Matrix4 viewProjection;                  // カメラの行列(SetViewProjection)。最初は単位行列
+        // このフレームのカメラの行列(SetViewProjection)。0 番から viewProjectionCount 個を使い、今積んでいるのは
+        // currentViewProjection 番。区間(SpriteBatch::matrixIndex)がこの番号で指す。std::array なので確保は起きない。
+        // 最初は単位行列が 1 つ。
+        std::array<core::Matrix4, RenderDevice::MaxViewProjectionsPerFrame> viewProjections{};
+        std::uint32_t viewProjectionCount = 1;
+        std::uint32_t currentViewProjection = 0;
+        bool warnedTooManyViewProjections = false; // 上限を超えた警告は、1フレームに1回だけ
         Color clearColor;                             // 画面を最初に塗りつぶす色
         std::vector<Vertex> vertices;                  // DrawSprite で溜めた頂点(CPU 側)
         std::vector<SpriteBatch> batches;              // 同じテクスチャが続く区間(1区間 = 描画命令1回)
@@ -530,6 +537,11 @@ namespace husky::render
         vertices.clear(); // 中身だけ消す。確保したメモリは残るので、次のフレームで再確保しない
         batches.clear();
         droppedSpriteCount = 0;
+        // 行列は、最後に使っていたものを次のフレームの 0 番に引き継ぐ(呼ばなければ前のフレームのまま描く決まり)。
+        viewProjections[0] = viewProjections[currentViewProjection];
+        viewProjectionCount = 1;
+        currentViewProjection = 0;
+        warnedTooManyViewProjections = false;
     }
 
     RenderDevice::RenderDevice()
@@ -811,7 +823,7 @@ namespace husky::render
 
         // どのテクスチャで描くかを、区間(バッチ)に記録する。ハンドルのまま覚えておき、EndFrame で中身を引く。
         const auto spriteIndex = static_cast<std::uint32_t>(m_impl->vertices.size() / VerticesPerSprite);
-        AddSpriteToBatches(m_impl->batches, sprite.texture, spriteIndex);
+        AddSpriteToBatches(m_impl->batches, sprite.texture, spriteIndex, m_impl->currentViewProjection);
 
         // push_back は vector の末尾に1つ足す(C# の List.Add)。
         m_impl->vertices.push_back({corners.x[0], corners.y[0], sprite.u0, sprite.v0, c.r, c.g, c.b, c.a}); // 0: 左上
@@ -922,9 +934,9 @@ namespace husky::render
                 indexBinding.buffer = m_impl->spriteIndexBuffer;
                 SDL_BindGPUIndexBuffer(renderPass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
-                // カメラの行列を、頂点シェーダの 0 番の cbuffer に渡す。
-                const FrameUniforms uniforms = {m_impl->viewProjection};
-                SDL_PushGPUVertexUniformData(m_impl->commandBuffer, 0, &uniforms, sizeof(uniforms));
+                // カメラの行列は、区間ごとに見て、前の区間と違うときだけ頂点シェーダの 0 番の cbuffer に渡し直す(UI-2a)。
+                // 渡した値は、次に渡し直すまでの描画命令に効く。
+                Uint32 pushedMatrix = UINT32_MAX; // まだ何も渡していない
 
                 // 4. 区間(同じテクスチャが続くスプライト)ごとに、テクスチャを渡して1回描く。
                 const Texture* white = m_impl->textures.Get(m_impl->whiteTexture);
@@ -935,6 +947,13 @@ namespace husky::render
                     if (texture == nullptr)
                     {
                         texture = white;
+                    }
+
+                    if (batch.matrixIndex != pushedMatrix)
+                    {
+                        const FrameUniforms uniforms = {m_impl->viewProjections[batch.matrixIndex]};
+                        SDL_PushGPUVertexUniformData(m_impl->commandBuffer, 0, &uniforms, sizeof(uniforms));
+                        pushedMatrix = batch.matrixIndex;
                     }
 
                     // ピクセルシェーダの 0 番に、テクスチャとサンプラーの組を渡す。
@@ -987,6 +1006,27 @@ namespace husky::render
 
     void RenderDevice::SetViewProjection(const core::Matrix4& viewProjection)
     {
-        m_impl->viewProjection = viewProjection;
+        Impl& impl = *m_impl;
+        // 今の行列でまだ1枚も積んでいなければ、上書きするだけ(区間も行列の数も増えない)。
+        // 番号は増える一方なので、最後の区間がこの番号でなければ、この行列で積んだスプライトは無い。
+        const bool used = !impl.batches.empty() && impl.batches.back().matrixIndex == impl.currentViewProjection;
+        if (!used)
+        {
+            impl.viewProjections[impl.currentViewProjection] = viewProjection;
+            return;
+        }
+        if (impl.viewProjectionCount >= static_cast<std::uint32_t>(MaxViewProjectionsPerFrame))
+        {
+            // 上書きすると、前に積んだスプライトまで新しい行列で描かれてしまうので、新しい行列は使わない。
+            if (!impl.warnedTooManyViewProjections)
+            {
+                HUSKY_LOG(RenderLog::TooManyViewProjections, MaxViewProjectionsPerFrame);
+                impl.warnedTooManyViewProjections = true;
+            }
+            return;
+        }
+        impl.currentViewProjection = impl.viewProjectionCount;
+        ++impl.viewProjectionCount;
+        impl.viewProjections[impl.currentViewProjection] = viewProjection;
     }
 }

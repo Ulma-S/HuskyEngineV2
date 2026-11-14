@@ -67,3 +67,20 @@ TEST_CASE("SpriteBatch: 何も積まなければ区間も無い")
 {
     CHECK(Build({}).empty());
 }
+
+TEST_CASE("SpriteBatch: 同じテクスチャでも、行列(カメラ)が変わったところで区間を切る(UI-2a)")
+{
+    const TextureHandle a{0, 1};
+    std::vector<SpriteBatch> batches;
+    // シーン(0 番の行列)に 2 枚、UI(1 番の行列)に 2 枚、同じテクスチャで積む → 区間は 2 つ
+    AddSpriteToBatches(batches, a, 0, 0);
+    AddSpriteToBatches(batches, a, 1, 0);
+    AddSpriteToBatches(batches, a, 2, 1);
+    AddSpriteToBatches(batches, a, 3, 1);
+    REQUIRE(batches.size() == 2);
+    CHECK(batches[0].matrixIndex == 0);
+    CHECK(batches[0].spriteCount == 2);
+    CHECK(batches[1].matrixIndex == 1);
+    CHECK(batches[1].firstSprite == 2);
+    CHECK(batches[1].spriteCount == 2);
+}

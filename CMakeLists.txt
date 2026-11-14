@@ -417,6 +417,7 @@ add_library(husky_tools STATIC
     src/tools/SceneGrid.cpp
     src/tools/AudioCommands.cpp
     src/tools/SceneView.cpp
+    src/tools/ScreenTestOverlay.cpp
 )
 husky_set_compile_options(husky_tools)
 target_include_directories(husky_tools PUBLIC src)

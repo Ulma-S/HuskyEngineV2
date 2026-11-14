@@ -93,6 +93,8 @@ namespace husky::render
     public:
         // 1フレームに描けるスプライトの上限。
         static constexpr int MaxSpritesPerFrame = 8192;
+        // 1フレームに使える行列(SetViewProjection)の数の上限(UI-2a。シーン、UI、エディタの重ね描きなどで数個の見込み)。
+        static constexpr int MaxViewProjectionsPerFrame = 16;
 
         RenderDevice();
         ~RenderDevice();
@@ -131,8 +133,11 @@ namespace husky::render
 
         // カメラの行列(ビュー行列 × 射影行列)を渡す。スプライトの四隅(ワールドの位置)に、GPU がこの行列を掛けて
         // クリップ座標(画面の左下が (-1, -1)、右上が (+1, +1))にする。
-        // BeginFrame と EndFrame の間で呼ぶ。このフレームで呼ばなければ、前のフレームの行列のまま描く
+        // BeginFrame と EndFrame の間で呼ぶ。このフレームで呼ばなければ、前のフレームの最後の行列のまま描く
         // (一度も呼ばなければ単位行列。ワールドの -1〜+1 が画面いっぱいになる)。
+        // フレームの途中で呼んでよい(UI-2a): 呼んだ後に積んだスプライトから、新しい行列で描く。前に積んだものは前の行列のまま。
+        // 例: シーンをワールドのカメラで積む → 画面ちょうどの行列に替えて UI を積む(UI はカメラが動いても動かない)。
+        // 1フレームに MaxViewProjectionsPerFrame 個まで(まだ何も積んでいない行列は、上書きするだけで数に入らない)。
         void SetViewProjection(const core::Matrix4& viewProjection);
 
         // スプライトを1枚、描く予定に加える。後から加えたものほど手前に描かれる。

@@ -365,6 +365,16 @@ namespace husky::engine
                         m_afterSceneDraw(renderDevice);
                     }
 #endif
+                    // 画面のパス(UI-2a): 行列を画面ちょうどのカメラ(左下が原点、1 単位 = 1 ピクセル)に替えてから積む。
+                    // 替えた後に積んだものだけが新しい行列で描かれ、シーンはワールドのカメラのまま。積む順なので、シーンより手前。
+                    // ゲームのカメラが動いても、エディタのカメラで見ていても、画面の同じ所に出る(後のゲーム用 UI の Canvas)。
+                    if (m_screenDraw)
+                    {
+                        renderDevice.SetViewProjection(MakeScreenCamera(static_cast<float>(renderDevice.GetScreenWidth()),
+                                                                        static_cast<float>(renderDevice.GetScreenHeight()))
+                                                           .ViewProjection());
+                        m_screenDraw(renderDevice);
+                    }
                 }
 #if HUSKY_DEVELOPMENT
                 // 開発用の UI: UI のフレームを始めてから、渡された関数(tools の窓)に UI を作らせる。

@@ -145,6 +145,13 @@ namespace husky::engine
         // 直前のフレームの描画の集計(スプライト数、描画命令の数など)。Run の中で毎フレーム更新される。
         const render::FrameStats& GetLastRenderStats() const { return m_lastRenderStats; }
 
+        // 画面の座標で描く関数を渡す(UI-2a。後のゲーム用 UI の Canvas が使う。製品でも動く)。毎フレーム、シーン(と開発ビルドの
+        // ギズモ)の後に、行列を画面ちょうどのカメラ(MakeScreenCamera: 左下が原点、右が +x、上が +y、1 単位 = 1 ピクセル)に
+        // 替えてから呼ばれる。中では renderDevice.DrawSprite を呼んでよく、ゲームのカメラが動いても画面の同じ所に出る。
+        // 開発用の UI(ImGui)よりは奥。
+        using ScreenDrawCallback = std::function<void(render::RenderDevice&)>;
+        void SetScreenDrawCallback(ScreenDrawCallback callback) { m_screenDraw = std::move(callback); }
+
 #if HUSKY_DEVELOPMENT
         // 【開発ビルドだけ】開発用の UI を作る関数を渡す。毎フレーム、描画の途中(スプライトを積んだ後)に呼ばれる。
         // この関数の中では ImGui の関数(ImGui::Begin など)を使ってよい。UI の中身は tools モジュールが作る。
@@ -218,6 +225,7 @@ namespace husky::engine
         bool m_sceneTickEnabled = true;    // false の間は Scene::Tick を呼ばない(SetSceneTickEnabled)
         bool m_sceneStepRequested = false; // 止めている間に、次のフレームだけ進める(RequestSceneStep)
         render::FrameStats m_lastRenderStats;
+        ScreenDrawCallback m_screenDraw; // 画面の座標で描くもの(SetScreenDrawCallback)
 
 #if HUSKY_DEVELOPMENT
         DevUiCallback m_devUiCallback;

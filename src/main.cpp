@@ -25,6 +25,7 @@
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
+#include "tools/ScreenTestOverlay.h" // 画面の座標で描く試し(view.screenTest。UI-2a)
 #endif
 
 
@@ -215,6 +216,10 @@ int main()
     app.SetBeforeSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGrid(renderDevice); });
     // 移動のギズモは、シーンのスプライトより手前に描く(ImGui の窓よりは奥)
     app.SetAfterSceneDrawCallback([&sceneView](husky::render::RenderDevice& renderDevice) { sceneView.DrawGizmo(renderDevice); });
+    // 画面の座標で描く試し(UI-2a): 出している間、四隅に四角。カメラを動かしても動かないことを目で確かめる
+    tools::ScreenTestOverlay screenTest;
+    screenTest.RegisterCommands(commands); // view.screenTest
+    app.SetScreenDrawCallback([&screenTest](husky::render::RenderDevice& renderDevice) { screenTest.Draw(renderDevice); });
     app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く

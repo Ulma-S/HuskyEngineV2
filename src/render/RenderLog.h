@@ -17,6 +17,7 @@ namespace husky::render
         NotInitialized = 9,
         SpriteBufferFailed = 10,
         DevUiFontFailed = 11,
+        TooManyViewProjections = 12,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(RenderLog, "Engine.Render")
@@ -35,5 +36,8 @@ namespace husky::render
         HUSKY_LOG_MESSAGE(SpriteBufferFailed, Error, "スプライト用のバッファを作れませんでした: {error}",
                           HUSKY_LOG_ARG(error, String))
         HUSKY_LOG_MESSAGE(DevUiFontFailed, Warning, "開発用の UI のフォントを読めませんでした。既定のフォント(英数字だけ)で続けます")
+        HUSKY_LOG_MESSAGE(TooManyViewProjections, Warning,
+                          "SetViewProjection: 1フレームに使える行列は {max} 個までです。それより後は前の行列のまま描きます",
+                          HUSKY_LOG_ARG(max, Int))
     HUSKY_LOG_CHANNEL_END()
 }
