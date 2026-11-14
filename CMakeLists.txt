@@ -198,6 +198,8 @@ function(husky_set_compile_options target)
             /utf-8     # ソースを UTF-8 として読む。日本語コメントの文字化けや誤警告を防ぐ。
             /EHs-c-    # C++ 例外を無効にする。
             /GR-       # RTTI(dynamic_cast や typeid に使う実行時型情報)を無効にする。
+            /MP        # 1つのプロジェクトの中の .cpp を、コアの数だけ並べてコンパイルする(付けないと1つずつ順に進む。
+                       # Object.h を直したときの全体のビルドが 61.7 秒 → 14.2 秒になった。2026-11-14)。
         )
         # 標準ライブラリ(MSVC STL)にも「例外なし」で動くよう伝える。これが無いと STL のヘッダが警告を出す。
         target_compile_definitions(${target} PRIVATE _HAS_EXCEPTIONS=0)

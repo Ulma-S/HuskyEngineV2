@@ -35,25 +35,29 @@
       "name": "debug",
       "displayName": "Debug",
       "configurePreset": "vs2022",
-      "configuration": "Debug"
+      "configuration": "Debug",
+      "nativeToolOptions": ["/m"]
     },
     {
       "name": "release",
       "displayName": "Release",
       "configurePreset": "vs2022",
-      "configuration": "Release"
+      "configuration": "Release",
+      "nativeToolOptions": ["/m"]
     },
     {
       "name": "asan",
       "displayName": "Debug + ASan",
       "configurePreset": "vs2022-asan",
-      "configuration": "Debug"
+      "configuration": "Debug",
+      "nativeToolOptions": ["/m"]
     },
     {
       "name": "ship",
       "displayName": "Release(静的リンク、製品用)",
       "configurePreset": "vs2022-static",
-      "configuration": "Release"
+      "configuration": "Release",
+      "nativeToolOptions": ["/m"]
     }
   ],
   "testPresets": [

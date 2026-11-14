@@ -192,6 +192,7 @@
 - ビルド(リポジトリのルートで実行。cmakeとctestはPATHに無いので、VS 2022付属の`C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`にあるものを使う):
   - 生成: `cmake --preset vs2022`(`build/vs2022/`に.slnができる)
   - ビルド: `cmake --build --preset debug`(または`release`)
+  - ビルドは並べて走る(2026-11-14、ユーザーが了承): 自分のコードは`/MP`(`husky_set_compile_options`。1つのプロジェクトの中の .cpp をコアの数だけ並べる)、ビルドのプリセットは`"nativeToolOptions": ["/m"]`(MSBuild がプロジェクトも並べる)。`core/Object.h`を直したときの Debug の全体のビルドは 61.7 秒 → 13.7 秒。.cpp を1つ直すだけなら 2〜4 秒。
   - 実行: `build/vs2022/Debug/HuskyEngineV2.exe`(隣の`HuskyEngine.dll`を使う)
   - 製品用の静的リンク(HR-1): 生成`cmake --preset vs2022-static`、ビルド`cmake --build --preset ship`(Release、`build/vs2022-static/`)。テストは`build/vs2022-static/Release/HuskyTests.exe`。エンジンの作りを変えたときに回す。
   - エディタのCLI: `build/vs2022/Debug/HuskyEditorCli.exe --list`、`build/vs2022/Debug/HuskyEditorCli.exe asset.refresh`(コミットの前に流すと、`.meta`の抜けやGUIDの重なりが分かる)
