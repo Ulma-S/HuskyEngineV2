@@ -30,8 +30,10 @@ namespace
 
 TEST_CASE("SoundAsset: .wav は SoundAsset として読める")
 {
-    CHECK(AssetLoader::CanLoadAs(SoundAsset::StaticType(), "sounds/hit.wav"));
-    CHECK_FALSE(AssetLoader::CanLoadAs(SoundAsset::StaticType(), "sounds/hit.ogg"));
+    husky::engine::Application kindsApp; // 読めるかどうかは、Application が登録した種類に聞く
+    const husky::engine::AssetLoader& kinds = kindsApp.GetAssetLoader();
+    CHECK(kinds.CanLoadAs(SoundAsset::StaticType(), "sounds/hit.wav"));
+    CHECK_FALSE(kinds.CanLoadAs(SoundAsset::StaticType(), "sounds/hit.ogg"));
 }
 
 TEST_CASE("SoundAsset: 読み終わると長さが分かり、波は音の層に預けられる。回収されると手放す")

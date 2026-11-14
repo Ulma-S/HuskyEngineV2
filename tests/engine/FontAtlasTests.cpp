@@ -212,9 +212,11 @@ TEST_CASE("FontAsset: ローダで .ttf を読み、字のアトラスを大き�
 
 TEST_CASE("FontAsset: フォントでないファイルは読めない(Failed)。.ttf でないパスは型で断る")
 {
-    CHECK(husky::engine::AssetLoader::CanLoadAs(FontAsset::StaticType(), "fonts/a.ttf"));
-    CHECK(husky::engine::AssetLoader::CanLoadAs(FontAsset::StaticType(), "fonts/a.otf"));
-    CHECK_FALSE(husky::engine::AssetLoader::CanLoadAs(FontAsset::StaticType(), "fonts/OFL.txt"));
+    husky::engine::Application kindsApp; // 読めるかどうかは、Application が登録した種類に聞く
+    const husky::engine::AssetLoader& kinds = kindsApp.GetAssetLoader();
+    CHECK(kinds.CanLoadAs(FontAsset::StaticType(), "fonts/a.ttf"));
+    CHECK(kinds.CanLoadAs(FontAsset::StaticType(), "fonts/a.otf"));
+    CHECK_FALSE(kinds.CanLoadAs(FontAsset::StaticType(), "fonts/OFL.txt"));
 
     Application app;
     REQUIRE(app.GetAssetDatabase().Scan(husky::platform::GetExecutableDirectory() + "assets"));

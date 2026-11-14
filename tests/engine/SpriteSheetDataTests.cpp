@@ -217,10 +217,12 @@ TEST_CASE("SpriteSheet: texture が無い・GUID でないファイルは「失�
 TEST_CASE("AssetLoader: 読めるファイルは、アセットの型ごとに拡張子で決まる")
 {
     using husky::engine::AssetLoader;
-    CHECK(AssetLoader::CanLoadAs(husky::engine::TextureAsset::StaticType(), "textures/a.png"));
-    CHECK_FALSE(AssetLoader::CanLoadAs(husky::engine::TextureAsset::StaticType(), "sprites/a.spritesheet"));
-    CHECK(AssetLoader::CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "sprites/a.spritesheet"));
-    CHECK_FALSE(AssetLoader::CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "textures/a.png"));
+    husky::engine::Application kindsApp; // 読めるかどうかは、Application が登録した種類に聞く
+    const husky::engine::AssetLoader& kinds = kindsApp.GetAssetLoader();
+    CHECK(kinds.CanLoadAs(husky::engine::TextureAsset::StaticType(), "textures/a.png"));
+    CHECK_FALSE(kinds.CanLoadAs(husky::engine::TextureAsset::StaticType(), "sprites/a.spritesheet"));
+    CHECK(kinds.CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "sprites/a.spritesheet"));
+    CHECK_FALSE(kinds.CanLoadAs(husky::engine::SpriteSheetAsset::StaticType(), "textures/a.png"));
 }
 
 TEST_CASE("ChooseSpriteTexture: スプライトシートを指せば、その画像と切り出しの範囲。読み終わるまでは nullptr")

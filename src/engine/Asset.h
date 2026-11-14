@@ -14,14 +14,17 @@
 // 動作スレッド: Asset と AssetKind はゲームスレッドのみ。AssetLoad の ReadSource / Cook だけはワーカースレッド。
 #pragma once
 
+#include "core/AssetRef.h"
 #include "core/Guid.h"
 #include "core/Object.h"
 #include "core/TypeInfo.h"
+#include "engine/ArchiveValue.h"
 #include "engine/AssetState.h"
 
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace husky::core
 {
@@ -60,6 +63,7 @@ namespace husky::engine
 
     private:
         friend class AssetLoader; // 書くのはローダだけ
+        friend class AssetKind;   // 状態は種類も書く(AssetKind::SetState)
 
         core::Guid m_guid;
         AssetState m_state = AssetState::Loading;
@@ -84,6 +88,10 @@ namespace husky::engine
         bool succeeded = false; // ジョブが書く: 1段目と2段目が通ったか
     };
 
+    // JSON のファイル(.prefab、.sdata など)を読んで値の木にする(AssetLoad::ReadSource から、ワーカースレッドで呼んでよい)。
+    // 読めなければ false。JSON として読めない理由は outWarnings に足す(ファイルを開けない理由は platform がログに出す)。
+    bool ReadJsonAssetFile(const std::string& path, ArchiveValue& outData, std::vector<std::string>& outWarnings);
+
     // 1種類のアセットの読み方。ローダが持ち(RegisterKind)、ローダより先には壊れない。
     // 中は状態を持たない(持つなら、ゲームスレッドだけで触る)。
     class AssetKind
@@ -102,10 +110,12 @@ namespace husky::engine
         virtual Asset* CreateAsset(core::ObjectRegistry& registry) const = 0;
         // 読み込み中の記録を作る(ゲームスレッド。guid と path はローダが書く)。
         virtual std::unique_ptr<AssetLoad> CreateLoad(const Asset& asset) const = 0;
-        // ジョブが終わった結果を箱に書く(ゲームスレッド)。読めたら true(ローダが「読めた」にする)、だめなら false(「失敗」)。
+        // ジョブが終わった結果を箱に書く(ゲームスレッド)。戻り値が箱の新しい状態:
+        //   Loaded(読めた)/ Failed(だめ)/ Loading(ほかのアセットを待つ。後で種類が自分で SetState する。AL-3、入れ子のプレハブ)。
         // ジョブが失敗した(load.succeeded が false)ときも呼ぶので、理由をログに出すのはここ。
         // 箱がもう無い・作り直された・読み込み中でないときは、ローダが呼ばずに捨てる。
-        virtual bool Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) const = 0;
+        // 種類が状態(待っているものの一覧など)を持つことがあるので、const ではない。
+        virtual AssetState Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) = 0;
         // 箱が回収されるときの片付け(子の型のデストラクタから、ReleaseLoadedData を通して呼ばれる)。
         virtual void Release(AssetLoader& loader, Asset& asset) const
         {
@@ -129,5 +139,39 @@ namespace husky::engine
             (void)asset;
             return false;
         }
+
+        // ---- 待ち(AL-3。Finish で Loading を返す種類だけが上書きする) ----
+
+        // 毎フレーム、ローダの Update の終わりに呼ぶ。待っていた箱が進んだら true。
+        virtual bool Update(AssetLoader& loader)
+        {
+            (void)loader;
+            return false;
+        }
+        // 待っている箱があるか(WaitForAllLoads が、これが無くなるまで待つ)。
+        virtual bool HasWaiting() const { return false; }
+        // 待つ相手がもう来ない(読み込み中のものが無いのに進まない)ときに、待っている箱をすべて「失敗」にする。
+        virtual void FailWaiting(AssetLoader& loader) { (void)loader; }
+
+        // ---- 箱と中身が別のオブジェクトの種類(AL-3。ScriptableData) ----
+
+        // 中身の型(AssetRef<T> の T が箱でなく中身のとき)。箱がそのまま使われる種類は nullptr。
+        // ローダは、箱の型か中身の型(その子でもよい)で、種類を探す。
+        virtual const core::TypeInfo* GetContentType() const { return nullptr; }
+        // 参照が指す箱(ResolveReference が返したもの)から、中身を expected の型として返す。無ければ nullptr。
+        // 箱を乗り換えるとき(読み直し)は、reference.asset を書き換えてよい。
+        virtual const core::Object* ResolveContent(AssetLoader& loader, Asset& asset, core::AssetReference& reference,
+                                                   const core::TypeInfo& expected)
+        {
+            (void)loader;
+            (void)asset;
+            (void)reference;
+            (void)expected;
+            return nullptr;
+        }
+
+    protected:
+        // 箱の状態を書く(Finish で Loading を返した後、待ちが終わったときなど)。
+        static void SetState(Asset& asset, AssetState state);
     };
 }

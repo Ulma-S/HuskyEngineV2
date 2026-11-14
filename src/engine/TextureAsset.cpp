@@ -49,13 +49,13 @@ namespace husky::engine
             return std::make_unique<TextureLoad>();
         }
 
-        bool Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) const override
+        AssetState Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) override
         {
             TextureAsset& texture = static_cast<TextureAsset&>(asset);
             TextureLoad& result = static_cast<TextureLoad&>(load);
             if (!result.succeeded)
             {
-                return false;
+                return AssetState::Failed;
             }
             texture.m_width = result.image.width;
             texture.m_height = result.image.height;
@@ -66,10 +66,10 @@ namespace husky::engine
                 texture.m_texture = device->CreateTexture(result.image);
                 if (texture.m_texture.IsNull())
                 {
-                    return false;
+                    return AssetState::Failed;
                 }
             }
-            return true;
+            return AssetState::Loaded;
         }
 
         void Release(AssetLoader& loader, Asset& asset) const override

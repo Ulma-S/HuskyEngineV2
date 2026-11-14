@@ -54,7 +54,7 @@ namespace husky::engine
             return std::make_unique<FontLoad>();
         }
 
-        bool Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) const override
+        AssetState Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) override
         {
             (void)loader;
             FontAsset& font = static_cast<FontAsset&>(asset);
@@ -62,10 +62,10 @@ namespace husky::engine
             if (!result.succeeded)
             {
                 HUSKY_LOG(AssetLog::LoadWarning, GetDisplayName(), result.path, "could not read the file as a font");
-                return false;
+                return AssetState::Failed;
             }
             font.m_face = std::move(result.face);
-            return true;
+            return AssetState::Loaded;
         }
 
         void Release(AssetLoader& loader, Asset& asset) const override

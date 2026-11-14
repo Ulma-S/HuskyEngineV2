@@ -72,7 +72,7 @@ namespace husky::engine
             return std::make_unique<SpriteSheetLoad>();
         }
 
-        bool Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) const override
+        AssetState Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) override
         {
             SpriteSheetAsset& sheet = static_cast<SpriteSheetAsset&>(asset);
             SpriteSheetLoad& result = static_cast<SpriteSheetLoad&>(load);
@@ -82,7 +82,7 @@ namespace husky::engine
             }
             if (!result.succeeded)
             {
-                return false;
+                return AssetState::Failed;
             }
             sheet.m_slices = std::move(result.slices);
             sheet.m_animations = std::move(result.animations);
@@ -93,7 +93,7 @@ namespace husky::engine
             // Resolve は AssetRef に、読み始めたテクスチャのハンドルを書く。AssetRef はプロパティなので、
             // このスプライトシートが生きている間、テクスチャも GC に回収されない。
             loader.Resolve(sheet.texture);
-            return true;
+            return AssetState::Loaded;
         }
     };
 

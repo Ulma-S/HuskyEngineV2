@@ -37,15 +37,18 @@
 
 #include "core/Guid.h"
 #include "core/Object.h"
+#include "core/TypeInfo.h"
 #include "engine/ArchiveValue.h"
-#include "engine/AssetState.h"
+#include "engine/Asset.h"
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace husky::engine
 {
-    class AssetLoader;
+    class ScriptableDataAssetKind;
 
     // ゲームが継承するデータの基底クラス。中身(値)は子の型の HUSKY_PROPERTY だけ。
     // 型の登録簿には入れない(値を持たないので、ファイルから作る意味が無い)。
@@ -57,32 +60,26 @@ namespace husky::engine
         const core::Guid& GetAssetGuid() const { return m_assetGuid; }
 
     private:
-        friend class AssetLoader; // 書くのはローダだけ
+        friend class ScriptableDataAssetKind; // 書くのは読み方(ScriptableData.cpp)だけ
         core::Guid m_assetGuid;
     };
 
-    // ローダが作る「箱」。GUID、読み込みの状態、中身を指すハンドルを持つ。作るのは AssetLoader::LoadScriptableData だけ。
+    // ローダが作る「箱」。GUID、読み込みの状態、中身を指すハンドルを持つ。作るのは読み方(ScriptableDataAssetKind)だけ。
     // 中身は箱のプロパティ(強い参照)なので、箱が生きている間は中身も回収されない。
-    class ScriptableDataAsset : public core::Object
+    class ScriptableDataAsset : public Asset
     {
-        HUSKY_OBJECT(ScriptableDataAsset, core::Object)
+        HUSKY_OBJECT(ScriptableDataAsset, Asset)
     public:
-        // 回収されるとき、ローダのキャッシュから外してもらう。
+        // 回収されるとき、ローダのキャッシュから外れる(Asset のデストラクタ)。
         ~ScriptableDataAsset() override;
 
-        const core::Guid& GetGuid() const { return m_guid; }
-        AssetState GetState() const { return m_state; }
-        bool IsLoaded() const { return m_state == AssetState::Loaded; }
-        // 中身(ScriptableData の子)を指すハンドル。読み終わる(IsLoaded)までは null。引くのは AssetLoader::GetScriptableData。
+        // 中身(ScriptableData の子)を指すハンドル。読み終わる(IsLoaded)までは null。引くのは GetScriptableData。
         core::ObjectHandle GetDataHandle() const { return m_data; }
 
     private:
-        friend class AssetLoader; // 中身を書くのはローダだけ
+        friend class ScriptableDataAssetKind; // 中身を書くのは読み方だけ
 
-        core::Guid m_guid;
-        AssetState m_state = AssetState::Loading;
         core::ObjectHandle m_data;                 // 中身(プロパティとして登録するので、GC がたどる強い参照)
-        AssetLoader* m_loader = nullptr;           // 作ったローダ(借りているだけ)
         const core::TypeInfo* m_warnedType = nullptr; // 「期待する型と違う」をもう出した型(毎フレーム同じ警告を出さないため)
         // ファイルを書き直して読み直した(ReloadScriptableData)後の古い箱なら true。
         // 指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは、古い中身を返す)。
@@ -101,4 +98,31 @@ namespace husky::engine
     // ほかのオブジェクト(アクターなど)を指すハンドルのプロパティは書かない(ファイルの外の番号は意味が無い)。
     // 書かなかったものは outWarnings に名前を残す(渡したときだけ)。AssetRef は GUID で書かれる。
     ArchiveValue WriteScriptableData(const ScriptableData& data, std::vector<std::string>* outWarnings = nullptr);
+
+    // ---- 読み方と、ScriptableData だけの操作(AL-3。中は AssetLoader の共通の入口を使う) ----
+
+    // .sdata の読み方を作る。ローダに RegisterKind で登録する。箱の型は ScriptableDataAsset、中身の型は ScriptableData。
+    // ジョブがファイルを読んで JSON を値の木にし、Finish でファイルの "type" の名前から中身を作り、値を入れる。
+    // 型が登録簿に無い・ScriptableData の子でない・値の木の形が違うときは「失敗」にし、理由をログに出す。
+    std::unique_ptr<AssetKind> CreateScriptableDataAssetKind();
+
+    // 箱の中身。読み終わっていなければ nullptr。
+    const ScriptableData* GetScriptableData(const AssetLoader& loader, const ScriptableDataAsset& asset);
+
+    // ファイルを書き直した .sdata を、新しい箱として読み直す(読み込んだデータは変わらないので、その場では書き換えない)。
+    // 古い箱を指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは古い中身のまま)。
+    core::ObjectHandle ReloadScriptableData(AssetLoader& loader, const core::Guid& guid);
+
+    // 中身の型が types のどれか(か、その子)の ScriptableData を、キャッシュから外して中身を手放す(HR-3)。
+    // ゲームの DLL を外す前に、DLL の中の型のオブジェクトを残さないため。古い箱には読み直しと同じ印を付けるので、
+    // 指している AssetRef は次の Resolve で GUID から読み直す(型を登録し直した後なら、新しい型で作られる)。
+    // 戻り値: 外した数。
+    std::size_t ForgetScriptableData(AssetLoader& loader, const std::vector<const core::TypeInfo*>& types);
+
+    // 読み込んだ中身が、読み込んだときの値から変わっていないかを確かめる(SD-2。開発ビルドだけ。製品では何もせず 0)。
+    // 中身には読むだけの印が付き、書く入口は断るが、C++ の生のポインタ(const_cast など)からの書き込みは止められない。
+    // そこで読み込んだときの値を控えておき、ここで比べる。変わっていたら、ファイル・型・プロパティの名前つきでエラーを出し、
+    // 変わったプロパティの数を返す(同じ書き換えを2回出さないように、控えは今の値にする)。
+    // Application がフレームの終わりに1秒に1回、エディタが Stop のときに呼ぶ。
+    std::size_t CheckScriptableDataUnchanged(AssetLoader& loader);
 }

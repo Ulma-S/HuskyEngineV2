@@ -191,8 +191,8 @@ TEST_CASE("PrefabAsset: .prefab を GUID で読むと値の木が手に入り、
     REQUIRE(placed.actor->GetComponent<SpriteComponent>() != nullptr);
     CHECK(placed.actor->GetComponent<SpriteComponent>()->width == 24.0f);
 
-    CHECK(husky::engine::AssetLoader::CanLoadAs(husky::engine::PrefabAsset::StaticType(), "prefabs/coin.prefab"));
-    CHECK_FALSE(husky::engine::AssetLoader::CanLoadAs(husky::engine::PrefabAsset::StaticType(), "sprites/a.spritesheet"));
+    CHECK(loader.CanLoadAs(husky::engine::PrefabAsset::StaticType(), "prefabs/coin.prefab"));
+    CHECK_FALSE(loader.CanLoadAs(husky::engine::PrefabAsset::StaticType(), "sprites/a.spritesheet"));
 }
 
 TEST_CASE("PrefabAsset: JSON として読めないファイルや、表に無い GUID は「失敗」になる")

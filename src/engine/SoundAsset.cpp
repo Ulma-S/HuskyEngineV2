@@ -68,7 +68,7 @@ namespace husky::engine
             return std::make_unique<SoundLoad>();
         }
 
-        bool Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) const override
+        AssetState Finish(AssetLoader& loader, Asset& asset, AssetLoad& load) override
         {
             // 型は、このローダがこの種類で作った箱と記録なので、static_cast で子の型に変えてよい(RTTI は使わない)。
             SoundAsset& sound = static_cast<SoundAsset&>(asset);
@@ -77,7 +77,7 @@ namespace husky::engine
             {
                 HUSKY_LOG(AssetLog::LoadWarning, GetDisplayName(), result.path,
                           result.error != nullptr ? result.error : "unknown error");
-                return false;
+                return AssetState::Failed;
             }
             sound.m_frameCount = static_cast<int>(result.samples.size()) / audio::OutputChannels;
             // 音の層に波を預ける(付いていなければ、長さだけを覚えて「読めた」にする)。
@@ -85,7 +85,7 @@ namespace husky::engine
             {
                 sound.m_sound = audio->CreateSound(std::move(result.samples));
             }
-            return true;
+            return AssetState::Loaded;
         }
 
         void Release(AssetLoader& loader, Asset& asset) const override

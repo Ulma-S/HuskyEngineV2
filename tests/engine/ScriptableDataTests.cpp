@@ -114,8 +114,8 @@ TEST_CASE("ScriptableData: .sdata を AssetRef で指すと、ファイルの型
     CHECK(data->GetAssetGuid() == SwordGuid);
     CHECK(loader.GetLoadedScriptableDataCount() == 1);
 
-    CHECK(AssetLoader::CanLoadAs(WeaponData::StaticType(), "data/sword.sdata"));
-    CHECK_FALSE(AssetLoader::CanLoadAs(WeaponData::StaticType(), "prefabs/coin.prefab"));
+    CHECK(loader.CanLoadAs(WeaponData::StaticType(), "data/sword.sdata"));
+    CHECK_FALSE(loader.CanLoadAs(WeaponData::StaticType(), "prefabs/coin.prefab"));
 }
 
 TEST_CASE("ScriptableData: 中身の型が期待する型(か、その子)でなければ nullptr を返す")

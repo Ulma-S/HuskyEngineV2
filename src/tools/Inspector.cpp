@@ -105,12 +105,12 @@ namespace husky::tools
         };
 
         bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                                const engine::AssetLoader* assets, PropertyEditRecorder* recorder,
                                 OverrideMarks* marks);
 
         // UIButtonComponent の呼び先(UI-6b): target のアクターの、どのコンポーネントか(空ならアクター)を選ぶ箱。
         bool DrawButtonTargetComponentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                                             const engine::AssetDatabase* /*assets*/)
+                                             const engine::AssetLoader* /*assets*/)
         {
             auto* button = static_cast<engine::UIButtonComponent*>(container);
             std::string* value = property.GetValuePtrAt<std::string>(container);
@@ -149,7 +149,7 @@ namespace husky::tools
 
         // UIButtonComponent の呼び先のメソッド(UI-6b): 呼び先の型(と親の型)の、引数の無いメソッドの名前から選ぶ箱。
         bool DrawButtonMethodPicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                                    const engine::AssetDatabase* /*assets*/)
+                                    const engine::AssetLoader* /*assets*/)
         {
             auto* button = static_cast<engine::UIButtonComponent*>(container);
             std::string* value = property.GetValuePtrAt<std::string>(container);
@@ -204,7 +204,7 @@ namespace husky::tools
         // Owner は sheet(AssetRef<SpriteSheetAsset>)を持つ型(SpriteComponent、UIImageComponent)。
         template <typename Owner>
         bool DrawSpriteSlicePicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                                   const engine::AssetDatabase* /*assets*/)
+                                   const engine::AssetLoader* /*assets*/)
         {
             // container はこのプロパティの持ち主(Owner)の先頭。単一継承なので、そのまま型を戻せる。
             auto* component = static_cast<Owner*>(container);
@@ -246,7 +246,7 @@ namespace husky::tools
         // アニメーションは、同じアクターの SpriteComponent が指すスプライトシートから探す。
         // SpriteComponent が無いか、スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
         bool DrawSpriteAnimationPicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                                       const engine::AssetDatabase* /*assets*/)
+                                       const engine::AssetLoader* /*assets*/)
         {
             // container はこのプロパティの持ち主(SpriteAnimatorComponent)の先頭。単一継承なので、そのまま型を戻せる。
             auto* animator = static_cast<engine::SpriteAnimatorComponent*>(container);
@@ -287,7 +287,7 @@ namespace husky::tools
 
         // アクターの親を選ぶ箱(HIER-3。中身は下、参照を選ぶ箱の後)
         bool DrawParentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                              const engine::AssetDatabase* assets);
+                              const engine::AssetLoader* assets);
 
         // 最初から入っている差し替えを登録する(1回だけ)。
         void RegisterBuiltInDrawers()
@@ -413,11 +413,11 @@ namespace husky::tools
         // アセットの参照を、選択肢の箱(コンボボックス)で並べる。選べるのは、assetType として読めるアセットだけ。
         // 選び直したら GUID だけを書き換え、読んであったアセットのハンドルは手放す(描くときに、ローダが新しい GUID で読む)。
         bool DrawAssetRef(const char* name, core::AssetReference& reference, const core::TypeInfo& assetType,
-                          const engine::AssetDatabase* assets)
+                          const engine::AssetLoader* assets)
         {
             // 今の値の表示: 表にあればパス、無ければ GUID(ファイルが消えた、.meta が壊れたなど)。
             // ふだん(何も指さない、表にある)は、文字列を作らずに、ある文字列をそのまま使う(毎フレームの確保を避ける)。
-            const std::string* currentPath = assets != nullptr ? assets->FindPath(reference.guid) : nullptr;
+            const std::string* currentPath = assets != nullptr ? assets->GetDatabase().FindPath(reference.guid) : nullptr;
             std::string missing; // 表に無いときだけ作る
             const char* preview = "(none)";
             if (currentPath != nullptr)
@@ -447,8 +447,8 @@ namespace husky::tools
                     changed = true;
                 }
                 std::vector<std::pair<std::string, core::Guid>> choices; // (パス, GUID)。パスの順に並べるため
-                assets->ForEachAsset([&](const core::Guid& guid, const std::string& path) {
-                    if (engine::AssetLoader::CanLoadAs(assetType, path))
+                assets->GetDatabase().ForEachAsset([&](const core::Guid& guid, const std::string& path) {
+                    if (assets->CanLoadAs(assetType, path))
                     {
                         choices.emplace_back(path, guid);
                     }
@@ -471,7 +471,7 @@ namespace husky::tools
         // プロパティ1つを、型に合った部品(チェックボックス、数の入力、文字の入力など)で並べる。
         // 配列(SF-2b)を、折りたためる見出しの中に要素ごとに描く。DrawProperty の中で使うので、先に宣言だけする。
         bool DrawArray(const Property& property, void* container, core::ObjectRegistry& registry,
-                       const engine::AssetDatabase* assets, PropertyEditRecorder* recorder);
+                       const engine::AssetLoader* assets, PropertyEditRecorder* recorder);
 
         // アクターの親(HIER-3)を選ぶ箱。選んだら g_parentRequest に積み、SceneInspector::Draw が actor.setParent を通す
         // (property.set では親を変えられない。輪・段数・Rigidbody2D の決まりと、見える場所を保つため)。
@@ -484,7 +484,7 @@ namespace husky::tools
         ParentRequest g_parentRequest;
 
         bool DrawParentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
-                              const engine::AssetDatabase* assets)
+                              const engine::AssetLoader* assets)
         {
             (void)property;
             (void)assets;
@@ -534,7 +534,7 @@ namespace husky::tools
         }
 
         bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
-                          const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                          const engine::AssetLoader* assets, PropertyEditRecorder* recorder,
                                 OverrideMarks* marks)
         {
             const char* name = property.GetName();
@@ -644,7 +644,7 @@ namespace husky::tools
         }
 
         bool DrawArray(const Property& property, void* container, core::ObjectRegistry& registry,
-                       const engine::AssetDatabase* assets, PropertyEditRecorder* recorder)
+                       const engine::AssetLoader* assets, PropertyEditRecorder* recorder)
         {
             const core::ArrayInfo& array = *property.GetArrayInfo();
             void* address = property.GetArrayAddressAt(container);
@@ -740,7 +740,7 @@ namespace husky::tools
 
         // recorder: 値の書き換えを property.set の1件にまとめる記録係(nullptr なら記録せず、その場で書き換えるだけ)。
         bool DrawPropertiesImpl(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                                const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
+                                const engine::AssetLoader* assets, PropertyEditRecorder* recorder,
                                 OverrideMarks* marks)
         {
             bool changed = false;
@@ -795,7 +795,7 @@ namespace husky::tools
     }
 
     bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                        const engine::AssetDatabase* assets)
+                        const engine::AssetLoader* assets)
     {
         return DrawPropertiesImpl(type, container, registry, assets, nullptr, nullptr);
     }
@@ -1076,7 +1076,7 @@ namespace husky::tools
                 }
                 m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
                 g_drivenTransformOwner = selected->IsTransformDriven() ? selected : nullptr;
-                DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
+                DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetLoader(), &m_recorder, &marks);
                 g_drivenTransformOwner = nullptr;
                 if (g_parentRequest.pending)
                 {
@@ -1139,7 +1139,7 @@ namespace husky::tools
                         }
                         m_recorder.SetOwner(*component);
                         marks.component = component->GetType().GetName();
-                        DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetDatabase(), &m_recorder,
+                        DrawPropertiesImpl(component->GetType(), component, registry, &app.GetAssetLoader(), &m_recorder,
                                            &marks);
                         if (ImGui::SmallButton("Remove component"))
                         {

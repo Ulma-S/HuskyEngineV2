@@ -61,7 +61,7 @@ TEST_CASE("Inspector: すべての種類のプロパティを並べても、ImGu
     imgui.Frame([&] {
         ImGui::Begin("Test");
         changed = husky::tools::DrawProperties(chaser->GetType(), chaser, app.GetRegistry());
-        changed |= husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase()); // テクスチャの選択の箱も
+        changed |= husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetLoader()); // テクスチャの選択の箱も
         ImGui::End();
     });
 
@@ -109,7 +109,7 @@ TEST_CASE("Inspector: 切り出しの ID は、差し替えた表示(名前の�
     bool changed = true;
     imgui.Frame([&] {
         ImGui::Begin("Test");
-        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase());
+        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetLoader());
         ImGui::End();
     });
     CHECK_FALSE(changed);
@@ -118,7 +118,7 @@ TEST_CASE("Inspector: 切り出しの ID は、差し替えた表示(名前の�
     app.GetAssetLoader().WaitForAllLoads();
     imgui.Frame([&] {
         ImGui::Begin("Test");
-        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetDatabase());
+        changed = husky::tools::DrawProperties(sprite->GetType(), sprite, app.GetRegistry(), &app.GetAssetLoader());
         ImGui::End();
     });
     CHECK_FALSE(changed);
@@ -145,7 +145,7 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     bool changed = true;
     imgui.Frame([&] {
         ImGui::Begin("Test");
-        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetDatabase());
+        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetLoader());
         ImGui::End();
     });
     CHECK_FALSE(changed);
@@ -154,7 +154,7 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     app.GetAssetLoader().WaitForAllLoads();
     imgui.Frame([&] {
         ImGui::Begin("Test");
-        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetDatabase());
+        changed = husky::tools::DrawProperties(animator->GetType(), animator, app.GetRegistry(), &app.GetAssetLoader());
         ImGui::End();
     });
     CHECK_FALSE(changed);
@@ -164,7 +164,7 @@ TEST_CASE("Inspector: アニメーションの ID は、同じアクターのス
     auto* lonely = app.GetScene().Spawn<Actor>()->AddComponent<husky::engine::SpriteAnimatorComponent>();
     imgui.Frame([&] {
         ImGui::Begin("Test");
-        husky::tools::DrawProperties(lonely->GetType(), lonely, app.GetRegistry(), &app.GetAssetDatabase());
+        husky::tools::DrawProperties(lonely->GetType(), lonely, app.GetRegistry(), &app.GetAssetLoader());
         ImGui::End();
     });
 }

@@ -186,3 +186,24 @@ TEST_CASE("AssetLoader: Application はテクスチャ・音・フォント・�
     CHECK(loader.GetLoadedCount(TextureAsset::StaticType()) == 0);
     CHECK(loader.GetLoadedCount(husky::engine::SpriteSheetAsset::StaticType()) == 0);
 }
+
+TEST_CASE("AssetLoader: プレハブと ScriptableData も種類として登録され、中身の型でも種類が引ける(AL-3)")
+{
+    using husky::engine::AssetKind;
+    Application app;
+    const husky::engine::AssetLoader& loader = app.GetAssetLoader();
+
+    const AssetKind* prefab = loader.FindKind(husky::engine::PrefabAsset::StaticType());
+    const AssetKind* data = loader.FindKind(husky::engine::ScriptableDataAsset::StaticType());
+    REQUIRE(prefab != nullptr);
+    REQUIRE(data != nullptr);
+    // ScriptableData は箱と中身が別。中身の型(ScriptableData とその子)で聞いても、同じ種類が返る。
+    REQUIRE(data->GetContentType() != nullptr);
+    CHECK(loader.FindKind(husky::engine::ScriptableData::StaticType()) == data);
+    CHECK(prefab->GetContentType() == nullptr);
+    // CanLoadAs は種類に聞く(登録されていない型は false)。
+    CHECK(loader.CanLoadAs(husky::engine::PrefabAsset::StaticType(), "a.prefab"));
+    CHECK(loader.CanLoadAs(husky::engine::ScriptableData::StaticType(), "a.sdata"));
+    CHECK(loader.CanLoadAs(husky::engine::ScriptableDataAsset::StaticType(), "a.sdata"));
+    CHECK_FALSE(loader.CanLoadAs(husky::engine::Asset::StaticType(), "a.prefab"));
+}

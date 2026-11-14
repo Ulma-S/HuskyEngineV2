@@ -85,8 +85,8 @@ namespace husky::tools
                                   "Sound asset: its GUID or its path in the assets folder, like \"sounds/hit.wav\"", true};
         soundArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
             std::vector<EditorArgChoice> choices;
-            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
-                if (engine::AssetLoader::CanLoadAs(engine::SoundAsset::StaticType(), path))
+            app.GetAssetDatabase().ForEachAsset([&choices, &app](const core::Guid& guid, const std::string& path) {
+                if (app.GetAssetLoader().CanLoadAs(engine::SoundAsset::StaticType(), path))
                 {
                     choices.push_back({guid.ToString(), path});
                 }

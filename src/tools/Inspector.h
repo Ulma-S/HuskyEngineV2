@@ -27,15 +27,16 @@ namespace husky::tools
     // 型 type のプロパティを、container(その型のオブジェクトか構造体の先頭のアドレス)について、編集できる形で並べる。
     // 値は Property を通して読み書きする(オフセットを直接触らない)。ハンドルは、指している相手の名前を表示するだけ。
     // registry: ハンドルが指す相手を引くのに使う。
-    // assets: アセットの参照(AssetRef)を選ぶときの、アセットの一覧。nullptr なら、GUID を表示するだけで選べない。
+    // assets: アセットの参照(AssetRef)を選ぶときの、ローダ(アセットの一覧と、どのファイルがその型として読めるか。AL-3)。
+    //         nullptr なら、GUID を表示するだけで選べない。
     // 戻り値: このフレームで、どれかの値が書き換えられたら true。
     bool DrawProperties(const core::TypeInfo& type, void* container, core::ObjectRegistry& registry,
-                        const engine::AssetDatabase* assets = nullptr);
+                        const engine::AssetLoader* assets = nullptr);
 
     // プロパティ1つの表示を差し替える関数の型。引数は DrawProperties と同じ(container はプロパティの持ち主の先頭)。
     // 戻り値: 値を書き換えたら true。
     using PropertyDrawer = bool (*)(const core::Property& property, void* container, core::ObjectRegistry& registry,
-                                    const engine::AssetDatabase* assets);
+                                    const engine::AssetLoader* assets);
 
     // type の propertyName のプロパティを、標準の部品ではなく drawer で表示するようにする(親の型のプロパティも指定できる)。
     // ふつうはリフレクションから自動で表示すれば足りるが、「整数の ID を、名前の一覧から選ばせる」のように、

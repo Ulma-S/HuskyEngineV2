@@ -7,31 +7,28 @@
 // 持つのは、読んだ値の木(ArchiveValue)だけ。アクターは作らない(作るのは Prefab::Instantiate で、置くたびに新しく作る)。
 // 値の木は「ただのデータ」なので、ファイルを読むところから JSON を値の木にするところまで、ジョブ(ワーカースレッド)でできる。
 //
-// 作るのは AssetLoader だけ(AssetLoader::LoadPrefab)。
+// 作るのは読み方(PrefabAssetKind)だけ。読むのは AssetLoader::Load(PrefabAsset の型, GUID) か Resolve(AssetRef<PrefabAsset>&)。
 // 中のコンポーネントが指すテクスチャやスプライトシートは、ここでは読まない(置いたアクターが描かれるときに読まれる)。
 //
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
 
-#include "core/Guid.h"
-#include "core/Object.h"
 #include "engine/ArchiveValue.h"
-#include "engine/AssetState.h"
+#include "engine/Asset.h"
+
+#include <cstddef>
+#include <memory>
 
 namespace husky::engine
 {
-    class AssetLoader;
+    class PrefabAssetKind;
 
-    class PrefabAsset : public core::Object
+    class PrefabAsset : public Asset
     {
-        HUSKY_OBJECT(PrefabAsset, core::Object)
+        HUSKY_OBJECT(PrefabAsset, Asset)
     public:
-        // 回収されるとき、ローダのキャッシュから外してもらう。
+        // 回収されるとき、ローダのキャッシュから外れる(Asset のデストラクタ)。
         ~PrefabAsset() override;
-
-        const core::Guid& GetGuid() const { return m_guid; }
-        AssetState GetState() const { return m_state; }
-        bool IsLoaded() const { return m_state == AssetState::Loaded; }
 
         // プレハブの中身(Prefab::Instantiate に渡す値)。読み終わる(IsLoaded)までは Null。
         // 入れ子のプレハブ(別のプレハブから置いたもの)は開いた形: 全部の値を持ち、元のプレハブとのつながりは無く、
@@ -42,12 +39,20 @@ namespace husky::engine
         const ArchiveValue& GetRawData() const { return m_raw; }
 
     private:
-        friend class AssetLoader; // 中身を書くのは AssetLoader だけ
+        friend class PrefabAssetKind; // 中身を書くのは読み方(PrefabAsset.cpp)だけ
 
-        core::Guid m_guid;
-        AssetState m_state = AssetState::Loading;
         ArchiveValue m_data;
         ArchiveValue m_raw;
-        AssetLoader* m_loader = nullptr; // 作ったローダ(借りているだけ)
     };
+
+    // プレハブ(.prefab)の読み方を作る。ローダに RegisterKind で登録する(AL-3)。
+    // 入れ子のプレハブがあれば、先にそれを読み、読み終わってから開いた形を作る(待っている間は「読み込み中」)。
+    std::unique_ptr<AssetKind> CreatePrefabAssetKind();
+
+    // ファイルを書き直したプレハブを、新しいアセットとして読み直す(読み込んだアセットは変わらないデータなので、その場では書き換えない)。
+    // 次からの Load は新しいアセットを返す。古いアセットは、指している人(置いたものの prefab.asset)がいる間は残る。
+    core::ObjectHandle ReloadPrefab(AssetLoader& loader, const core::Guid& guid);
+    // guid のプレハブを入れ子に持つ、読み込んだプレハブ(その外側も)を読み直す(中のプレハブを直したら、外側の開いた形も
+    // 作り直すため)。読み直したものの数を返す。読み終わるのを待つのは呼ぶ側(WaitForAllLoads)。
+    std::size_t ReloadPrefabsNesting(AssetLoader& loader, const core::Guid& guid);
 }

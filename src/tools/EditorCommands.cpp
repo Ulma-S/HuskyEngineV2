@@ -450,8 +450,8 @@ namespace husky::tools
         std::vector<EditorArgChoice> PrefabChoices(engine::Application& app, const engine::ArchiveValue&)
         {
             std::vector<EditorArgChoice> choices;
-            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
-                if (engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), path))
+            app.GetAssetDatabase().ForEachAsset([&choices, &app](const core::Guid& guid, const std::string& path) {
+                if (app.GetAssetLoader().CanLoadAs(engine::PrefabAsset::StaticType(), path))
                 {
                     choices.push_back({guid.ToString(), path});
                 }
@@ -479,7 +479,7 @@ namespace husky::tools
                 guid = *found;
             }
             const std::string* path = app.GetAssetDatabase().FindPath(guid);
-            if (path == nullptr || !engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), *path))
+            if (path == nullptr || !app.GetAssetLoader().CanLoadAs(engine::PrefabAsset::StaticType(), *path))
             {
                 error = "Not a prefab: " + text +
                         (path != nullptr ? " (" + *path + ")" : std::string(" (not in the asset table)"));
@@ -2750,7 +2750,7 @@ namespace husky::tools
 
             // 書く先を確かめる: 拡張子、assets の外へ出ないこと、まだ無いこと(上書きは、読み込んだアセットとの食い違いを生むので、まだしない)。
             const std::string& path = context.args.Find("path")->AsString();
-            if (!engine::AssetLoader::CanLoadAs(engine::PrefabAsset::StaticType(), path))
+            if (!context.app.GetAssetLoader().CanLoadAs(engine::PrefabAsset::StaticType(), path))
             {
                 return EditorCommandResult::Failure("The path must end with .prefab: " + path);
             }
@@ -2822,7 +2822,7 @@ namespace husky::tools
                 guidOut = *found;
             }
             const std::string* path = app.GetAssetDatabase().FindPath(guidOut);
-            if (path == nullptr || !engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), *path))
+            if (path == nullptr || !app.GetAssetLoader().CanLoadAs(engine::ScriptableData::StaticType(), *path))
             {
                 error = "Not a data asset (.sdata): " + text +
                         (path != nullptr ? " (" + *path + ")" : std::string(" (not in the asset table)"));
@@ -2893,7 +2893,7 @@ namespace husky::tools
 
             // 書く先を確かめる(prefab.create と同じ: 拡張子、assets の外へ出ないこと、まだ無いこと)。
             const std::string& path = context.args.Find("path")->AsString();
-            if (!engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), path))
+            if (!context.app.GetAssetLoader().CanLoadAs(engine::ScriptableData::StaticType(), path))
             {
                 return EditorCommandResult::Failure("The path must end with .sdata: " + path);
             }
@@ -2953,8 +2953,8 @@ namespace husky::tools
                                   "Data asset: its GUID or its path in the assets folder, like \"data/bouncer.sdata\"", true};
         assetArg.choices = [](engine::Application& app, const engine::ArchiveValue&) {
             std::vector<EditorArgChoice> choices;
-            app.GetAssetDatabase().ForEachAsset([&choices](const core::Guid& guid, const std::string& path) {
-                if (engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), path))
+            app.GetAssetDatabase().ForEachAsset([&choices, &app](const core::Guid& guid, const std::string& path) {
+                if (app.GetAssetLoader().CanLoadAs(engine::ScriptableData::StaticType(), path))
                 {
                     choices.push_back({guid.ToString(), path});
                 }

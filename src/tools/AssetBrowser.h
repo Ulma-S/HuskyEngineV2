@@ -80,7 +80,7 @@ namespace husky::tools
             bool open = true;         // 窓の × で false になる
         };
 
-        void RebuildRows(const engine::AssetDatabase& database);
+        void RebuildRows(const engine::AssetLoader& loader);
         void DrawList(engine::Application& app);
         // 窓1つを描く。閉じられたら false。
         bool DrawDataWindow(engine::Application& app, EditorCommandRegistry* commands, DataWindow& window);

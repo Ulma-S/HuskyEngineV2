@@ -41,7 +41,7 @@ namespace husky::tools
             }
         }
         const std::string* path = app.GetAssetDatabase().FindPath(guid);
-        if (path == nullptr || !engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), *path))
+        if (path == nullptr || !app.GetAssetLoader().CanLoadAs(engine::ScriptableData::StaticType(), *path))
         {
             return false;
         }
@@ -106,14 +106,14 @@ namespace husky::tools
         }
     }
 
-    void AssetBrowser::RebuildRows(const engine::AssetDatabase& database)
+    void AssetBrowser::RebuildRows(const engine::AssetLoader& loader)
     {
         m_rows.clear();
-        database.ForEachAsset([this](const core::Guid& guid, const std::string& path) {
-            m_rows.push_back({guid, path, engine::AssetLoader::CanLoadAs(engine::ScriptableData::StaticType(), path)});
+        loader.GetDatabase().ForEachAsset([this, &loader](const core::Guid& guid, const std::string& path) {
+            m_rows.push_back({guid, path, loader.CanLoadAs(engine::ScriptableData::StaticType(), path)});
         });
         std::sort(m_rows.begin(), m_rows.end(), [](const Row& a, const Row& b) { return a.path < b.path; });
-        m_rowsVersion = database.GetVersion();
+        m_rowsVersion = loader.GetDatabase().GetVersion();
     }
 
     void AssetBrowser::DrawList(engine::Application& app)
@@ -121,7 +121,7 @@ namespace husky::tools
         const engine::AssetDatabase& database = app.GetAssetDatabase();
         if (m_rowsVersion != database.GetVersion())
         {
-            RebuildRows(database); // 表が作り直されたときだけ(毎フレームは写さない)
+            RebuildRows(app.GetAssetLoader()); // 表が作り直されたときだけ(毎フレームは写さない)
         }
 
         // 最初は右側、Scene の窓(右上、高さ 400)の下に出す。
@@ -224,7 +224,7 @@ namespace husky::tools
             why = "data.set is not registered";
         }
         ImGui::BeginDisabled(why != nullptr);
-        if (DrawProperties(copy->GetType(), copy, registry, &app.GetAssetDatabase()))
+        if (DrawProperties(copy->GetType(), copy, registry, &app.GetAssetLoader()))
         {
             window.dirty = true;
         }
