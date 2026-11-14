@@ -263,6 +263,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 add_library(husky_platform ${HUSKY_MODULE_TYPE}
     src/platform/DynamicLibrary.cpp
     src/platform/FileSystem.cpp
+    src/platform/FileTimestamp.cpp
     src/platform/Image.cpp
     src/platform/LogFileWriter.cpp
     src/platform/MemoryHooks.cpp
@@ -582,6 +583,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ModuleBoundaryTests.cpp
         tests/engine/GameModuleTests.cpp
         tests/engine/GameModuleHostTests.cpp
+        tests/tools/GameModuleAutoReloadTests.cpp
         tests/engine/FontAtlasTests.cpp
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp

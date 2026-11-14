@@ -10,6 +10,8 @@ namespace husky::tools
         CommandFailed = 2,
         CommandDetail = 3,
         DataCopyFailed = 4,
+        AutoReloadStarted = 5,
+        AutoReloadWaiting = 6,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(EditorLog, "Editor")
@@ -21,5 +23,10 @@ namespace husky::tools
         HUSKY_LOG_MESSAGE(CommandDetail, Info, "  {detail}", HUSKY_LOG_ARG(detail, String))
         HUSKY_LOG_MESSAGE(DataCopyFailed, Error, "アセットの窓: {type} の写しを作れません(型が登録されていないか、メモリが足りません)",
                           HUSKY_LOG_ARG(type, String))
+        // ゲームの DLL の見張り(HR-5。tools/GameModuleCommands.h の GameModuleAutoReload)
+        HUSKY_LOG_MESSAGE(AutoReloadStarted, Info, "ゲームの DLL がビルドし直されたので、読み直します({path})",
+                          HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(AutoReloadWaiting, Info, "ゲームの DLL がビルドし直されました。再生中なので、Stop した後に読み直します({path})",
+                          HUSKY_LOG_ARG(path, String))
     HUSKY_LOG_CHANNEL_END()
 }

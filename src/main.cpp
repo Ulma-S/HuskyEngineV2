@@ -138,6 +138,8 @@ int main(int argc, char** argv)
     // 再生・一時停止・コマ送り・停止(editor.play / pause / step / stop)。画面では1行に並ぶ。
     playMode.RegisterCommands(commands);
     commands.Register(tools::MakeGameReloadCommand(playMode)); // game.reload(ゲームの DLL を読み直す。HR-4)
+    tools::GameModuleAutoReload gameAutoReload; // DLL がビルドし直されたら自動で game.reload する(HR-5)
+    gameAutoReload.RegisterCommands(commands);  // game.autoReload
     // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
     // 試しの音を鳴らす(audio.testTone)。音の出す先が動いているかを耳で確かめる。
@@ -275,7 +277,9 @@ int main(int argc, char** argv)
         screenTest.Draw(app, renderDevice);
     });
 
-    app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
+    app.SetDevUiCallback([&assetBrowser, &commands, &debugWindow, &gameAutoReload, &inspector, &logWindow, &playMode, &sceneView](engine::Application& application) {
+        // ゲームの DLL がビルドし直されていたら読み直す(HR-5。0.5 秒ごとに更新日時を見る)
+        gameAutoReload.Update(application, commands, playMode);
         // 先にシーンビュー: マウスで見回す・選ぶ(窓の上のマウスは、窓に任せる)。選んだものは同じフレームのインスペクタに出る
         sceneView.Update(application, playMode, inspector, &commands); // ドラッグで動かした位置は property.set で書く
         debugWindow.Draw(application, &commands, &playMode);
