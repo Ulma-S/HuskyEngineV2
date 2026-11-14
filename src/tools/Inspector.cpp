@@ -876,6 +876,47 @@ namespace husky::tools
                         }
                         ImGui::PopID();
                     }
+                    // --- 子のアクターの出し入れ(HIER) ---
+                    // 消した子: Revert(prefab.revertChild。プレハブの値で戻す)と Apply(プレハブからも消す)。
+                    // 足した子: Apply to prefab(プレハブに書き込む)。足した子を戻すには、その子を Destroy する。
+                    if (!m_addedChildren.empty() || !m_removedChildren.empty())
+                    {
+                        ImGui::Text("Child actors: +%zu added, -%zu removed", m_addedChildren.size(), m_removedChildren.size());
+                    }
+                    // 名前のコマンドを、actor と(名前、値)の引数1つで呼ぶボタン。使えなければ灰色
+                    auto childButton = [&](const char* label, const char* commandName, const char* argName, const std::string& value) {
+                        const EditorCommand* command = commands != nullptr ? commands->Find(commandName) : nullptr;
+                        if (command == nullptr)
+                        {
+                            return;
+                        }
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(commands->GetUnavailableReason(*command, app) != nullptr);
+                        if (ImGui::SmallButton(label))
+                        {
+                            engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+                            args.Set("actor", engine::ArchiveValue(selected->guid.ToString()));
+                            args.Set(argName, engine::ArchiveValue(value));
+                            commands->Execute(commandName, app, args);
+                            m_overridesAge = 30; // 次のフレームで一覧を作り直す
+                        }
+                        ImGui::EndDisabled();
+                    };
+                    for (std::size_t r = 0; r < m_removedChildren.size(); ++r)
+                    {
+                        ImGui::PushID(static_cast<int>(1000 + r));
+                        ImGui::BulletText("removed child: %s", m_removedChildren[r].first.c_str());
+                        childButton("Revert", "prefab.revertChild", "child", m_removedChildren[r].second);
+                        childButton("Apply", "prefab.applyChild", "removed", m_removedChildren[r].second);
+                        ImGui::PopID();
+                    }
+                    for (std::size_t a = 0; a < m_addedChildren.size(); ++a)
+                    {
+                        ImGui::PushID(static_cast<int>(2000 + a));
+                        ImGui::BulletText("added child: %s", m_addedChildren[a].first.c_str());
+                        childButton("Apply to prefab", "prefab.applyChild", "added", m_addedChildren[a].second);
+                        ImGui::PopID();
+                    }
                     // ボタンは名前でコマンドを呼ぶだけ(全部: 名前・位置・回転は除く)。押したら、すぐに印を作り直す。
                     if (commands != nullptr)
                     {
@@ -1195,6 +1236,20 @@ namespace husky::tools
         for (const engine::Prefab::ComponentChange& removed : found.removedComponents)
         {
             m_removedComponents.emplace_back(removed.type, removed.componentId.ToString());
+        }
+        m_addedChildren.clear();
+        for (const engine::Prefab::ChildChange& added : found.addedChildren)
+        {
+            const engine::Actor* child = actor.GetScene() != nullptr ? actor.GetScene()->GetObjectRegistry()->Resolve<engine::Actor>(added.actor) : nullptr;
+            if (child != nullptr)
+            {
+                m_addedChildren.emplace_back(added.name, child->guid.ToString());
+            }
+        }
+        m_removedChildren.clear();
+        for (const engine::Prefab::ChildChange& removed : found.removedChildren)
+        {
+            m_removedChildren.emplace_back(removed.name, removed.prefabActorId.ToString());
         }
         m_overridesFor = actor.GetHandle();
         m_overridesAge = 0;

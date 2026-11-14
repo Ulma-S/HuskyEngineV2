@@ -4,6 +4,7 @@
 #include "engine/ObjectSerializer.h"
 #include "engine/SceneSerializer.h"
 
+#include <algorithm> // std::find、std::any_of
 #include <cstddef>
 #include <cstdint>
 #include <unordered_map>
@@ -173,6 +174,96 @@ namespace husky::engine::Prefab
                     item.perInstance = component.empty() && (path == "name" || path.rfind("transform.position", 0) == 0 ||
                                                              path.rfind("transform.rotation", 0) == 0);
                     out.push_back(std::move(item));
+                }
+            }
+        }
+    }
+
+    namespace
+    {
+        // 記録の "properties" の中の GUID の文字列の値。無い・読めなければ空。
+        core::Guid GuidOf(const ArchiveValue& entry, std::string_view name)
+        {
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* value = properties != nullptr ? properties->Find(name) : nullptr;
+            core::Guid guid;
+            if (value == nullptr || value->GetType() != ArchiveValue::Type::String || !core::Guid::Parse(value->AsString(), guid))
+            {
+                return core::Guid{};
+            }
+            return guid;
+        }
+
+        // 記録の親の番号(無ければ -1)。
+        std::int64_t ParentNumberOf(const ArchiveValue& entry)
+        {
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* parent = properties != nullptr ? properties->Find("parent") : nullptr;
+            return parent != nullptr && parent->GetType() == ArchiveValue::Type::Int ? parent->AsInt() : -1;
+        }
+
+        // プレハブの "actors" の中で、番号 rootNumber のアクターと、その子孫の番号を集める(親が先の順)。
+        std::vector<std::int64_t> CollectSubtree(const ArchiveValue& data, std::int64_t rootNumber)
+        {
+            std::vector<std::int64_t> numbers = {rootNumber};
+            const ArchiveValue* actors = data.Find("actors");
+            // 1段ずつ広げる(プレハブは小さいので、毎回端から探してよい)。段数の上限で止める
+            for (std::size_t first = 0; first < numbers.size() && numbers.size() < 4096; ++first)
+            {
+                for (std::size_t i = 0; actors != nullptr && i < actors->GetArraySize(); ++i)
+                {
+                    const std::int64_t number = actors->At(i).AsInt(-1);
+                    const ArchiveValue* entry = FindPrefabEntry(data, number);
+                    if (entry != nullptr && ParentNumberOf(*entry) == numbers[first] &&
+                        std::find(numbers.begin(), numbers.end(), number) == numbers.end())
+                    {
+                        numbers.push_back(number);
+                    }
+                }
+            }
+            return numbers;
+        }
+
+        // 置いたもの actor について、足した子・消した子を result に入れる(HIER)。
+        void FindChildChanges(const Actor& actor, const ArchiveValue& data, std::int64_t actorNumber, OverridesResult& result)
+        {
+            // 足した子: 直接の子のうち、このプレハブから来ていないもの
+            std::vector<Actor*> children;
+            actor.GetChildren(children);
+            for (const Actor* child : children)
+            {
+                const bool fromPrefab = child->prefab.guid == actor.prefab.guid && !child->prefabActorId.IsNull() &&
+                                        SceneSerializer::FindPrefabActorNumber(data, child->prefabActorId) >= 0;
+                if (!fromPrefab)
+                {
+                    result.addedChildren.push_back({child->name, core::Guid{}, child->GetHandle()});
+                }
+            }
+            // 消した子: プレハブでこのアクターの直接の子なのに、置いた一まとまり(同じプレハブの先祖をたどった根と、その子孫)に無いもの
+            const Actor* root = &actor;
+            for (const Actor* up = actor.GetParent(); up != nullptr && up->prefab.guid == actor.prefab.guid; up = up->GetParent())
+            {
+                root = up;
+            }
+            std::vector<Actor*> group = {const_cast<Actor*>(root)};
+            root->GetDescendants(group);
+            const ArchiveValue* actors = data.Find("actors");
+            for (std::size_t i = 0; actors != nullptr && i < actors->GetArraySize(); ++i)
+            {
+                const ArchiveValue* entry = FindPrefabEntry(data, actors->At(i).AsInt(-1));
+                if (entry == nullptr || ParentNumberOf(*entry) != actorNumber)
+                {
+                    continue;
+                }
+                const core::Guid childId = GuidOf(*entry, "prefabActorId");
+                const bool present = std::any_of(group.begin(), group.end(), [&](const Actor* member) {
+                    return member->prefab.guid == actor.prefab.guid && member->prefabActorId == childId;
+                });
+                if (!childId.IsNull() && !present)
+                {
+                    const ArchiveValue* name = entry->Find("properties")->Find("name");
+                    result.removedChildren.push_back(
+                        {name != nullptr ? name->AsString() : std::string(), childId, core::ObjectHandle{}});
                 }
             }
         }
@@ -361,6 +452,7 @@ namespace husky::engine::Prefab
             }
             result.removedComponents.push_back(std::move(removed));
         }
+        FindChildChanges(actor, data, actorNumber, result);
         return result;
     }
 
@@ -640,6 +732,236 @@ namespace husky::engine::Prefab
         const std::size_t at = position < componentIds.size() ? position : componentIds.size();
         componentIds.insert(componentIds.begin() + static_cast<std::ptrdiff_t>(at), newId);
         JoinPrefabData(data, entries, actorIndex, componentIds, out);
+        return true;
+    }
+
+    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, Scene& scene,
+                                         const core::TypeRegistry& types, std::string& error)
+    {
+        std::vector<Actor*> created;
+        if (!prefab.IsLoaded())
+        {
+            error = "the prefab is not loaded";
+            return created;
+        }
+        const ArchiveValue& data = prefab.GetData();
+        const std::int64_t childNumber = SceneSerializer::FindPrefabActorNumber(data, childId);
+        const ArchiveValue* actors = data.Find("actors");
+        if (childNumber < 0 || childId.IsNull() || actors == nullptr || actors->At(0).AsInt(-1) == childNumber)
+        {
+            error = "the prefab has no child actor with id " + childId.ToString();
+            return created;
+        }
+        // 子と子孫のアクターと、そのコンポーネントの記録だけで、小さなシーンの形を作って読む
+        const std::vector<std::int64_t> numbers = CollectSubtree(data, childNumber);
+        ArchiveValue objects = ArchiveValue::MakeArray();
+        ArchiveValue actorNumbers = ArchiveValue::MakeArray();
+        for (const std::int64_t number : numbers)
+        {
+            const ArchiveValue* entry = FindPrefabEntry(data, number);
+            if (entry == nullptr)
+            {
+                continue;
+            }
+            ArchiveValue copy = *entry;
+            if (number == childNumber)
+            {
+                ArchiveValue properties = *copy.Find("properties");
+                properties.Remove("parent"); // 親は小さなシーンの外(この後で parent に付ける)
+                copy.Set("properties", std::move(properties));
+            }
+            objects.Append(std::move(copy));
+            actorNumbers.Append(ArchiveValue(number));
+            const ArchiveValue* components = entry->Find("properties")->Find("components");
+            for (std::size_t c = 0; components != nullptr && c < components->GetArraySize(); ++c)
+            {
+                if (const ArchiveValue* component = FindPrefabEntry(data, components->At(c).AsInt(-1)))
+                {
+                    objects.Append(*component);
+                }
+            }
+        }
+        ArchiveValue subset = ArchiveValue::MakeObject();
+        subset.Set("version", ArchiveValue(SceneSerializer::FormatVersion));
+        subset.Set("objects", std::move(objects));
+        subset.Set("actors", std::move(actorNumbers));
+        SceneSerializer::ReadReport report = SceneSerializer::Read(subset, scene, types);
+        core::ObjectRegistry* registry = scene.GetObjectRegistry();
+        for (const core::ObjectHandle handle : report.addedActors)
+        {
+            if (Actor* placed = registry != nullptr ? registry->Resolve<Actor>(handle) : nullptr)
+            {
+                placed->prefab.guid = prefab.GetGuid();
+                placed->prefab.asset = prefab.GetHandle();
+                created.push_back(placed);
+            }
+        }
+        if (created.empty())
+        {
+            error = "could not create the child actor";
+            return created;
+        }
+        created[0]->SetParent(&parent, false); // プレハブの中の値は、親から見た値
+        return created;
+    }
+
+    bool AddChildToData(const ArchiveValue& data, const core::Guid& parentPrefabActorId, const Actor& child,
+                        ArchiveValue& out, AddedChildIds& ids, std::vector<std::string>& warnings, std::string& error)
+    {
+        const std::int64_t parentNumber = SceneSerializer::FindPrefabActorNumber(data, parentPrefabActorId);
+        const ArchiveValue* objects = data.Find("objects");
+        const ArchiveValue* actors = data.Find("actors");
+        if (parentNumber < 0 || objects == nullptr || actors == nullptr)
+        {
+            error = "the prefab has no actor with id " + parentPrefabActorId.ToString();
+            return false;
+        }
+        // 書き込むもの: child と子孫(親が先の順)、それぞれの生きているコンポーネント
+        std::vector<const Actor*> targets = {&child};
+        {
+            std::vector<Actor*> descendants;
+            child.GetDescendants(descendants);
+            targets.insert(targets.end(), descendants.begin(), descendants.end());
+        }
+        core::ObjectRegistry* registry = child.GetScene() != nullptr ? child.GetScene()->GetObjectRegistry() : nullptr;
+        if (registry == nullptr)
+        {
+            error = "the actor is not in a scene";
+            return false;
+        }
+        std::vector<const core::Object*> written;
+        for (const Actor* actor : targets)
+        {
+            written.push_back(actor);
+            for (const core::ObjectHandle handle : actor->components)
+            {
+                const Component* component = registry->Resolve<Component>(handle);
+                if (component != nullptr && !component->IsPendingDestroy())
+                {
+                    written.push_back(component);
+                }
+            }
+        }
+        // 新しい番号: 今ある番号のいちばん大きいもの + 1 から
+        std::int64_t nextNumber = 0;
+        for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
+        {
+            const ArchiveValue* id = objects->At(i).Find("id");
+            if (id != nullptr && id->AsInt(-1) >= nextNumber)
+            {
+                nextNumber = id->AsInt() + 1;
+            }
+        }
+        std::vector<std::pair<core::ObjectHandle, std::int64_t>> numberOf;
+        for (const core::Object* object : written)
+        {
+            numberOf.emplace_back(object->GetHandle(), nextNumber++);
+        }
+        std::size_t outside = 0;
+        // ハンドル → 番号。child の親はプレハブの親の番号、書き込むものは新しい番号、ほかは null
+        const ObjectSerializer::HandleToId toId = [&](core::ObjectHandle handle) -> std::int64_t {
+            if (handle.IsNull())
+            {
+                return -1;
+            }
+            if (handle == child.GetParentHandle())
+            {
+                return parentNumber;
+            }
+            for (const auto& [object, number] : numberOf)
+            {
+                if (object == handle)
+                {
+                    return number;
+                }
+            }
+            ++outside;
+            return -1;
+        };
+        ArchiveValue newObjects = *objects;
+        ArchiveValue newActors = *actors;
+        for (std::size_t i = 0; i < written.size(); ++i)
+        {
+            const core::Object& object = *written[i];
+            const ArchiveValue value = ObjectSerializer::Write(object, toId);
+            ArchiveValue properties = *value.Find("properties");
+            const bool isActor = std::find(targets.begin(), targets.end(), &object) != targets.end();
+            const core::Guid newId = core::Guid::Generate();
+            if (isActor)
+            {
+                properties.Remove("guid");
+                properties.Remove("prefab");
+                properties.Set("prefabActorId", ArchiveValue(newId.ToString()));
+                ids.actors.emplace_back(object.GetHandle(), newId);
+                newActors.Append(ArchiveValue(numberOf[i].second));
+            }
+            else
+            {
+                properties.Set("prefabComponentId", ArchiveValue(newId.ToString()));
+                ids.components.emplace_back(object.GetHandle(), newId);
+            }
+            ArchiveValue entry = ArchiveValue::MakeObject();
+            entry.Set("id", ArchiveValue(numberOf[i].second));
+            entry.Set("type", *value.Find("type"));
+            entry.Set("properties", std::move(properties));
+            newObjects.Append(std::move(entry));
+        }
+        if (outside > 0)
+        {
+            warnings.push_back("handles to objects outside the child actor were written as null (" + std::to_string(outside) + ")");
+        }
+        out = data;
+        out.Set("objects", std::move(newObjects));
+        out.Set("actors", std::move(newActors));
+        return true;
+    }
+
+    bool RemoveChildFromData(const ArchiveValue& data, const core::Guid& childId, ArchiveValue& out, std::string& error)
+    {
+        const std::int64_t childNumber = SceneSerializer::FindPrefabActorNumber(data, childId);
+        const ArchiveValue* objects = data.Find("objects");
+        const ArchiveValue* actors = data.Find("actors");
+        if (childId.IsNull() || childNumber < 0 || objects == nullptr || actors == nullptr ||
+            actors->At(0).AsInt(-1) == childNumber)
+        {
+            error = "the prefab has no child actor with id " + childId.ToString();
+            return false;
+        }
+        // 消す番号: 子と子孫のアクター、そのコンポーネント
+        std::vector<std::int64_t> removed = CollectSubtree(data, childNumber);
+        const std::size_t actorCount = removed.size();
+        for (std::size_t a = 0; a < actorCount; ++a)
+        {
+            const ArchiveValue* entry = FindPrefabEntry(data, removed[a]);
+            const ArchiveValue* components = entry != nullptr ? entry->Find("properties")->Find("components") : nullptr;
+            for (std::size_t c = 0; components != nullptr && c < components->GetArraySize(); ++c)
+            {
+                removed.push_back(components->At(c).AsInt(-1));
+            }
+        }
+        auto isRemoved = [&](std::int64_t number) {
+            return std::find(removed.begin(), removed.end(), number) != removed.end();
+        };
+        ArchiveValue newObjects = ArchiveValue::MakeArray();
+        for (std::size_t i = 0; i < objects->GetArraySize(); ++i)
+        {
+            const ArchiveValue* id = objects->At(i).Find("id");
+            if (id == nullptr || !isRemoved(id->AsInt(-1)))
+            {
+                newObjects.Append(objects->At(i));
+            }
+        }
+        ArchiveValue newActors = ArchiveValue::MakeArray();
+        for (std::size_t i = 0; i < actors->GetArraySize(); ++i)
+        {
+            if (!isRemoved(actors->At(i).AsInt(-1)))
+            {
+                newActors.Append(actors->At(i));
+            }
+        }
+        out = data;
+        out.Set("objects", std::move(newObjects));
+        out.Set("actors", std::move(newActors));
         return true;
     }
 

@@ -89,12 +89,24 @@ namespace husky::engine::Prefab
         ArchiveValue prefabEntry; // 外したもの: プレハブの中の記録({"type", "properties"})。足したものは null
     };
 
+    // 置いた後に足した・消した子のアクター1つ(HIER)。
+    struct ChildChange
+    {
+        std::string name;              // アクターの名前(表示用)
+        core::Guid prefabActorId;      // 消したもの: プレハブの中の ID。足したもの: 空
+        core::ObjectHandle actor;      // 足したもの: そのアクター。消したものは null
+    };
+
     struct OverridesResult
     {
         const PrefabAsset* prefab = nullptr; // 比べたプレハブ。比べられなければ nullptr(理由は error)
         std::vector<Override> overrides;     // アクター、コンポーネント(並んだ順)の順。それぞれの中はプロパティの順
         std::vector<ComponentChange> addedComponents;   // 置いた後に足したコンポーネント(プレハブに組が無い)
         std::vector<ComponentChange> removedComponents; // 置いた後に外したコンポーネント(プレハブにあって組が無い)。プレハブの順
+        // 置いた後に足した直接の子(このプレハブから来ていない子)。シーンの一覧の順(HIER)
+        std::vector<ChildChange> addedChildren;
+        // プレハブではこのアクターの直接の子なのに、置いたもの(同じプレハブから置いた一まとまり)に無い子。プレハブの順(HIER)
+        std::vector<ChildChange> removedChildren;
         std::string error;
     };
 
@@ -144,6 +156,29 @@ namespace husky::engine::Prefab
     // prefabActorId: 足す先のプレハブの中のアクター(空なら根。HIER-2b)。
     bool AddComponentToData(const ArchiveValue& data, const ArchiveValue& componentEntry, std::size_t position,
                             ArchiveValue& out, std::string& error, const core::Guid& prefabActorId = {});
+
+    // --- 子のアクターの出し入れ(HIER。prefab.revertChild / prefab.applyChild が使う) ---
+
+    // プレハブ prefab の中の ID が childId のアクターと、プレハブの中のその子孫を作り、scene に入れて parent の子にする。
+    // 全員に元のプレハブを覚えさせる。作ったアクター(子が最初、親が先の順)を返す。作れなければ空と error。
+    std::vector<Actor*> InstantiateChild(const PrefabAsset& prefab, const core::Guid& childId, Actor& parent, Scene& scene,
+                                         const core::TypeRegistry& types, std::string& error);
+
+    // 足した子を書き込んだときに振った、プレハブの中の ID(置いたものに覚えさせて、組にするため)。
+    struct AddedChildIds
+    {
+        std::vector<std::pair<core::ObjectHandle, core::Guid>> actors;     // (アクター、prefabActorId)
+        std::vector<std::pair<core::ObjectHandle, core::Guid>> components; // (コンポーネント、prefabComponentId)
+    };
+
+    // プレハブの値の木 data の、ID が parentPrefabActorId のアクターの子として、child とその子孫(とコンポーネント)を
+    // 書き込んだ新しい値の木を out に作る。新しい ID を振り、ids に返す。child の外を指すハンドルは null にして warnings に書く。
+    bool AddChildToData(const ArchiveValue& data, const core::Guid& parentPrefabActorId, const Actor& child,
+                        ArchiveValue& out, AddedChildIds& ids, std::vector<std::string>& warnings, std::string& error);
+
+    // プレハブの値の木 data から、ID が childId のアクターと、その子孫・コンポーネントを消した新しい値の木を out に作る。
+    // 根は消せない。無ければ false と error。
+    bool RemoveChildFromData(const ArchiveValue& data, const core::Guid& childId, ArchiveValue& out, std::string& error);
 
     // プレハブの値の木 data から、ID が componentId のコンポーネントを消した新しい値の木を out に作る。無ければ false と error。
     // prefabActorId: 消す先のプレハブの中のアクター(空なら根。HIER-2b)。

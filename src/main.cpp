@@ -164,6 +164,13 @@ int main()
     tools::EditorCommand applyComponent = tools::MakeApplyComponentCommand(assetsDirectory);
     applyComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(applyComponent));
+    // 子のアクターの出し入れ(prefab.revertChild / prefab.applyChild。HIER)。編集中だけ。
+    tools::EditorCommand revertChild = tools::MakeRevertChildCommand();
+    revertChild.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(revertChild));
+    tools::EditorCommand applyChild = tools::MakeApplyChildCommand(assetsDirectory);
+    applyChild.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(applyChild));
     // データのアセット(.sdata)を作る(data.create)・値を変える(data.set)。ソースの assets に書く。
     // 再生中に変えると、Stop で戻らない(ファイルが変わる)ので、編集中だけ。
     tools::EditorCommand createData = tools::MakeCreateDataCommand(assetsDirectory);

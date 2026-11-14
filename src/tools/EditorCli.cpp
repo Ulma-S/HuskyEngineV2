@@ -114,6 +114,8 @@ namespace husky::tools
             commands.Register(MakeRevertRemovedComponentCommand());
             commands.Register(MakeApplyPrefabCommand(assetsDirectory));
             commands.Register(MakeApplyComponentCommand(assetsDirectory));
+            commands.Register(MakeRevertChildCommand());
+            commands.Register(MakeApplyChildCommand(assetsDirectory));
             commands.Register(MakeCreateDataCommand(assetsDirectory));
             commands.Register(MakeSetDataCommand());
         }

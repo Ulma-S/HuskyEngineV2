@@ -3069,6 +3069,267 @@ namespace husky::tools
         };
         return command;
     }
+    // ================= 子のアクターの出し入れ(HIER) =================
+
+    namespace
+    {
+        // 選んだアクターの、置いた後に消した子を選ばせる選択肢(値はプレハブの中の ID、表示は名前)。
+        std::vector<EditorArgChoice> RemovedChildChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> choices;
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string error;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actor != nullptr)
+            {
+                for (const engine::Prefab::ChildChange& removed :
+                     engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()).removedChildren)
+                {
+                    choices.push_back({removed.prefabActorId.ToString(), removed.name});
+                }
+            }
+            return choices;
+        }
+
+        // 選んだアクターの、置いた後に足した子を選ばせる選択肢(値は guid、表示は名前)。
+        std::vector<EditorArgChoice> AddedChildChoices(engine::Application& app, const engine::ArchiveValue& args)
+        {
+            std::vector<EditorArgChoice> choices;
+            const engine::ArchiveValue* actorValue = args.Find("actor");
+            std::string error;
+            const engine::Actor* actor = actorValue != nullptr ? FindActorFromArg(app.GetScene(), actorValue->AsString(), error) : nullptr;
+            if (actor != nullptr)
+            {
+                for (const engine::Prefab::ChildChange& added :
+                     engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry()).addedChildren)
+                {
+                    if (const engine::Actor* child = app.GetRegistry().Resolve<engine::Actor>(added.actor))
+                    {
+                        choices.push_back({child->guid.ToString(), added.name});
+                    }
+                }
+            }
+            return choices;
+        }
+    }
+
+    EditorCommand MakeRevertChildCommand()
+    {
+        EditorCommand command;
+        command.name = "prefab.revertChild";
+        command.label = "Revert removed child";
+        command.description = "Put back a child actor of a prefab that was removed after placing it, with the prefab's values "
+                              "(and its children in the prefab). Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the placed actor (the parent)", true};
+        actorArg.choices = ActorChoices;
+        EditorCommandArg childArg{"child", EditorArgType::String, "Id in the prefab of the removed child", true};
+        childArg.choices = RemovedChildChoices;
+        command.args = {actorArg, childArg};
+        command.execute = [](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(app.GetScene(), context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const std::string who = DescribeActor(*actor);
+            core::Guid childId;
+            if (!core::Guid::Parse(context.args.Find("child")->AsString(), childId))
+            {
+                return EditorCommandResult::Failure("\"child\" is not a guid: " + context.args.Find("child")->AsString());
+            }
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry());
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const bool removed = std::any_of(found.removedChildren.begin(), found.removedChildren.end(),
+                                             [&](const engine::Prefab::ChildChange& item) { return item.prefabActorId == childId; });
+            if (!removed)
+            {
+                return EditorCommandResult::Failure(who + " has no removed child with id " + childId.ToString());
+            }
+            const std::vector<engine::Actor*> created =
+                engine::Prefab::InstantiateChild(*found.prefab, childId, *actor, app.GetScene(), app.GetTypeRegistry(), error);
+            if (created.empty())
+            {
+                return EditorCommandResult::Failure("Could not put back the child of " + who + ": " + error);
+            }
+            EditorCommandResult result = EditorCommandResult::Success("Put back " + DescribeActor(*created[0]) + " under " + who);
+            result.undo = MakeDestroyCall(created[0]->guid);
+            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(app.GetScene(),
+                                                                               std::vector<engine::Actor*>(created.begin(), created.end()))
+                                              .value,
+                                          actor->guid.ToString());
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("guid", engine::ArchiveValue(created[0]->guid.ToString()));
+            return result;
+        };
+        return command;
+    }
+
+    EditorCommand MakeApplyChildCommand(std::string assetsDirectory)
+    {
+        EditorCommand command;
+        command.name = "prefab.applyChild";
+        command.label = "Apply child to prefab";
+        command.description = "Write a child actor added after placing a prefab into the prefab (\"added\": its guid), or remove a "
+                              "child that was removed after placing it from the prefab (\"removed\": its id in the prefab). "
+                              "Every actor placed from the prefab follows. Cannot be undone (it rewrites the prefab file).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the placed actor (the parent)", true};
+        actorArg.choices = ActorChoices;
+        EditorCommandArg addedArg{"added", EditorArgType::String, "Guid of a child actor added after placing", false};
+        addedArg.choices = AddedChildChoices;
+        EditorCommandArg removedArg{"removed", EditorArgType::String, "Id in the prefab of a child removed after placing", false};
+        removedArg.choices = RemovedChildChoices;
+        command.args = {actorArg, addedArg, removedArg};
+        command.execute = [directory = std::move(assetsDirectory)](EditorCommandContext& context) {
+            engine::Application& app = context.app;
+            engine::Scene& scene = app.GetScene();
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::ArchiveValue* addedValue = context.args.Find("added");
+            const engine::ArchiveValue* removedValue = context.args.Find("removed");
+            if ((addedValue == nullptr) == (removedValue == nullptr))
+            {
+                return EditorCommandResult::Failure("Give one of \"added\" or \"removed\"");
+            }
+            const std::string who = DescribeActor(*actor);
+            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &app.GetTypeRegistry());
+            if (found.prefab == nullptr)
+            {
+                return EditorCommandResult::Failure(who + ": " + found.error);
+            }
+            const core::Guid prefabGuid = found.prefab->GetGuid();
+            const std::string* relativePath = app.GetAssetDatabase().FindPath(prefabGuid);
+            if (relativePath == nullptr)
+            {
+                return EditorCommandResult::Failure("The prefab " + prefabGuid.ToString() + " is not in the asset table");
+            }
+            const std::string prefabPath = *relativePath;
+
+            // 1. 新しいプレハブの値を作る
+            engine::ArchiveValue newData;
+            std::vector<std::string> warnings;
+            engine::Prefab::AddedChildIds ids;
+            core::Guid removedId;
+            std::string what;
+            if (addedValue != nullptr)
+            {
+                engine::Actor* child = FindActorFromArg(scene, addedValue->AsString(), error);
+                if (child == nullptr)
+                {
+                    return EditorCommandResult::Failure(error);
+                }
+                const bool added = std::any_of(found.addedChildren.begin(), found.addedChildren.end(),
+                                               [&](const engine::Prefab::ChildChange& item) { return item.actor == child->GetHandle(); });
+                if (!added)
+                {
+                    return EditorCommandResult::Failure(DescribeActor(*child) + " is not a child added to " + who);
+                }
+                if (!engine::Prefab::AddChildToData(found.prefab->GetData(), actor->prefabActorId, *child, newData, ids, warnings, error))
+                {
+                    return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+                }
+                what = "added " + DescribeActor(*child);
+            }
+            else
+            {
+                if (!core::Guid::Parse(removedValue->AsString(), removedId))
+                {
+                    return EditorCommandResult::Failure("\"removed\" is not a guid: " + removedValue->AsString());
+                }
+                const bool removed = std::any_of(found.removedChildren.begin(), found.removedChildren.end(),
+                                                 [&](const engine::Prefab::ChildChange& item) { return item.prefabActorId == removedId; });
+                if (!removed)
+                {
+                    return EditorCommandResult::Failure(who + " has no removed child with id " + removedValue->AsString());
+                }
+                if (!engine::Prefab::RemoveChildFromData(found.prefab->GetData(), removedId, newData, error))
+                {
+                    return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+                }
+                what = "removed child " + removedValue->AsString();
+            }
+
+            // 2. ファイルに書いて、読み直す
+            core::ObjectHandle reloaded;
+            if (!WriteAndReloadPrefab(app, directory, prefabPath, prefabGuid, newData, reloaded, error))
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().ResolvePrefab(reloaded);
+            core::ObjectRegistry& registry = app.GetRegistry();
+
+            // 3. 足した子(と子孫・コンポーネント)に、プレハブの中の新しい ID とプレハブを覚えさせる(これで組になる)
+            for (const auto& [handle, id] : ids.actors)
+            {
+                if (engine::Actor* linked = registry.Resolve<engine::Actor>(handle))
+                {
+                    linked->prefabActorId = id;
+                    linked->prefab.guid = prefabGuid;
+                }
+            }
+            for (const auto& [handle, id] : ids.components)
+            {
+                if (engine::Component* linked = registry.Resolve<engine::Component>(handle))
+                {
+                    linked->prefabComponentId = id;
+                }
+            }
+
+            // 4. 同じプレハブから置いたほかのものに伝える: 足したときは同じ ID のアクターの下に作り、消したときは消す
+            std::vector<engine::Actor*> others;
+            scene.ForEachActor([&](engine::Actor& other) {
+                if (other.prefab.guid == prefabGuid)
+                {
+                    other.prefab.asset = reloaded; // 全員が新しいプレハブと比べるようにする
+                    others.push_back(&other);
+                }
+            });
+            std::size_t followed = 0;
+            for (engine::Actor* other : others)
+            {
+                if (addedValue != nullptr && other != actor && other->prefabActorId == actor->prefabActorId &&
+                    newPrefab != nullptr && !ids.actors.empty())
+                {
+                    std::string ignored;
+                    if (!engine::Prefab::InstantiateChild(*newPrefab, ids.actors[0].second, *other, scene, app.GetTypeRegistry(), ignored)
+                             .empty())
+                    {
+                        ++followed;
+                    }
+                }
+                if (removedValue != nullptr && other->prefabActorId == removedId && !other->IsPendingDestroy())
+                {
+                    // 子孫も、その場で消える印を付ける(CLI はフレームを回さずに保存するため)
+                    std::vector<engine::Actor*> doomed = {other};
+                    other->GetDescendants(doomed);
+                    for (engine::Actor* gone : doomed)
+                    {
+                        gone->Destroy();
+                    }
+                    ++followed;
+                }
+            }
+
+            EditorCommandResult result = EditorCommandResult::Success("Applied to " + prefabPath + ": " + what + "; " +
+                                                                      std::to_string(followed) + " placed actor(s) followed");
+            result.details = std::move(warnings);
+            result.data = engine::ArchiveValue::MakeObject();
+            result.data.Set("prefab", engine::ArchiveValue(prefabPath));
+            result.data.Set("followed", engine::ArchiveValue(static_cast<std::int64_t>(followed)));
+            return result;
+        };
+        return command;
+    }
 }
 
 #endif

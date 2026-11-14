@@ -74,6 +74,9 @@ namespace husky::tools
         std::vector<std::size_t> m_addedComponentIndexes;
         // 置いた後に外したコンポーネントの(型の名前、プレハブの中の ID の文字列)。1つずつ Revert ボタンを付ける(PF-7d)
         std::vector<std::pair<std::string, std::string>> m_removedComponents;
+        // 置いた後に足した子の(名前、guid)と、消した子の(名前、プレハブの中の ID)。ボタンでコマンドを呼ぶ(HIER)
+        std::vector<std::pair<std::string, std::string>> m_addedChildren;
+        std::vector<std::pair<std::string, std::string>> m_removedChildren;
 
         // ---- アクターの木(HIER-3)----
         // 一覧を親子の木で描く。毎フレーム、シーンの一覧から作り直す(入れ物は使い回し、温まった後は確保しない)。

@@ -364,6 +364,12 @@ namespace husky::tools
     // 全員に伝える(足したときは全員に足し、消したときは全員から外す)。Undo できない。
     EditorCommand MakeApplyComponentCommand(std::string assetsDirectory);
 
+    // 子のアクターの出し入れ(HIER)。prefab.revertChild: 置いた後に消した子(actor と child = プレハブの中の ID)を、
+    // プレハブの値で戻す(Undo できる)。prefab.applyChild: 足した子(added = guid)をプレハブに書き込むか、消した子(removed = ID)を
+    // プレハブから消し、同じプレハブから置いた全員に伝える(Undo できない)。
+    EditorCommand MakeRevertChildCommand();
+    EditorCommand MakeApplyChildCommand(std::string assetsDirectory);
+
     // 「プレハブとの違いの一覧」コマンド(prefab.overrides)を作る。引数: actor。読むだけ。
     // data に {component, property, value, prefabValue, perInstance} の配列を入れる(Prefab::FindOverrides)。
     EditorCommand MakeListOverridesCommand();

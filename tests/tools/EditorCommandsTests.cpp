@@ -1637,4 +1637,103 @@ TEST_CASE("EditorCommands: 子を含むプレハブの prefab.revert / prefab.ap
     (void)third;
 }
 
+
+TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置いた後に足した・消した子をプレハブと行き来させる(HIER)")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_child_changes");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeRevertChildCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeApplyChildCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    car->name = "Car";
+    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    wheel->name = "Wheel";
+    REQUIRE(wheel->SetParent(car, false));
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Car", "path": "prefabs/car.prefab"})")).succeeded);
+
+    auto spawn = [&]() {
+        const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/car.prefab"})"));
+        REQUIRE(spawned.succeeded);
+        husky::core::Guid guid;
+        REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
+        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        REQUIRE(placed != nullptr);
+        return placed;
+    };
+    auto childrenOf = [](const husky::engine::Actor& actor) {
+        std::vector<husky::engine::Actor*> children;
+        actor.GetChildren(children);
+        return children;
+    };
+    auto endFrame = [&]() {
+        app.GetScene().RemoveDestroyedActors();
+        app.GetRegistry().FlushDestroyed();
+    };
+    husky::engine::Actor* first = spawn();
+    husky::engine::Actor* second = spawn();
+    const std::string firstArg = "\"actor\": \"" + first->guid.ToString() + "\"";
+    const std::string secondArg = "\"actor\": \"" + second->guid.ToString() + "\"";
+    REQUIRE(childrenOf(*first).size() == 1);
+
+    // --- 消した子を Revert で戻す(Undo でまた消える)---
+    REQUIRE(commands.Execute("actor.destroy", app, Json(("{\"actor\": \"" + childrenOf(*first)[0]->guid.ToString() + "\"}").c_str()))
+                .succeeded);
+    endFrame();
+    husky::engine::Prefab::OverridesResult found = husky::engine::Prefab::FindOverrides(*first);
+    REQUIRE(found.removedChildren.size() == 1);
+    CHECK(found.removedChildren[0].name == "Wheel");
+    const std::string wheelId = found.removedChildren[0].prefabActorId.ToString();
+    REQUIRE(commands.Execute("prefab.revertChild", app, Json(("{" + firstArg + ", \"child\": \"" + wheelId + "\"}").c_str())).succeeded);
+    REQUIRE(childrenOf(*first).size() == 1);
+    CHECK(childrenOf(*first)[0]->prefabActorId.ToString() == wheelId);
+    CHECK(husky::engine::Prefab::FindOverrides(*first).removedChildren.empty());
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    endFrame();
+    CHECK(childrenOf(*first).empty());
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    REQUIRE(childrenOf(*first).size() == 1);
+
+    // --- 足した子を Apply でプレハブに書き込むと、ほかの置いたものにも足される ---
+    husky::engine::Actor* light = app.GetScene().Spawn<husky::engine::Actor>();
+    light->name = "Light";
+    REQUIRE(light->SetParent(first, false));
+    found = husky::engine::Prefab::FindOverrides(*first);
+    REQUIRE(found.addedChildren.size() == 1);
+    REQUIRE(commands.Execute("prefab.applyChild", app,
+                             Json(("{" + firstArg + ", \"added\": \"" + light->guid.ToString() + "\"}").c_str()))
+                .succeeded);
+    CHECK_FALSE(light->prefabActorId.IsNull()); // 組になった
+    CHECK(husky::engine::Prefab::FindOverrides(*first).addedChildren.empty());
+    CHECK(childrenOf(*second).size() == 2); // Wheel と Light
+    CHECK(childrenOf(*spawn()).size() == 2); // 書き直したプレハブから置いても
+
+    // --- 消した子を Apply すると、プレハブからも消え、ほかの置いたものからも消える ---
+    husky::engine::Actor* secondWheel = nullptr;
+    for (husky::engine::Actor* child : childrenOf(*second))
+    {
+        secondWheel = child->name == "Wheel" ? child : secondWheel;
+    }
+    REQUIRE(secondWheel != nullptr);
+    REQUIRE(commands.Execute("actor.destroy", app, Json(("{\"actor\": \"" + secondWheel->guid.ToString() + "\"}").c_str())).succeeded);
+    endFrame();
+    REQUIRE(commands.Execute("prefab.applyChild", app, Json(("{" + secondArg + ", \"removed\": \"" + wheelId + "\"}").c_str()))
+                .succeeded);
+    endFrame();
+    REQUIRE(childrenOf(*first).size() == 1); // Light だけ
+    CHECK(childrenOf(*first)[0]->name == "Light");
+    husky::engine::Actor* fresh = spawn();
+    REQUIRE(childrenOf(*fresh).size() == 1);
+    CHECK(childrenOf(*fresh)[0]->name == "Light");
+}
+
 #endif
