@@ -73,6 +73,15 @@ namespace husky::render
     // 動作スレッド: どこでもよい
     SpriteCorners ComputeSpriteCorners(const Sprite& sprite);
 
+    // 幅 width・高さ height の四角を (x, y) に置いたとき、幅 textureWidth・高さ textureHeight のテクスチャに収まるか(UI-2b)。
+    // 大きさが 0 以下の四角は収まらないとする。UpdateTexture が確かめるのに使う(GPU を使わないのでテストできる)。
+    // 引き算で比べるので、大きな値でも足し算があふれない。
+    inline bool IsTextureRegionInside(int textureWidth, int textureHeight, int x, int y, int width, int height)
+    {
+        return x >= 0 && y >= 0 && width > 0 && height > 0 && width <= textureWidth && height <= textureHeight &&
+               x <= textureWidth - width && y <= textureHeight - height;
+    }
+
     // 直前のフレームの描画の集計。性能の確認に使う。
     struct FrameStats
     {
@@ -108,6 +117,18 @@ namespace husky::render
         // 画像を GPU に送り、テクスチャを作る。Initialize の後なら、いつ呼んでもよい(フレームの途中でもよい)。
         // 戻り値: 作ったテクスチャのハンドル。失敗したら何も指さないハンドル(IsNull() が true)。
         TextureHandle CreateTexture(const platform::Image& image);
+
+        // 中身が透明(RGBA がすべて 0)な、幅 width・高さ height のテクスチャを作る(UI-2b)。
+        // 字のアトラスのように、後から UpdateTexture で少しずつ書き足すもの。失敗したら何も指さないハンドル。
+        TextureHandle CreateTexture(int width, int height);
+
+        // テクスチャの一部を書き換える(UI-2b)。(x, y) は書き換える四角の左上のピクセル(テクスチャの左上が (0, 0)、
+        // 右が +x、下が +y。Image と同じ並び)で、四角の大きさは pixels の幅と高さ。Initialize の後なら、いつ呼んでもよい
+        // (フレームの途中でもよく、そのフレームの描画から新しい中身で描かれる)。呼ぶたびに GPU へ送るので、
+        // 字を足すときのように、たまに呼ぶ使い方を考えている。
+        // 戻り値: 書き換えたら true。四角がテクスチャからはみ出す・pixels の大きさが合わない・手放されたハンドルなら、
+        // 何もせず false(エラーのログを出す)。
+        bool UpdateTexture(TextureHandle texture, int x, int y, const platform::Image& pixels);
 
         // テクスチャを手放す。ハンドルはすぐに無効になる(この後の DrawSprite では白い板になる)が、
         // GPU のメモリは、GPU が使い終わるまで数フレーム待ってから解放する(DeferredReleaseQueue.h)。

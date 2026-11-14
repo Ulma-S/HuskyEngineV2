@@ -176,6 +176,8 @@ namespace husky::render
         bool CreateSpriteBuffers();
         bool CreateSampler();
         SDL_GPUTexture* CreateGpuTexture(const platform::Image& image);
+        // texture の (x, y) から幅 width・高さ height の四角に、pixels(RGBA、行の間に隙間なし)を送る。戻り値: 成功したら true。
+        bool UploadTextureRegion(SDL_GPUTexture* texture, Uint32 x, Uint32 y, Uint32 width, Uint32 height, const std::uint8_t* pixels);
         void UploadVertices(Uint32 bytes);
         void ResetFrame();
 
@@ -656,7 +658,21 @@ namespace husky::render
             return nullptr;
         }
 
-        // 2〜4. 頂点バッファと同じく、転送用バッファ → コピーパス の順で GPU に送る。
+        // 2. 画像の全体を送る。
+        if (!UploadTextureRegion(texture, 0, 0, width, height, image.pixels.data()))
+        {
+            SDL_ReleaseGPUTexture(device, texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    bool RenderDevice::Impl::UploadTextureRegion(SDL_GPUTexture* texture, Uint32 x, Uint32 y, Uint32 width, Uint32 height,
+                                                   const std::uint8_t* pixels)
+    {
+        const Uint32 bytes = width * height * 4;
+
+        // 頂点バッファと同じく、転送用バッファ → コピーパス の順で GPU に送る。
         SDL_GPUTransferBufferCreateInfo transferInfo{};
         transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
         transferInfo.size = bytes;
@@ -664,8 +680,7 @@ namespace husky::render
         if (transferBuffer == nullptr)
         {
             HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_CreateGPUTransferBuffer", SDL_GetError());
-            SDL_ReleaseGPUTexture(device, texture);
-            return nullptr;
+            return false;
         }
 
         void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
@@ -673,21 +688,20 @@ namespace husky::render
         {
             HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_MapGPUTransferBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-            SDL_ReleaseGPUTexture(device, texture);
-            return nullptr;
+            return false;
         }
-        std::memcpy(mapped, image.pixels.data(), bytes);
+        std::memcpy(mapped, pixels, bytes);
         SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
         // フレームの途中で呼ばれても、そのフレームの命令とは混ぜず、別の入れ物(コマンドバッファ)で送る。
-        // GPU は提出された順に実行するので、このフレームの描画より先にテクスチャの中身が届く。
+        // GPU は提出された順に実行するので、このフレームの描画より先にテクスチャの中身が届き、
+        // 前のフレームまでに提出した描画(古い中身を読むもの)より後に書き換わる。
         SDL_GPUCommandBuffer* uploadCommands = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommands == nullptr)
         {
             HUSKY_LOG(RenderLog::SdlCallFailed, "SDL_AcquireGPUCommandBuffer", SDL_GetError());
             SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-            SDL_ReleaseGPUTexture(device, texture);
-            return nullptr;
+            return false;
         }
         SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(uploadCommands);
 
@@ -697,6 +711,8 @@ namespace husky::render
 
         SDL_GPUTextureRegion destination{};
         destination.texture = texture;
+        destination.x = x; // 書き換える四角の左上(テクスチャの左上が (0, 0)、下が +y。Image と同じ並び)
+        destination.y = y;
         destination.w = width;
         destination.h = height;
         destination.d = 1;
@@ -705,7 +721,7 @@ namespace husky::render
         SDL_EndGPUCopyPass(copyPass);
         SDL_SubmitGPUCommandBuffer(uploadCommands);
         SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-        return texture;
+        return true;
     }
 
     TextureHandle RenderDevice::CreateTexture(const platform::Image& image)
@@ -725,6 +741,50 @@ namespace husky::render
         texture.width = static_cast<Uint32>(image.width);
         texture.height = static_cast<Uint32>(image.height);
         return m_impl->textures.Add(texture);
+    }
+
+    TextureHandle RenderDevice::CreateTexture(int width, int height)
+    {
+        // 透明な画像をいったん作って送る(GPU に作ったばかりのテクスチャの中身は決まっていないので、0 で埋めておく)。
+        // 作るのはたまになので、この一時的な確保は気にしない。
+        platform::Image image;
+        image.width = width;
+        image.height = height;
+        if (width > 0 && height > 0)
+        {
+            image.pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4, 0);
+        }
+        return CreateTexture(image); // 大きさが不正なら、こちらがログを出して何も指さないハンドルを返す
+    }
+
+    bool RenderDevice::UpdateTexture(TextureHandle texture, int x, int y, const platform::Image& pixels)
+    {
+        if (m_impl->device == nullptr)
+        {
+            HUSKY_LOG(RenderLog::NotInitialized, "RenderDevice::UpdateTexture");
+            return false;
+        }
+        const Texture* target = m_impl->textures.Get(texture);
+        if (target == nullptr)
+        {
+            HUSKY_LOG(RenderLog::TextureNotAlive, "RenderDevice::UpdateTexture");
+            return false;
+        }
+        const int textureWidth = static_cast<int>(target->width);
+        const int textureHeight = static_cast<int>(target->height);
+        const std::size_t expectedBytes =
+            pixels.width > 0 && pixels.height > 0
+                ? static_cast<std::size_t>(pixels.width) * static_cast<std::size_t>(pixels.height) * 4
+                : 0;
+        if (!IsTextureRegionInside(textureWidth, textureHeight, x, y, pixels.width, pixels.height) ||
+            pixels.pixels.size() != expectedBytes)
+        {
+            HUSKY_LOG(RenderLog::InvalidTextureRegion, x, y, pixels.width, pixels.height, textureWidth, textureHeight);
+            return false;
+        }
+        return m_impl->UploadTextureRegion(target->gpuTexture, static_cast<Uint32>(x), static_cast<Uint32>(y),
+                                           static_cast<Uint32>(pixels.width), static_cast<Uint32>(pixels.height),
+                                           pixels.pixels.data());
     }
 
     void RenderDevice::ReleaseTexture(TextureHandle texture)

@@ -504,6 +504,7 @@ if(HUSKY_BUILD_TESTS)
         tests/platform/FileSystemTests.cpp
         tests/platform/MemoryHooksTests.cpp
         tests/render/SpriteBatchTests.cpp
+        tests/render/TextureRegionTests.cpp
         tests/render/DeferredReleaseQueueTests.cpp
         tests/tools/InspectorTests.cpp
         tests/tools/PropertyEditRecorderTests.cpp

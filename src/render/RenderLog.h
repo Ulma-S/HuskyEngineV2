@@ -18,6 +18,8 @@ namespace husky::render
         SpriteBufferFailed = 10,
         DevUiFontFailed = 11,
         TooManyViewProjections = 12,
+        InvalidTextureRegion = 13,
+        TextureNotAlive = 14,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(RenderLog, "Engine.Render")
@@ -39,5 +41,11 @@ namespace husky::render
         HUSKY_LOG_MESSAGE(TooManyViewProjections, Warning,
                           "SetViewProjection: 1フレームに使える行列は {max} 個までです。それより後は前の行列のまま描きます",
                           HUSKY_LOG_ARG(max, Int))
+        HUSKY_LOG_MESSAGE(InvalidTextureRegion, Error,
+                          "UpdateTexture: 書き換える四角 ({x}, {y}, {width} × {height}) がテクスチャ ({textureWidth} × {textureHeight}) に収まらないか、画像の大きさが合いません",
+                          HUSKY_LOG_ARG(x, Int), HUSKY_LOG_ARG(y, Int), HUSKY_LOG_ARG(width, Int), HUSKY_LOG_ARG(height, Int),
+                          HUSKY_LOG_ARG(textureWidth, Int), HUSKY_LOG_ARG(textureHeight, Int))
+        HUSKY_LOG_MESSAGE(TextureNotAlive, Error, "{function}: 手放されたか、何も指さないテクスチャです",
+                          HUSKY_LOG_ARG(function, String))
     HUSKY_LOG_CHANNEL_END()
 }
