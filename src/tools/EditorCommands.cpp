@@ -487,7 +487,7 @@ namespace husky::tools
             }
 
             engine::AssetLoader& loader = app.GetAssetLoader();
-            const engine::PrefabAsset* prefab = loader.ResolvePrefab(loader.LoadPrefab(guid));
+            const engine::PrefabAsset* prefab = loader.Resolve<engine::PrefabAsset>(loader.Load<engine::PrefabAsset>(guid));
             if (prefab != nullptr && prefab->GetState() == engine::AssetState::Loading)
             {
                 loader.WaitForAllLoads();
@@ -2404,10 +2404,10 @@ namespace husky::tools
                 return false;
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
-            reloaded = loader.ReloadPrefab(guid);
-            loader.ReloadPrefabsNesting(guid); // このプレハブを入れ子に持つプレハブも、開いた形を作り直す(HIER)
+            reloaded = engine::ReloadPrefab(loader, guid);
+            engine::ReloadPrefabsNesting(loader, guid); // このプレハブを入れ子に持つプレハブも、開いた形を作り直す(HIER)
             loader.WaitForAllLoads();
-            const engine::PrefabAsset* newPrefab = loader.ResolvePrefab(reloaded);
+            const engine::PrefabAsset* newPrefab = loader.Resolve<engine::PrefabAsset>(reloaded);
             if (newPrefab == nullptr || !newPrefab->IsLoaded())
             {
                 error = "Wrote " + prefabPath + " but could not load it again";
@@ -2656,7 +2656,7 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure(error);
             }
-            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().ResolvePrefab(reloaded);
+            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().Resolve<engine::PrefabAsset>(reloaded);
             if (applied != nullptr)
             {
                 applied->prefabComponentId = componentId; // 置いたもののコンポーネントは、プレハブの新しいものと組になる
@@ -2831,12 +2831,12 @@ namespace husky::tools
             pathOut = *path;
 
             engine::AssetLoader& loader = app.GetAssetLoader();
-            const engine::ScriptableDataAsset* asset = loader.ResolveScriptableDataAsset(loader.LoadScriptableData(guidOut));
+            const engine::ScriptableDataAsset* asset = loader.Resolve<engine::ScriptableDataAsset>(loader.Load<engine::ScriptableDataAsset>(guidOut));
             if (asset != nullptr && asset->GetState() == engine::AssetState::Loading)
             {
                 loader.WaitForAllLoads();
             }
-            const engine::ScriptableData* data = asset != nullptr ? loader.GetScriptableData(*asset) : nullptr;
+            const engine::ScriptableData* data = asset != nullptr ? engine::GetScriptableData(loader, *asset) : nullptr;
             if (data == nullptr)
             {
                 error = "Could not load the data asset: " + *path + " (see log)";
@@ -3050,7 +3050,7 @@ namespace husky::tools
                 return EditorCommandResult::Failure("Could not write " + fullPath);
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
-            loader.ReloadScriptableData(guid);
+            engine::ReloadScriptableData(loader, guid);
             loader.WaitForAllLoads();
 
             std::string oldText;
@@ -3273,7 +3273,7 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure(error);
             }
-            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().ResolvePrefab(reloaded);
+            const engine::PrefabAsset* newPrefab = app.GetAssetLoader().Resolve<engine::PrefabAsset>(reloaded);
             core::ObjectRegistry& registry = app.GetRegistry();
 
             // 3. 足した子(と子孫・コンポーネント)に、プレハブの中の新しい ID とプレハブを覚えさせる(これで組になる)

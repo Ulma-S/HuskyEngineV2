@@ -144,14 +144,14 @@ namespace husky::engine
             m_collectedLastGc = m_registry.CollectGarbage();
             m_secondsSinceGc = 0.0;
             // 読むだけの ScriptableData が書き換えられていないか(開発ビルドだけ。製品では何もしない)。GC と同じ 1 秒に 1 回。
-            m_loader.CheckScriptableDataUnchanged();
+            CheckScriptableDataUnchanged(m_loader);
         }
         return dt;
     }
 
     const PrefabAsset* Application::FindPrefabForScene(const core::Guid& guid)
     {
-        const PrefabAsset* prefab = m_loader.ResolvePrefab(m_loader.LoadPrefab(guid));
+        const PrefabAsset* prefab = m_loader.Resolve<PrefabAsset>(m_loader.Load<PrefabAsset>(guid));
         if (prefab != nullptr && prefab->GetState() == AssetState::Loading)
         {
             m_loader.WaitForAllLoads(); // 読み込み中なら、読み終わるまで待つ(ジョブで読み、ここで結果を受け取る)
@@ -289,7 +289,7 @@ namespace husky::engine
             HUSKY_LOG(AssetLog::DefaultTextureMissing, relativePath);
             return;
         }
-        m_defaultSpriteTexture = m_loader.LoadTexture(*guid);
+        m_defaultSpriteTexture = m_loader.Load<TextureAsset>(*guid);
         // ローダが返すハンドルは弱い参照なので、根に加えて、GC に回収されないようにする。
         m_registry.AddRoot(m_defaultSpriteTexture);
     }

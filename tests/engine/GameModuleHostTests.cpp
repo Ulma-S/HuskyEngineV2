@@ -129,7 +129,7 @@ TEST_CASE("HR-3: 外すときは、ゲームの型の ScriptableData をロー�
 
     // 箱(エンジンの型)はシーンから届くが、中身は手放すので回収され、外せる
     CHECK(host.Detach(app.GetTypeRegistry(), app.GetRegistry(), app.GetAssetLoader()));
-    CHECK(loader.GetLoadedScriptableDataCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::ScriptableDataAsset>() == 0);
 
     // 型を付け直すと、指している AssetRef は GUID から読み直し、新しい型で中身が作られる
     host.Attach(MakeTestModule(), app.GetTypeRegistry());

@@ -174,15 +174,15 @@ TEST_CASE("PrefabAsset: .prefab を GUID で読むと値の木が手に入り、
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     husky::engine::AssetLoader& loader = app.GetAssetLoader();
 
-    const ObjectHandle handle = loader.LoadPrefab(guid);
-    const husky::engine::PrefabAsset* prefab = loader.ResolvePrefab(handle);
+    const ObjectHandle handle = loader.Load<husky::engine::PrefabAsset>(guid);
+    const husky::engine::PrefabAsset* prefab = loader.Resolve<husky::engine::PrefabAsset>(handle);
     REQUIRE(prefab != nullptr);
     CHECK(prefab->GetState() == husky::engine::AssetState::Loading); // すぐには読み終わらない(ジョブで読む)
-    CHECK(loader.LoadPrefab(guid) == handle);                        // 読み込み中でも、同じアセットを返す
+    CHECK(loader.Load<husky::engine::PrefabAsset>(guid) == handle);                        // 読み込み中でも、同じアセットを返す
 
     loader.WaitForAllLoads();
     REQUIRE(prefab->IsLoaded());
-    CHECK(loader.GetLoadedPrefabCount() == 1);
+    CHECK(loader.GetLoadedCount<husky::engine::PrefabAsset>() == 1);
 
     const Prefab::InstantiateResult placed = Prefab::Instantiate(prefab->GetData(), app.GetScene(), app.GetTypeRegistry());
     CHECK(placed.warnings.empty());
@@ -205,9 +205,9 @@ TEST_CASE("PrefabAsset: JSON として読めないファイルや、表に無い
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     husky::engine::AssetLoader& loader = app.GetAssetLoader();
-    const husky::engine::PrefabAsset* brokenPrefab = loader.ResolvePrefab(loader.LoadPrefab(broken));
+    const husky::engine::PrefabAsset* brokenPrefab = loader.Resolve<husky::engine::PrefabAsset>(loader.Load<husky::engine::PrefabAsset>(broken));
     const husky::engine::PrefabAsset* missing =
-        loader.ResolvePrefab(loader.LoadPrefab(husky::tests::MakeGuid(1, 2)));
+        loader.Resolve<husky::engine::PrefabAsset>(loader.Load<husky::engine::PrefabAsset>(husky::tests::MakeGuid(1, 2)));
     loader.WaitForAllLoads();
     REQUIRE(brokenPrefab != nullptr);
     REQUIRE(missing != nullptr);
@@ -371,7 +371,7 @@ TEST_CASE("PF-4: プレハブから置いたものは違いだけを保存する
     REQUIRE(loaded->GetComponent<SpriteComponent>() != nullptr);
     CHECK(loaded->GetComponent<SpriteComponent>()->width == 64.0f);  // プレハブから(直した値)
     CHECK(loaded->GetComponent<SpriteComponent>()->height == 20.0f); // ファイルの違いから
-    CHECK(app.GetAssetLoader().ResolvePrefab(loaded->prefab.asset) != nullptr); // 読んだプレハブを覚えている
+    CHECK(app.GetAssetLoader().Resolve<husky::engine::PrefabAsset>(loaded->prefab.asset) != nullptr); // 読んだプレハブを覚えている
 
     // もう一度保存しても、違いは同じ(プレハブの値は書かない)
     const ArchiveValue again = husky::engine::SceneSerializer::Write(app.GetScene()).value;

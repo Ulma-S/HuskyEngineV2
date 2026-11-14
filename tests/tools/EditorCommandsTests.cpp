@@ -1827,7 +1827,7 @@ TEST_CASE("EditorCommands: 入れ子のプレハブ: 中のプレハブとの違
     CHECK(widthOf(*placedFront) == 12.0f);
     CHECK(widthOf(*placedRear) == 10.0f);
     // 入れ子の元のプレハブが分かる
-    const husky::engine::PrefabAsset* carPrefab = app.GetAssetLoader().ResolvePrefab(placedCar->prefab.asset);
+    const husky::engine::PrefabAsset* carPrefab = app.GetAssetLoader().Resolve<husky::engine::PrefabAsset>(placedCar->prefab.asset);
     REQUIRE(carPrefab != nullptr);
     CHECK(husky::engine::Prefab::FindNestedSource(*carPrefab, placedRear->prefabActorId) == rear->prefab.guid);
     CHECK(husky::engine::Prefab::FindNestedSource(*carPrefab, placedCar->prefabActorId).IsNull());

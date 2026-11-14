@@ -80,7 +80,7 @@ TEST_CASE("AssetRef: 使うとき(Resolve)に読み、参照している間は G
     Actor* actor = app.GetScene().Spawn<Actor>();
     SpriteComponent* sprite = actor->AddComponent<SpriteComponent>();
     sprite->texture.guid = guid;
-    CHECK(loader.GetLoadedTextureCount() == 0); // GUID を入れただけでは、まだ読まない
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0); // GUID を入れただけでは、まだ読まない
 
     const TextureAsset* texture = loader.Resolve(sprite->texture);
     REQUIRE(texture != nullptr);
@@ -92,14 +92,14 @@ TEST_CASE("AssetRef: 使うとき(Resolve)に読み、参照している間は G
 
     // シーン(根)→ アクター → コンポーネント → AssetRef → アセット、とたどれるので回収されない。
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.ResolveTexture(sprite->texture.asset) == texture);
+    CHECK(loader.Resolve<husky::engine::TextureAsset>(sprite->texture.asset) == texture);
 
     // アクターを消すと、アセットを指すものが無くなり、次の GC で回収される。
     actor->Destroy();
     app.GetClock().SetFixedDelta(0.01);
     app.StepFrame(0, {}); // フレームの終わりに、アクターが一覧から外れ、破棄が確定する
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.GetLoadedTextureCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0);
 }
 
 TEST_CASE("AssetRef: 指す GUID を変えると(インスペクタで選び直すなど)、次の Resolve で新しいアセットを読む")

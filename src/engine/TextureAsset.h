@@ -5,9 +5,9 @@
 // (.texture のようなファイル)に変える余地を残している。そのときも、使う側は GUID(AssetRef<TextureAsset>)で指すので変わらない
 // (設計メモ「テクスチャを包むアセットへの移し替え」)。
 //
-// 作るのは AssetLoader だけ(AssetLoader::LoadTexture)。ゲームは、受け取ったハンドルから引いて使う。
-//   core::ObjectHandle handle = loader.LoadTexture(guid);
-//   if (TextureAsset* texture = loader.ResolveTexture(handle); texture && texture->IsLoaded()) { ... }
+// 作るのは読み方(TextureAssetKind)だけ。読むのは loader.Load<TextureAsset>(guid) か Resolve(AssetRef)。ゲームは、受け取ったハンドルから引いて使う。
+//   core::ObjectHandle handle = loader.Load<TextureAsset>(guid);
+//   if (TextureAsset* texture = loader.Resolve<TextureAsset>(handle); texture && texture->IsLoaded()) { ... }
 //
 // 寿命は GC が決める。どこからも強い参照(プロパティの ObjectHandle、または根)で指されていなければ、
 // 次の GC で回収され、そのとき GPU のテクスチャも手放す(解放は描画層が数フレーム遅らせる)。

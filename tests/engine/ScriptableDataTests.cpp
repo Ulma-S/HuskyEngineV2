@@ -98,10 +98,10 @@ TEST_CASE("ScriptableData: .sdata を AssetRef で指すと、ファイルの型
     husky::core::AssetRef<WeaponData> weapon;
     weapon.guid = SwordGuid;
     CHECK(loader.Resolve(weapon) == nullptr); // 読み始めたところ(中身は読み終わってから作る)
-    const ScriptableDataAsset* asset = loader.ResolveScriptableDataAsset(weapon.asset);
+    const ScriptableDataAsset* asset = loader.Resolve<husky::engine::ScriptableDataAsset>(weapon.asset);
     REQUIRE(asset != nullptr);
     CHECK(asset->GetState() == AssetState::Loading);
-    CHECK(loader.LoadScriptableData(SwordGuid) == weapon.asset); // 同じ GUID は同じ箱
+    CHECK(loader.Load<husky::engine::ScriptableDataAsset>(SwordGuid) == weapon.asset); // 同じ GUID は同じ箱
 
     loader.WaitForAllLoads();
     REQUIRE(asset->IsLoaded());
@@ -112,7 +112,7 @@ TEST_CASE("ScriptableData: .sdata を AssetRef で指すと、ファイルの型
     CHECK(data->label == "Long sword");
     CHECK(static_cast<const SwordData*>(data)->length == 90);
     CHECK(data->GetAssetGuid() == SwordGuid);
-    CHECK(loader.GetLoadedScriptableDataCount() == 1);
+    CHECK(loader.GetLoadedCount<husky::engine::ScriptableDataAsset>() == 1);
 
     CHECK(loader.CanLoadAs(WeaponData::StaticType(), "data/sword.sdata"));
     CHECK_FALSE(loader.CanLoadAs(WeaponData::StaticType(), "prefabs/coin.prefab"));
@@ -135,7 +135,7 @@ TEST_CASE("ScriptableData: 中身の型が期待する型(か、その子)でな
     CHECK(loader.Resolve(sword) == nullptr);
     CHECK(loader.Resolve(sword) == nullptr); // 2回目も同じ(警告は1回だけ)
 
-    const ScriptableDataAsset* asset = loader.ResolveScriptableDataAsset(sword.asset);
+    const ScriptableDataAsset* asset = loader.Resolve<husky::engine::ScriptableDataAsset>(sword.asset);
     REQUIRE(asset != nullptr);
     CHECK(asset->IsLoaded()); // 箱は読めている。型が合わないだけ
 
@@ -167,14 +167,14 @@ TEST_CASE("ScriptableData: 型の名前が無い・登録されていない・Sc
     std::vector<const ScriptableDataAsset*> assets;
     for (const Guid& guid : {noType, unknown, notData, broken, husky::tests::MakeGuid(1, 2)})
     {
-        assets.push_back(loader.ResolveScriptableDataAsset(loader.LoadScriptableData(guid)));
+        assets.push_back(loader.Resolve<husky::engine::ScriptableDataAsset>(loader.Load<husky::engine::ScriptableDataAsset>(guid)));
     }
     loader.WaitForAllLoads();
     for (const ScriptableDataAsset* asset : assets)
     {
         REQUIRE(asset != nullptr);
         CHECK(asset->GetState() == AssetState::Failed);
-        CHECK(loader.GetScriptableData(*asset) == nullptr);
+        CHECK(husky::engine::GetScriptableData(loader, *asset) == nullptr);
     }
     CHECK(app.GetRegistry().GetObjectCount() == objectsBefore + assets.size()); // 箱だけで、中身(Holder など)は作っていない
 }
@@ -200,13 +200,13 @@ TEST_CASE("ScriptableData: AssetRef で指している間は、箱も中身も G
     // シーン(根)→ アクター → AssetRef → 箱 → 箱のプロパティ → 中身、とたどれるので回収されない。
     app.GetRegistry().CollectGarbage();
     CHECK(app.GetRegistry().Resolve(dataHandle) != nullptr);
-    CHECK(loader.GetLoadedScriptableDataCount() == 1);
+    CHECK(loader.GetLoadedCount<husky::engine::ScriptableDataAsset>() == 1);
 
     holder->Destroy();
     app.GetClock().SetFixedDelta(0.01);
     app.StepFrame(0, {}); // フレームの終わりに、アクターが一覧から外れ、破棄が確定する
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.GetLoadedScriptableDataCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::ScriptableDataAsset>() == 0);
     CHECK(app.GetRegistry().Resolve(dataHandle) == nullptr);
 }
 
@@ -298,18 +298,18 @@ TEST_CASE("SD-2: 開発ビルドでは、生のポインタで書き換えた読
     loader.WaitForAllLoads();
     const SwordData* data = loader.Resolve(sword);
     REQUIRE(data != nullptr);
-    CHECK(loader.CheckScriptableDataUnchanged() == 0); // まだ誰も書いていない
+    CHECK(husky::engine::CheckScriptableDataUnchanged(loader) == 0); // まだ誰も書いていない
 
     // const_cast で const を外して直接書く(やってはいけない書き方。印では止められない)。
     SwordData& writable = const_cast<SwordData&>(*data);
     writable.damage = 50.0f;
     writable.length = 4;
 #if HUSKY_DEVELOPMENT
-    CHECK(loader.CheckScriptableDataUnchanged() == 2); // damage と length の2つ(名前つきのエラーがログに出る)
-    CHECK(loader.CheckScriptableDataUnchanged() == 0); // 同じ書き換えは2回出さない
+    CHECK(husky::engine::CheckScriptableDataUnchanged(loader) == 2); // damage と length の2つ(名前つきのエラーがログに出る)
+    CHECK(husky::engine::CheckScriptableDataUnchanged(loader) == 0); // 同じ書き換えは2回出さない
     writable.damage = 51.0f;
-    CHECK(loader.CheckScriptableDataUnchanged() == 1); // 新しい書き換えは、また見つける
+    CHECK(husky::engine::CheckScriptableDataUnchanged(loader) == 1); // 新しい書き換えは、また見つける
 #else
-    CHECK(loader.CheckScriptableDataUnchanged() == 0); // 製品では比べない(控えも持たない)
+    CHECK(husky::engine::CheckScriptableDataUnchanged(loader) == 0); // 製品では比べない(控えも持たない)
 #endif
 }

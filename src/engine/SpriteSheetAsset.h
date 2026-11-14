@@ -16,7 +16,7 @@
 //     どれも同じ GUID のテクスチャを指すので、ローダは画像を1回だけ読み、GPU のテクスチャも1枚だけ。
 //   - texture はプロパティ(AssetRef。強い参照)なので、このアセットが生きている間は、画像も GC に回収されない。
 //
-// 作るのは AssetLoader だけ(AssetLoader::LoadSpriteSheet)。読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。
+// 作るのは読み方(SpriteSheetAssetKind)だけ。読むのは loader.Load<SpriteSheetAsset>(guid) か Resolve(AssetRef)。読み終わると、ローダが中の画像の読み込みも始める(依存の読み込み)。
 //
 // 動作スレッド: ゲームスレッドのみ
 #pragma once

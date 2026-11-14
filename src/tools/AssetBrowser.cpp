@@ -169,7 +169,7 @@ namespace husky::tools
         engine::AssetLoader& loader = app.GetAssetLoader();
 
         // 中身を引く(読み直されていれば、新しい箱に乗り換える)。箱は根に入れて、開いている間は回収させない。
-        const engine::ScriptableData* data = loader.ResolveScriptableData(window.reference, engine::ScriptableData::StaticType());
+        const engine::ScriptableData* data = engine::ResolveScriptableData(loader, window.reference, engine::ScriptableData::StaticType());
         if (window.reference.asset != window.rootedBox)
         {
             if (!window.rootedBox.IsNull())
@@ -201,7 +201,7 @@ namespace husky::tools
         core::Object* copy = registry.Resolve(window.copy);
         if (data == nullptr || copy == nullptr)
         {
-            const engine::ScriptableDataAsset* box = loader.ResolveScriptableDataAsset(window.reference.asset);
+            const engine::ScriptableDataAsset* box = loader.Resolve<engine::ScriptableDataAsset>(window.reference.asset);
             ImGui::TextUnformatted(box != nullptr && box->GetState() == engine::AssetState::Loading
                                        ? "Loading..."
                                        : "Could not load this data (see the log)");
@@ -246,7 +246,7 @@ namespace husky::tools
     void AssetBrowser::RefreshCopy(engine::Application& app, DataWindow& window)
     {
         const engine::ScriptableData* data =
-            app.GetAssetLoader().ResolveScriptableData(window.reference, engine::ScriptableData::StaticType());
+            engine::ResolveScriptableData(app.GetAssetLoader(), window.reference, engine::ScriptableData::StaticType());
         if (data == nullptr)
         {
             return;
@@ -279,7 +279,7 @@ namespace husky::tools
     {
         window.dirty = false;
         const engine::ScriptableData* data =
-            app.GetAssetLoader().ResolveScriptableData(window.reference, engine::ScriptableData::StaticType());
+            engine::ResolveScriptableData(app.GetAssetLoader(), window.reference, engine::ScriptableData::StaticType());
         const core::Object* copy = app.GetRegistry().Resolve(window.copy);
         if (data == nullptr || copy == nullptr)
         {

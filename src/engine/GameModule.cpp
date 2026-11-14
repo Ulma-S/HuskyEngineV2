@@ -166,7 +166,7 @@ namespace husky::engine
         {
             return true;
         }
-        loader.ForgetScriptableData(m_types);
+        ForgetScriptableData(loader, m_types);
         Prefab::ClearDefaultPropertiesCache();
         registry.FlushDestroyed();
         registry.CollectGarbage();

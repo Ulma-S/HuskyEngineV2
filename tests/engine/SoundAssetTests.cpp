@@ -46,8 +46,8 @@ TEST_CASE("SoundAsset: 読み終わると長さが分かり、波は音の層に
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     AssetLoader& loader = app.GetAssetLoader();
 
-    const ObjectHandle handle = loader.LoadSound(MakeGuid(5, 1));
-    const SoundAsset* sound = loader.ResolveSound(handle);
+    const ObjectHandle handle = loader.Load<husky::engine::SoundAsset>(MakeGuid(5, 1));
+    const SoundAsset* sound = loader.Resolve<husky::engine::SoundAsset>(handle);
     REQUIRE(sound != nullptr);
     CHECK(sound->GetState() == AssetState::Loading);
     loader.WaitForAllLoads();
@@ -55,12 +55,12 @@ TEST_CASE("SoundAsset: 読み終わると長さが分かり、波は音の層に
     CHECK(sound->GetFrameCount() == 4);
     REQUIRE_FALSE(sound->GetSound().IsNull());
     CHECK(app.GetAudio().GetSoundFrameCount(sound->GetSound()) == 4);
-    CHECK(loader.LoadSound(MakeGuid(5, 1)) == handle); // 同じ GUID は同じアセット
+    CHECK(loader.Load<husky::engine::SoundAsset>(MakeGuid(5, 1)) == handle); // 同じ GUID は同じアセット
 
     // どこからも強く指されていないので回収され、波も手放す(出す先が無いので、その場で捨てる)。
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.ResolveSound(handle) == nullptr);
-    CHECK(loader.GetLoadedSoundCount() == 0);
+    CHECK(loader.Resolve<husky::engine::SoundAsset>(handle) == nullptr);
+    CHECK(loader.GetLoadedCount<husky::engine::SoundAsset>() == 0);
     CHECK(app.GetAudio().GetSoundCount() == 0);
 }
 
@@ -71,9 +71,9 @@ TEST_CASE("SoundAsset: WAV として読めなければ「失敗」")
 
     Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
-    const ObjectHandle handle = app.GetAssetLoader().LoadSound(MakeGuid(5, 2));
+    const ObjectHandle handle = app.GetAssetLoader().Load<husky::engine::SoundAsset>(MakeGuid(5, 2));
     app.GetAssetLoader().WaitForAllLoads();
-    const SoundAsset* sound = app.GetAssetLoader().ResolveSound(handle);
+    const SoundAsset* sound = app.GetAssetLoader().Resolve<husky::engine::SoundAsset>(handle);
     REQUIRE(sound != nullptr);
     CHECK(sound->GetState() == AssetState::Failed);
     CHECK(sound->GetSound().IsNull());
@@ -96,9 +96,9 @@ TEST_CASE("AssetLoader: 登録した種類は、共通の入口 Load(型, GUID) 
     CHECK(kind->CanLoad("a/b.wav"));
     CHECK_FALSE(kind->CanLoad("a/b.png"));
 
-    // 共通の入口と、古い名前の入口は、同じ箱を返す。
+    // 型を値で渡す入口と、型を名前で書く入口(Load<T>)は、同じ箱を返す。
     const ObjectHandle handle = loader.Load(SoundAsset::StaticType(), MakeGuid(5, 3));
-    CHECK(loader.LoadSound(MakeGuid(5, 3)) == handle);
+    CHECK(loader.Load<husky::engine::SoundAsset>(MakeGuid(5, 3)) == handle);
     CHECK(loader.GetLoadedCount(SoundAsset::StaticType()) == 1);
 
     // AssetRef<SoundAsset> は、テンプレートの Resolve が受ける(読み始めたハンドルを reference.asset に書く)。

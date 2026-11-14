@@ -156,7 +156,7 @@ TEST_CASE("SD-3a: 読み直した後、古い箱を指す人がいなくて新�
 
     REQUIRE(commands.Execute("data.set", app, Args(R"({"asset": "enemy.sdata", "property": "hp", "value": 9})")).succeeded);
     app.GetRegistry().CollectGarbage(); // 新しい箱は誰も指していないので回収される
-    CHECK(loader.GetLoadedScriptableDataCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::ScriptableDataAsset>() == 0);
 
     const EnemySettings* stale = loader.Resolve(settings); // 新しい箱を読み始め、読み終わるまでは古い中身
     REQUIRE(stale != nullptr);

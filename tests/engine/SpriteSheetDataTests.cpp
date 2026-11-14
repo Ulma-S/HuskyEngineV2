@@ -147,9 +147,9 @@ TEST_CASE("SpriteSheet: 読むと切り出しが分かり、中で指してい�
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     auto& loader = app.GetAssetLoader();
-    const husky::core::ObjectHandle handle = loader.LoadSpriteSheet(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull));
+    const husky::core::ObjectHandle handle = loader.Load<husky::engine::SpriteSheetAsset>(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull));
 
-    husky::engine::SpriteSheetAsset* sheet = loader.ResolveSpriteSheet(handle);
+    husky::engine::SpriteSheetAsset* sheet = loader.Resolve<husky::engine::SpriteSheetAsset>(handle);
     REQUIRE(sheet != nullptr);
     CHECK(sheet->GetState() == husky::engine::AssetState::Loading);
 
@@ -164,7 +164,7 @@ TEST_CASE("SpriteSheet: 読むと切り出しが分かり、中で指してい�
     CHECK(sheet->FindAnimation(20)->name == "swing");
     CHECK(sheet->FindAnimation(20)->frames.size() == 2);
 
-    const husky::engine::TextureAsset* texture = loader.ResolveTexture(sheet->texture.asset);
+    const husky::engine::TextureAsset* texture = loader.Resolve<husky::engine::TextureAsset>(sheet->texture.asset);
     REQUIRE(texture != nullptr);
     CHECK(texture->IsLoaded());
     CHECK(texture->GetWidth() == 32);
@@ -180,24 +180,24 @@ TEST_CASE("SpriteSheet: スプライトシートが生きている間は、中�
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     auto& loader = app.GetAssetLoader();
     const husky::core::ObjectHandle sheetHandle =
-        loader.LoadSpriteSheet(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull));
+        loader.Load<husky::engine::SpriteSheetAsset>(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a46ull));
     app.GetRegistry().AddRoot(sheetHandle); // スプライトシートだけを根に加える
     loader.WaitForAllLoads();
 
     // 画像は、スプライトシートの texture(プロパティの AssetRef)からたどれるので、回収されない。
     app.GetRegistry().CollectGarbage();
-    const husky::core::ObjectHandle textureHandle = loader.ResolveSpriteSheet(sheetHandle)->texture.asset;
-    REQUIRE(loader.ResolveTexture(textureHandle) != nullptr);
+    const husky::core::ObjectHandle textureHandle = loader.Resolve<husky::engine::SpriteSheetAsset>(sheetHandle)->texture.asset;
+    REQUIRE(loader.Resolve<husky::engine::TextureAsset>(textureHandle) != nullptr);
 
     // 同じ画像をテクスチャとして直接読むと、スプライトシートが使っているものと同じアセットを返す(画像は1回だけ読む)。
-    CHECK(loader.LoadTexture(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a45ull)) == textureHandle);
-    CHECK(loader.GetLoadedTextureCount() == 1);
+    CHECK(loader.Load<husky::engine::TextureAsset>(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a45ull)) == textureHandle);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 1);
 
     // スプライトシートを根から外すと、どちらも回収される。
     app.GetRegistry().RemoveRoot(sheetHandle);
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.GetLoadedSpriteSheetCount() == 0);
-    CHECK(loader.GetLoadedTextureCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::SpriteSheetAsset>() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0);
 }
 
 TEST_CASE("SpriteSheet: texture が無い・GUID でないファイルは「失敗」になる")
@@ -209,9 +209,9 @@ TEST_CASE("SpriteSheet: texture が無い・GUID でないファイルは「失�
     husky::engine::Application app;
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
     const husky::core::ObjectHandle handle =
-        app.GetAssetLoader().LoadSpriteSheet(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a47ull));
+        app.GetAssetLoader().Load<husky::engine::SpriteSheetAsset>(husky::tests::MakeGuid(0x3f2a9c1e7b404d2eull, 0x9a1f0c5e8b7d6a47ull));
     app.GetAssetLoader().WaitForAllLoads();
-    CHECK(app.GetAssetLoader().ResolveSpriteSheet(handle)->GetState() == husky::engine::AssetState::Failed);
+    CHECK(app.GetAssetLoader().Resolve<husky::engine::SpriteSheetAsset>(handle)->GetState() == husky::engine::AssetState::Failed);
 }
 
 TEST_CASE("AssetLoader: 読めるファイルは、アセットの型ごとに拡張子で決まる")
@@ -297,15 +297,15 @@ TEST_CASE("SpriteComponent: スプライトシートを指している間は、�
 
     // シーン(根)→ アクター → コンポーネント → スプライトシート → 画像
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.GetLoadedSpriteSheetCount() == 1);
-    CHECK(loader.GetLoadedTextureCount() == 1);
+    CHECK(loader.GetLoadedCount<husky::engine::SpriteSheetAsset>() == 1);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 1);
 
     actor->Destroy();
     app.GetClock().SetFixedDelta(0.01);
     app.StepFrame(0, {});
     app.GetRegistry().CollectGarbage();
-    CHECK(loader.GetLoadedSpriteSheetCount() == 0);
-    CHECK(loader.GetLoadedTextureCount() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::SpriteSheetAsset>() == 0);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0);
 }
 
 TEST_CASE("SpriteSheetData: アニメーションを読む。コマ、1 コマの時間、繰り返し")

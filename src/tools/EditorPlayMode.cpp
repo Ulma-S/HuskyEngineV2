@@ -140,7 +140,7 @@ namespace husky::tools
 
         // 4. 再生中に、読むだけの ScriptableData が書き換えられていないか(1 秒に 1 回の確かめの間に止めても見逃さないように)。
         //    エラーの中身(ファイルとプロパティの名前)はログに出る。ここでは数を結果に添える。
-        if (const std::size_t changed = app.GetAssetLoader().CheckScriptableDataUnchanged(); changed > 0)
+        if (const std::size_t changed = engine::CheckScriptableDataUnchanged(app.GetAssetLoader()); changed > 0)
         {
             result.details.push_back(std::to_string(changed)
                                      + " read-only ScriptableData properties were changed while playing (see the log)");

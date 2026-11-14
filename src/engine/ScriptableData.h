@@ -30,7 +30,7 @@
 // ---- スクリプト言語でも使える形 ----
 // 型は名前で登録簿(TypeRegistry)から作り、値は必ず Property を通して入れる(ObjectSerializer)。
 // C++ のテンプレート(AssetRef<T>、Resolve<T>)は表側の便利な入口だけで、中身は「GUID + 期待する型の TypeInfo」で動く
-// (AssetLoader::ResolveScriptableData)。将来スクリプトの型を足しても、この形のまま使える。
+// (ResolveScriptableData(loader, reference, type))。将来スクリプトの型を足しても、この形のまま使える。
 //
 // 動作スレッド: ゲームスレッドのみ
 #pragma once
@@ -108,6 +108,12 @@ namespace husky::engine
 
     // 箱の中身。読み終わっていなければ nullptr。
     const ScriptableData* GetScriptableData(const AssetLoader& loader, const ScriptableDataAsset& asset);
+
+    // 参照が指す中身を、expected の型(か、その子)として返す。読み終わっていない・失敗・型が違うなら nullptr。
+    // テンプレートを使わない入口(スクリプトからも同じ形で呼べる)。中身は AssetLoader::ResolveContent。
+    // C++ で型が決まっているときは loader.Resolve(AssetRef<T>&) を使う。
+    const ScriptableData* ResolveScriptableData(AssetLoader& loader, core::AssetReference& reference,
+                                                const core::TypeInfo& expected);
 
     // ファイルを書き直した .sdata を、新しい箱として読み直す(読み込んだデータは変わらないので、その場では書き換えない)。
     // 古い箱を指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは古い中身のまま)。

@@ -115,9 +115,9 @@ namespace husky::tools
                 guid = *found;
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
-            const core::ObjectHandle handle = loader.LoadSound(guid);
+            const core::ObjectHandle handle = loader.Load<engine::SoundAsset>(guid);
             loader.WaitForAllLoads(); // 試し聞きなので、読み終わるまで待つ(ふつうのゲームでは待たない)
-            const engine::SoundAsset* sound = loader.ResolveSound(handle);
+            const engine::SoundAsset* sound = loader.Resolve<engine::SoundAsset>(handle);
             if (sound == nullptr || !sound->IsLoaded())
             {
                 return EditorCommandResult::Failure("Could not load the sound: " + text);

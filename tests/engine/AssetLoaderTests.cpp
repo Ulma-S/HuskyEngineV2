@@ -33,13 +33,13 @@ namespace
     }
 }
 
-TEST_CASE("AssetLoader: LoadTexture はすぐに戻り「読み込み中」。読み終わると「読めた」になり、大きさが分かる")
+TEST_CASE("AssetLoader: Load<TextureAsset> はすぐに戻り「読み込み中」。読み終わると「読めた」になり、大きさが分かる")
 {
     Application app; // ワーカー 0 本(同期実行): ジョブは Update か WaitForAllLoads で実行される
     const Guid guid = ScanBuiltAssets(app);
 
-    const ObjectHandle handle = app.GetAssetLoader().LoadTexture(guid);
-    const TextureAsset* texture = app.GetAssetLoader().ResolveTexture(handle);
+    const ObjectHandle handle = app.GetAssetLoader().Load<husky::engine::TextureAsset>(guid);
+    const TextureAsset* texture = app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(handle);
     REQUIRE(texture != nullptr);
     CHECK(texture->GetState() == AssetState::Loading);
     CHECK(texture->GetWidth() == 0);
@@ -58,22 +58,22 @@ TEST_CASE("AssetLoader: 毎フレームの StepFrame(の中の Update)で、読�
 {
     Application app;
     const Guid guid = ScanBuiltAssets(app);
-    const ObjectHandle handle = app.GetAssetLoader().LoadTexture(guid);
+    const ObjectHandle handle = app.GetAssetLoader().Load<husky::engine::TextureAsset>(guid);
     app.GetRegistry().AddRoot(handle); // フレームの終わりの GC で回収されないように
 
     app.GetClock().SetFixedDelta(0.01);
     app.StepFrame(0, {});
-    CHECK(app.GetAssetLoader().ResolveTexture(handle)->IsLoaded());
+    CHECK(app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(handle)->IsLoaded());
 }
 
 TEST_CASE("AssetLoader: 同じ GUID を2回読むと、同じアセットを返す(読み込み中でも。2回読まない)")
 {
     Application app;
     const Guid guid = ScanBuiltAssets(app);
-    const ObjectHandle first = app.GetAssetLoader().LoadTexture(guid);
-    const ObjectHandle second = app.GetAssetLoader().LoadTexture(guid);
+    const ObjectHandle first = app.GetAssetLoader().Load<husky::engine::TextureAsset>(guid);
+    const ObjectHandle second = app.GetAssetLoader().Load<husky::engine::TextureAsset>(guid);
     CHECK(first == second);
-    CHECK(app.GetAssetLoader().GetLoadedTextureCount() == 1);
+    CHECK(app.GetAssetLoader().GetLoadedCount<husky::engine::TextureAsset>() == 1);
     CHECK(app.GetAssetLoader().GetPendingLoadCount() == 1);
 }
 
@@ -86,14 +86,14 @@ TEST_CASE("AssetLoader: 読めないときも、ハンドルは返す。状態�
     REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
 
     // 表に無い GUID: 読むファイルが分からないので、ジョブを積まずに、その場で「失敗」
-    const ObjectHandle unknown = app.GetAssetLoader().LoadTexture(MakeGuid(1, 2));
+    const ObjectHandle unknown = app.GetAssetLoader().Load<husky::engine::TextureAsset>(MakeGuid(1, 2));
     REQUIRE_FALSE(unknown.IsNull());
-    CHECK(app.GetAssetLoader().ResolveTexture(unknown)->GetState() == AssetState::Failed);
+    CHECK(app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(unknown)->GetState() == AssetState::Failed);
 
     // ファイルが壊れている: 読んでみて分かるので、読み終わってから「失敗」
-    const ObjectHandle broken = app.GetAssetLoader().LoadTexture(MakeGuid(7, 7));
+    const ObjectHandle broken = app.GetAssetLoader().Load<husky::engine::TextureAsset>(MakeGuid(7, 7));
     REQUIRE_FALSE(broken.IsNull());
-    const TextureAsset* texture = app.GetAssetLoader().ResolveTexture(broken);
+    const TextureAsset* texture = app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(broken);
     CHECK(texture->GetState() == AssetState::Loading);
     app.GetAssetLoader().WaitForAllLoads();
     CHECK(texture->GetState() == AssetState::Failed);
@@ -107,26 +107,26 @@ TEST_CASE("AssetLoader: どこからも強く指されていないアセット�
     const Guid guid = ScanBuiltAssets(app);
     auto& loader = app.GetAssetLoader();
 
-    const ObjectHandle first = loader.LoadTexture(guid);
+    const ObjectHandle first = loader.Load<husky::engine::TextureAsset>(guid);
     CHECK(app.GetRegistry().CollectGarbage() >= 1); // 根にもプロパティにも指されていない → 読み込み中でも回収
-    CHECK(loader.ResolveTexture(first) == nullptr);
-    CHECK(loader.GetLoadedTextureCount() == 0);   // キャッシュからも外れる(TextureAsset のデストラクタが外す)
+    CHECK(loader.Resolve<husky::engine::TextureAsset>(first) == nullptr);
+    CHECK(loader.GetLoadedCount<husky::engine::TextureAsset>() == 0);   // キャッシュからも外れる(TextureAsset のデストラクタが外す)
 
     // 読み込みのジョブは残っている。終わっても、書く先が無いので結果を捨てるだけ(落ちない)。
     CHECK(loader.GetPendingLoadCount() == 1);
     loader.WaitForAllLoads();
     CHECK(loader.GetPendingLoadCount() == 0);
 
-    const ObjectHandle second = loader.LoadTexture(guid);
+    const ObjectHandle second = loader.Load<husky::engine::TextureAsset>(guid);
     CHECK(second != first); // 新しく作った(古いハンドルは世代が違うので、取り違えない)
-    REQUIRE(loader.ResolveTexture(second) != nullptr);
+    REQUIRE(loader.Resolve<husky::engine::TextureAsset>(second) != nullptr);
 
     // 根に加えれば、GC でも回収されない。
     app.GetRegistry().AddRoot(second);
     app.GetRegistry().CollectGarbage();
     loader.WaitForAllLoads();
-    CHECK(loader.ResolveTexture(second)->IsLoaded());
-    CHECK(loader.LoadTexture(guid) == second);
+    CHECK(loader.Resolve<husky::engine::TextureAsset>(second)->IsLoaded());
+    CHECK(loader.Load<husky::engine::TextureAsset>(guid) == second);
 }
 
 TEST_CASE("AssetLoader(ワーカーあり): 読み込みはワーカーで行われ、すべて「読めた」になる")
@@ -138,14 +138,14 @@ TEST_CASE("AssetLoader(ワーカーあり): 読み込みはワーカーで行わ
 
     for (int round = 0; round < 20; ++round) // 読み込みと回収を何度も繰り返す(取り合いで壊れないこと)
     {
-        const ObjectHandle first = app.GetAssetLoader().LoadTexture(sprite);
-        const ObjectHandle second = app.GetAssetLoader().LoadTexture(*checker);
+        const ObjectHandle first = app.GetAssetLoader().Load<husky::engine::TextureAsset>(sprite);
+        const ObjectHandle second = app.GetAssetLoader().Load<husky::engine::TextureAsset>(*checker);
         app.GetAssetLoader().WaitForAllLoads();
-        REQUIRE(app.GetAssetLoader().ResolveTexture(first)->IsLoaded());
-        REQUIRE(app.GetAssetLoader().ResolveTexture(second)->IsLoaded());
-        CHECK(app.GetAssetLoader().ResolveTexture(second)->GetWidth() == 32);
+        REQUIRE(app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(first)->IsLoaded());
+        REQUIRE(app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(second)->IsLoaded());
+        CHECK(app.GetAssetLoader().Resolve<husky::engine::TextureAsset>(second)->GetWidth() == 32);
         app.GetRegistry().CollectGarbage(); // どちらも根に無いので回収される
-        CHECK(app.GetAssetLoader().GetLoadedTextureCount() == 0);
+        CHECK(app.GetAssetLoader().GetLoadedCount<husky::engine::TextureAsset>() == 0);
     }
 }
 
@@ -155,7 +155,7 @@ TEST_CASE("AssetLoader(ワーカーあり): 読み込み中に Application を�
     const Guid guid = ScanBuiltAssets(app);
     for (int i = 0; i < 10; ++i)
     {
-        app.GetAssetLoader().LoadTexture(guid); // 1つ目以外は同じアセットを返す
+        app.GetAssetLoader().Load<husky::engine::TextureAsset>(guid); // 1つ目以外は同じアセットを返す
         app.GetRegistry().CollectGarbage();      // 回収して、次は新しく読ませる
     }
     // ここで app が壊れる。ローダはジョブを待ち、ジョブシステムはワーカーを止める(ASan のビルドで、誤用が無いことも確かめる)。

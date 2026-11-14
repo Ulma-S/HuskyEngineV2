@@ -61,7 +61,7 @@ namespace husky::game
                 return nullptr;
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
-            const engine::PrefabAsset* prefab = loader.ResolvePrefab(loader.LoadPrefab(*guid));
+            const engine::PrefabAsset* prefab = loader.Resolve<engine::PrefabAsset>(loader.Load<engine::PrefabAsset>(*guid));
             loader.WaitForAllLoads();
             if (prefab == nullptr || !prefab->IsLoaded())
             {

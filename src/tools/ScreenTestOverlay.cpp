@@ -138,13 +138,13 @@ namespace husky::tools
             {
                 return;
             }
-            m_font = loader.LoadFont(*guid);
+            m_font = loader.Load<engine::FontAsset>(*guid);
             if (app.GetRegistry().AddRoot(m_font))
             {
                 m_rootRegistry = &app.GetRegistry();
             }
         }
-        engine::FontAsset* font = loader.ResolveFont(m_font);
+        engine::FontAsset* font = loader.Resolve<engine::FontAsset>(m_font);
         engine::FontAtlas* atlas = font != nullptr ? font->GetAtlas(TestFontSize) : nullptr;
         if (atlas == nullptr)
         {

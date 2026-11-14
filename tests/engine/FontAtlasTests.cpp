@@ -190,15 +190,15 @@ TEST_CASE("FontAsset: ローダで .ttf を読み、字のアトラスを大き�
     REQUIRE(guid != nullptr);
 
     husky::engine::AssetLoader& loader = app.GetAssetLoader();
-    const husky::core::ObjectHandle handle = loader.LoadFont(*guid);
-    FontAsset* font = loader.ResolveFont(handle);
+    const husky::core::ObjectHandle handle = loader.Load<husky::engine::FontAsset>(*guid);
+    FontAsset* font = loader.Resolve<husky::engine::FontAsset>(handle);
     REQUIRE(font != nullptr);
     CHECK(font->GetAtlas(16.0f) == nullptr); // 読み終わるまではアトラスを作れない
 
     loader.WaitForAllLoads();
     REQUIRE(font->IsLoaded());
     REQUIRE(font->GetFace() != nullptr);
-    CHECK(loader.LoadFont(*guid) == handle); // 同じ GUID は同じアセット
+    CHECK(loader.Load<husky::engine::FontAsset>(*guid) == handle); // 同じ GUID は同じアセット
 
     FontAtlas* small = font->GetAtlas(16.0f);
     FontAtlas* large = font->GetAtlas(32.0f);
@@ -223,7 +223,7 @@ TEST_CASE("FontAsset: フォントでないファイルは読めない(Failed)�
     const husky::core::Guid* guid = app.GetAssetDatabase().FindGuid("fonts/OFL.txt"); // ライセンスの文(フォントではない)
     REQUIRE(guid != nullptr);
     husky::engine::AssetLoader& loader = app.GetAssetLoader();
-    FontAsset* font = loader.ResolveFont(loader.LoadFont(*guid));
+    FontAsset* font = loader.Resolve<husky::engine::FontAsset>(loader.Load<husky::engine::FontAsset>(*guid));
     REQUIRE(font != nullptr);
     loader.WaitForAllLoads();
     CHECK(font->GetState() == husky::engine::AssetState::Failed);

@@ -108,7 +108,7 @@ namespace husky::engine
                      core::ObjectHandle defaultTexture, SpritePass pass)
     {
         // 既定のテクスチャは、スプライトごとに引き直さず、最初に1回だけ引く。
-        const TextureAsset* fallback = DrawableOrNull(LoadedOrNull(loader.ResolveTexture(defaultTexture)));
+        const TextureAsset* fallback = DrawableOrNull(LoadedOrNull(loader.Resolve<TextureAsset>(defaultTexture)));
         ForEachSprite(scene, [&](render::Sprite& sprite, SpriteComponent& component) {
             PixelRect region;
             if (const TextureAsset* texture = DrawableOrNull(ChooseSpriteTexture(component, loader, region)))

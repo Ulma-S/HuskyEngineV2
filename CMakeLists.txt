@@ -614,6 +614,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/ScriptableDataTests.cpp
         tests/engine/AssetDatabaseTests.cpp
         tests/engine/AssetLoaderTests.cpp
+        tests/engine/AssetKindTests.cpp
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
         tests/engine/Box2DSmokeTests.cpp

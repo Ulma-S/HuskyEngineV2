@@ -189,6 +189,17 @@ namespace husky::engine
         return loader.GetRegistry().Resolve<ScriptableData>(asset.GetDataHandle());
     }
 
+    const ScriptableData* ResolveScriptableData(AssetLoader& loader, core::AssetReference& reference,
+                                                const core::TypeInfo& expected)
+    {
+        if (!expected.IsA(ScriptableData::StaticType()))
+        {
+            return nullptr; // ScriptableData の子でない型を頼まれた(ほかの種類の中身を返さない)
+        }
+        // 型は ScriptableData の種類の ResolveContent が IsA で確かめてある。
+        return static_cast<const ScriptableData*>(loader.ResolveContent(reference, expected));
+    }
+
     core::ObjectHandle ReloadScriptableData(AssetLoader& loader, const core::Guid& guid)
     {
         // 古い箱には印を付け、キャッシュから外す(古い箱と中身は、指している AssetRef が乗り換えるまで残る)。

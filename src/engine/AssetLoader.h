@@ -111,6 +111,19 @@ namespace husky::engine
         // 読み終わっていない・失敗・型が違うなら nullptr。テンプレートを使わない入口(スクリプトからも同じ形で呼べる)。
         const core::Object* ResolveContent(core::AssetReference& reference, const core::TypeInfo& expected);
 
+        // 型を名前で書く入口(C++ から使うとき。中身は上の関数): loader.Load<TextureAsset>(guid)、
+        // loader.Resolve<TextureAsset>(handle)(ハンドルが指す箱。もう無い・型が違うなら nullptr)。
+        template <typename T>
+        core::ObjectHandle Load(const core::Guid& guid)
+        {
+            return Load(T::StaticType(), guid);
+        }
+        template <typename T>
+        T* Resolve(core::ObjectHandle handle) const
+        {
+            return m_registry.Resolve<T>(handle);
+        }
+
         // AssetRef<T>(T は Asset の子 = 箱)の入口。中身は ResolveReference。
         template <typename T, std::enable_if_t<std::is_base_of_v<Asset, T>, int> = 0>
         T* Resolve(core::AssetRef<T>& reference)
@@ -132,6 +145,11 @@ namespace husky::engine
 
         // キャッシュにある(まだ回収されていない)type の箱の数。確認とテスト用。
         std::size_t GetLoadedCount(const core::TypeInfo& type) const;
+        template <typename T>
+        std::size_t GetLoadedCount() const
+        {
+            return GetLoadedCount(T::StaticType());
+        }
         // キャッシュにある guid の箱(無ければ何も指さないハンドル)。読み込みは始めない。
         core::ObjectHandle FindCached(const core::TypeInfo& type, const core::Guid& guid) const;
         // guid をキャッシュから外す(箱そのものは、指している人がいる間は残る)。次の Load は新しい箱を作って読む(読み直し)。
@@ -160,57 +178,6 @@ namespace husky::engine
 
         // 読み込み中(ジョブが終わっていないか、結果をまだアセットに書いていない)の数。確認とテスト用。
         std::size_t GetPendingLoadCount() const { return m_pending.size(); }
-
-        // ---- 古い名前の入口(AL-4 で外す) ----
-        // 中身は共通の Load と、レジストリの Resolve、種類だけの操作(PrefabAsset.h、ScriptableData.h の関数)。
-        // AssetRef<T> は、上の共通の Resolve(テンプレート)が受ける。
-
-        core::ObjectHandle LoadTexture(const core::Guid& guid) { return Load(TextureAsset::StaticType(), guid); }
-        TextureAsset* ResolveTexture(core::ObjectHandle handle) const { return m_registry.Resolve<TextureAsset>(handle); }
-        std::size_t GetLoadedTextureCount() const { return GetLoadedCount(TextureAsset::StaticType()); }
-
-        core::ObjectHandle LoadSound(const core::Guid& guid) { return Load(SoundAsset::StaticType(), guid); }
-        SoundAsset* ResolveSound(core::ObjectHandle handle) const { return m_registry.Resolve<SoundAsset>(handle); }
-        std::size_t GetLoadedSoundCount() const { return GetLoadedCount(SoundAsset::StaticType()); }
-
-        core::ObjectHandle LoadFont(const core::Guid& guid) { return Load(FontAsset::StaticType(), guid); }
-        FontAsset* ResolveFont(core::ObjectHandle handle) const { return m_registry.Resolve<FontAsset>(handle); }
-        std::size_t GetLoadedFontCount() const { return GetLoadedCount(FontAsset::StaticType()); }
-
-        core::ObjectHandle LoadSpriteSheet(const core::Guid& guid) { return Load(SpriteSheetAsset::StaticType(), guid); }
-        SpriteSheetAsset* ResolveSpriteSheet(core::ObjectHandle handle) const
-        {
-            return m_registry.Resolve<SpriteSheetAsset>(handle);
-        }
-        std::size_t GetLoadedSpriteSheetCount() const { return GetLoadedCount(SpriteSheetAsset::StaticType()); }
-
-        core::ObjectHandle LoadPrefab(const core::Guid& guid) { return Load(PrefabAsset::StaticType(), guid); }
-        PrefabAsset* ResolvePrefab(core::ObjectHandle handle) const { return m_registry.Resolve<PrefabAsset>(handle); }
-        std::size_t GetLoadedPrefabCount() const { return GetLoadedCount(PrefabAsset::StaticType()); }
-        core::ObjectHandle ReloadPrefab(const core::Guid& guid) { return engine::ReloadPrefab(*this, guid); }
-        std::size_t ReloadPrefabsNesting(const core::Guid& guid) { return engine::ReloadPrefabsNesting(*this, guid); }
-
-        core::ObjectHandle LoadScriptableData(const core::Guid& guid) { return Load(ScriptableDataAsset::StaticType(), guid); }
-        ScriptableDataAsset* ResolveScriptableDataAsset(core::ObjectHandle handle) const
-        {
-            return m_registry.Resolve<ScriptableDataAsset>(handle);
-        }
-        std::size_t GetLoadedScriptableDataCount() const { return GetLoadedCount(ScriptableDataAsset::StaticType()); }
-        const ScriptableData* GetScriptableData(const ScriptableDataAsset& asset) const
-        {
-            return engine::GetScriptableData(*this, asset);
-        }
-        const ScriptableData* ResolveScriptableData(core::AssetReference& reference, const core::TypeInfo& expected)
-        {
-            // 中身の型は種類が IsA で確かめてある(ScriptableData の種類の中身は ScriptableData の子)。
-            return static_cast<const ScriptableData*>(ResolveContent(reference, expected));
-        }
-        core::ObjectHandle ReloadScriptableData(const core::Guid& guid) { return engine::ReloadScriptableData(*this, guid); }
-        std::size_t ForgetScriptableData(const std::vector<const core::TypeInfo*>& types)
-        {
-            return engine::ForgetScriptableData(*this, types);
-        }
-        std::size_t CheckScriptableDataUnchanged() { return engine::CheckScriptableDataUnchanged(*this); }
 
     private:
         friend class Asset; // 回収されるときに OnAssetDestroyed / ReleaseAssetData を呼べるようにする
