@@ -130,20 +130,30 @@ namespace husky::engine
         }
         void ClearRenderTransform() { m_hasRenderTransform = false; }
 
-        // ---- 親子の階層(HIER-1)----
+        // ---- 親子の階層(HIER-1、HIER-2a)----
         // transform は親から見たローカルの値。ワールドの行列 = 親のワールドの行列 × 自分のローカルの行列。
         // 親が無ければ、ローカル = ワールド(今までどおり)。
-        // 今は保存しない(HIER-2 で保存する)。親を消しても子は消えず、そのときのワールドの場所のまま親なしになる(HIER-2 で一緒に消す)。
+        // 親は子が指す(parent。保存する)。親は子の一覧を持たない(持つと、読み込み・Undo・property.set のたびに
+        // 2か所をそろえる必要があるため。子が要るときは GetChildren でシーンから集める)。
+        // 親を Destroy すると、子孫もフレームの終わりに一緒に消える(Scene::RemoveDestroyedActors)。
 
-        // 親。無い(か、もう消えた)なら nullptr。
+        // 親を根の方へたどる段数の上限。ファイルや property.set で輪になっていても、止まるようにする。
+        static constexpr int MaxHierarchyDepth = 64;
+
+        // 親。無い(か、もう消えた・アクターでない)なら nullptr。
         Actor* GetParent() const;
-        // 子のハンドルの一覧(付けた順)。消えたものは、フレームの終わりに外れる。
-        const std::vector<core::ObjectHandle>& GetChildren() const { return m_children; }
+        // ancestor が自分の親・親の親…のどれかか(自分自身は含まない)。
+        bool IsDescendantOf(const Actor& ancestor) const;
+        // 直接の子(このアクターを親に持つ、シーンの生きているアクター)を、シーンの一覧の順で out に入れる(out は先に空にする)。
+        // シーンの全員を調べるので、毎フレームたくさん呼ばない。シーンに入っていなければ空。
+        void GetChildren(std::vector<Actor*>& out) const;
+        // 子孫(子、孫…)を、親が先になる順で out に足す(out は空にしない)。
+        void GetDescendants(std::vector<Actor*>& out) const;
         // 親を付け替える。nullptr なら親なしにする。keepWorldTransform が true なら、画面で見える場所(ワールドの値)を保つよう
         // transform を直す。false なら transform をそのまま新しい親から見た値として使う(見える場所が変わる)。
         // 断るとき(false を返し、警告を出す): 自分か自分の子孫を親にする(輪になる)、別のレジストリ・消えかけのアクター、
-        // 自分が Rigidbody2D を持つ(物理がワールドの場所を決めるので、最初は動く体は親を持てない)。
-        bool SetParent(Actor* parent, bool keepWorldTransform = true);
+        // 段数が MaxHierarchyDepth を超える、自分が Rigidbody2D を持つ(物理がワールドの場所を決めるので、最初は動く体は親を持てない)。
+        bool SetParent(Actor* newParent, bool keepWorldTransform = true);
         // 本当の transform から作ったワールドの行列(当たり判定、エディタ、ゲームの決め事に使う)。
         core::Matrix4 GetWorldMatrix() const;
         // 描くときの transform(GetRenderTransform。物理の補間)から作ったワールドの行列。親も描くときの値を使う。
@@ -160,6 +170,7 @@ namespace husky::engine
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(guid)
             HUSKY_PROPERTY(transform)
+            HUSKY_PROPERTY(parent)
             HUSKY_PROPERTY(prefab)
             HUSKY_PROPERTY(components)
         HUSKY_REFLECTION_END()
@@ -175,14 +186,14 @@ namespace husky::engine
         Transform m_renderBase;
         bool m_hasRenderTransform = false;
 
-        // 親と子(HIER-1)。プロパティにしないので弱い参照(生かしているのはシーンの一覧)。保存は HIER-2。
-        core::ObjectHandle m_parent;
-        std::vector<core::ObjectHandle> m_children;
+        // 親(HIER-2a)。プロパティなので保存され(シーンの中の番号)、GC がたどる(子が生きている間は親も生きている)。
+        // ファイルの名前を "parent" にするため、m_ を付けない。書き換えは SetParent を通す(読み込みと property.set は直接書く)。
+        core::ObjectHandle parent;
 
-        // 子の一覧から child を外す(無ければ何もしない)。
-        void RemoveChild(core::ObjectHandle child);
-        // Destroy 済みのアクターを親子から外す(フレームの終わりに Scene が呼ぶ)。子はワールドの場所のまま親なしになる。
-        void DetachFromHierarchy();
+        // 根からの段数(親なしは 0)。輪になっていれば MaxHierarchyDepth で止まる。
+        int GetHierarchyDepth() const;
+        // ワールドの行列を、親をたどって作る(render: 描くときの値を使うか。depth: たどった段数、上限で止める)。
+        core::Matrix4 ComputeWorldMatrix(bool render, int depth) const;
 
         // 下のコンポーネントの更新と片付けは、Scene だけが呼ぶ。
         // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。

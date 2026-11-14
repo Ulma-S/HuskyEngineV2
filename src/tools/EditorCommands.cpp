@@ -505,7 +505,7 @@ namespace husky::tools
     {
         // actor.spawn の Undo / Redo に使う(中身は actor.destroy の近くに書いている)。
         EditorCommandCall MakeDestroyCall(const core::Guid& guid);
-        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data);
+        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data, const std::string& parentGuid);
     }
 
     EditorCommand MakeSpawnActorCommand()
@@ -615,7 +615,7 @@ namespace husky::tools
             // Undo は guid で消す。Redo は「置き直す」ではなく、置いた直後のアクターの控えから同じ guid で戻す
             // (置き直すと新しい guid になり、この後の履歴(property.set など)が指す guid と食い違うため)。
             result.undo = MakeDestroyCall(actor->guid);
-            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(scene, {actor}).value);
+            result.redo = MakeRestoreCall(engine::SceneSerializer::WriteActors(scene, {actor}).value, std::string()); // 置いた直後は親なし
             return result;
         };
         return command;
@@ -1398,24 +1398,29 @@ namespace husky::tools
             return call;
         }
 
-        // actor.restore の呼び出し(actor.destroy の Undo、actor.restore の Redo 用)。data は控えたアクター1体。
-        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data)
+        // actor.restore の呼び出し(actor.destroy の Undo、actor.restore の Redo 用)。data は控えたアクター(と子孫)。
+        // parentGuid は消す前の親(親なしなら空)。控えの外なので data には入らず、戻すときに guid で付け直す(HIER-2a)。
+        EditorCommandCall MakeRestoreCall(const engine::ArchiveValue& data, const std::string& parentGuid)
         {
             EditorCommandCall call;
             call.name = "actor.restore";
             call.args = engine::ArchiveValue::MakeObject();
             call.args.Set("data", data);
+            if (!parentGuid.empty())
+            {
+                call.args.Set("parent", engine::ArchiveValue(parentGuid));
+            }
             return call;
         }
 
-        // 控え(シーンのファイルと同じ形、アクター1体)から、そのアクターの guid を読む。
+        // 控え(シーンのファイルと同じ形。最初のアクターが消したもの、後ろはその子孫)から、最初のアクターの guid を読む。
         // 形: {"objects": [{"id": 0, "properties": {"guid": "..."}}, ...], "actors": [0]}。読めなければ false。
         bool ReadSavedActorGuid(const engine::ArchiveValue& data, core::Guid& out)
         {
             const engine::ArchiveValue* actors = data.Find("actors");
             const engine::ArchiveValue* objects = data.Find("objects");
             if (actors == nullptr || objects == nullptr || actors->GetType() != engine::ArchiveValue::Type::Array ||
-                objects->GetType() != engine::ArchiveValue::Type::Array || actors->GetArraySize() != 1)
+                objects->GetType() != engine::ArchiveValue::Type::Array || actors->GetArraySize() == 0)
             {
                 return false;
             }
@@ -1442,7 +1447,7 @@ namespace husky::tools
         EditorCommand command;
         command.name = "actor.destroy";
         command.label = "Destroy actor";
-        command.description = "Remove an actor (and its components) from the scene. "
+        command.description = "Remove an actor (with its components and child actors) from the scene. "
                               "The actor can be given by name (if unique) or by guid. Can be undone (editor.undo).";
         command.modifiesScene = true;
         EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor", true};
@@ -1456,16 +1461,34 @@ namespace husky::tools
             {
                 return EditorCommandResult::Failure(error);
             }
-            // 消す前に、シーンのファイルと同じ形で控える(guid、プレハブとの違い、コンポーネントが入る)。
+            // 子孫も一緒に消す(HIER-2a)。親が先になる順で集める。
+            std::vector<engine::Actor*> targets = {actor};
+            actor->GetDescendants(targets);
+            // 親は控えの外なので、控える前に外しておく(外を指すハンドルとして警告が出ないように)。親は guid で別に覚え、
+            // Undo のときに付け直す。どうせこの後に消すので、外したままでよい。
+            const engine::Actor* oldParent = actor->GetParent();
+            const std::string parentGuid = oldParent != nullptr ? oldParent->guid.ToString() : std::string();
+            actor->SetParent(nullptr, false);
+            // 消す前に、シーンのファイルと同じ形で控える(guid、プレハブとの違い、コンポーネント、子孫が入る)。
             // Undo はこの控えを actor.restore に渡し、同じ guid のアクターを作り直す。
-            engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::WriteActors(scene, {actor});
+            engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::WriteActors(scene, targets);
             const std::string who = DescribeActor(*actor);
             const core::Guid guid = actor->guid;
-            actor->Destroy(); // フレームの終わりに一覧から外れる(コンポーネントもそのときに消える)
-            EditorCommandResult result = EditorCommandResult::Success("Destroyed " + who);
+            // フレームの終わりに一覧から外れる(コンポーネントもそのときに消える)。子孫もその場で印を付ける
+            // (フレームを回さない CLI が、この後すぐに保存するため)
+            for (engine::Actor* target : targets)
+            {
+                target->Destroy();
+            }
+            std::string message = "Destroyed " + who;
+            if (targets.size() > 1)
+            {
+                message += " and " + std::to_string(targets.size() - 1) + " child actor(s)";
+            }
+            EditorCommandResult result = EditorCommandResult::Success(message);
             // 外を指すハンドル(カメラの追う相手など)は控えに入らない。戻しても null になることを人に知らせる。
             result.details = std::move(saved.warnings);
-            result.undo = MakeRestoreCall(saved.value);
+            result.undo = MakeRestoreCall(saved.value, parentGuid);
             result.redo = MakeDestroyCall(guid);
             return result;
         };
@@ -1477,12 +1500,13 @@ namespace husky::tools
         EditorCommand command;
         command.name = "actor.restore";
         command.label = "Restore actor";
-        command.description = "Put back an actor saved by actor.destroy (used by editor.undo), with the same guid. "
-                              "The actor is added at the end of the scene list.";
+        command.description = "Put back an actor (and its child actors) saved by actor.destroy (used by editor.undo), with the same guid. "
+                              "The actors are added at the end of the scene list.";
         command.modifiesScene = true;
         command.args = {
             {"data", EditorArgType::Any,
-             "One actor in the same form as a scene file ({\"objects\": [...], \"actors\": [id]}), with its guid", true},
+             "Actors in the same form as a scene file ({\"objects\": [...], \"actors\": [id, ...]}). The first one is the restored actor (with its guid), the rest are its descendants", true},
+            {"parent", EditorArgType::String, "Guid of the parent to attach the restored actor to (leave out for none)", false},
         };
         command.execute = [](EditorCommandContext& context) {
             engine::Scene& scene = context.app.GetScene();
@@ -1504,16 +1528,29 @@ namespace husky::tools
                 data, scene, app.GetTypeRegistry(),
                 [&app](const core::Guid& prefabGuid) { return app.FindPrefabForScene(prefabGuid); });
             engine::Actor* actor = scene.FindActorByGuid(guid);
-            if (report.addedActorCount != 1 || actor == nullptr)
+            if (report.addedActorCount == 0 || actor == nullptr)
             {
                 EditorCommandResult failed = EditorCommandResult::Failure("Could not restore the actor");
                 failed.details = std::move(report.warnings);
                 return failed;
             }
+            // 消す前の親に付け直す(見える場所は、控えたローカルの値のまま親から見た値として使う)
+            std::string parentGuid;
+            if (const engine::ArchiveValue* parentArg = context.args.Find("parent"))
+            {
+                parentGuid = parentArg->AsString();
+                core::Guid parentId;
+                engine::Actor* parentActor =
+                    core::Guid::Parse(parentGuid, parentId) ? scene.FindActorByGuid(parentId) : nullptr;
+                if (parentActor == nullptr || !actor->SetParent(parentActor, false))
+                {
+                    report.warnings.push_back("Could not attach to the parent " + parentGuid + "; the actor has no parent now");
+                }
+            }
             EditorCommandResult result = EditorCommandResult::Success("Restored " + DescribeActor(*actor));
             result.details = std::move(report.warnings);
             result.undo = MakeDestroyCall(guid);
-            result.redo = MakeRestoreCall(data);
+            result.redo = MakeRestoreCall(data, parentGuid);
             result.data = engine::ArchiveValue::MakeObject();
             result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
             return result;

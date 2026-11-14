@@ -861,6 +861,52 @@ TEST_CASE("EditorCommands: prefab.overrides はプレハブとの違いを並べ
     CHECK(sprite->width == 24.0f);
 }
 
+TEST_CASE("EditorCommands: actor.destroy は子孫も消し、Undo で子孫と元の親へのつながりごと戻す(HIER-2a)")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRestoreActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    husky::engine::Actor* root = app.GetScene().Spawn<husky::engine::Actor>();
+    root->name = "Root";
+    husky::engine::Actor* middle = app.GetScene().Spawn<husky::engine::Actor>();
+    middle->name = "Middle";
+    middle->transform.position = {5.0f, 0.0f, 0.0f};
+    husky::engine::Actor* leaf = app.GetScene().Spawn<husky::engine::Actor>();
+    leaf->name = "Leaf";
+    REQUIRE(middle->SetParent(root, false));
+    REQUIRE(leaf->SetParent(middle, false));
+    const husky::core::Guid middleGuid = middle->guid;
+    const husky::core::Guid leafGuid = leaf->guid;
+
+    // 真ん中を消す: 子(Leaf)も一緒に、その場で Destroy の印が付く(CLI がすぐ保存しても残らない)
+    const EditorCommandResult destroyed = commands.Execute("actor.destroy", app, Json(R"({"actor": "Middle"})"));
+    REQUIRE(destroyed.succeeded);
+    CHECK(destroyed.details.empty()); // 親は控えの外だが、外を指すハンドルの警告は出ない
+    CHECK(leaf->IsPendingDestroy());
+    CHECK_FALSE(root->IsPendingDestroy());
+    app.GetScene().RemoveDestroyedActors();
+    app.GetRegistry().FlushDestroyed();
+    CHECK(app.GetScene().actors.size() == 1);
+
+    // Undo: 2体とも同じ guid で戻り、Middle は Root の子に、Leaf は Middle の子に戻る
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    husky::engine::Actor* restoredMiddle = app.GetScene().FindActorByGuid(middleGuid);
+    husky::engine::Actor* restoredLeaf = app.GetScene().FindActorByGuid(leafGuid);
+    REQUIRE(restoredMiddle != nullptr);
+    REQUIRE(restoredLeaf != nullptr);
+    CHECK(restoredMiddle->GetParent() == root);
+    CHECK(restoredLeaf->GetParent() == restoredMiddle);
+    CHECK(restoredMiddle->transform.position.x == 5.0f);
+
+    // Redo でまた2体とも消える
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(restoredLeaf->IsPendingDestroy());
+}
+
 TEST_CASE("EditorCommands: actor.destroy は消す前に控え、Undo(actor.restore)で同じ guid・プレハブとの違いのまま作り直す")
 {
     husky::tests::TestFolder folder("husky_test_actor_destroy");

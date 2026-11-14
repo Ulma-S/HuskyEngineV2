@@ -111,6 +111,27 @@ namespace husky::engine
 
     std::size_t Scene::RemoveDestroyedActors()
     {
+        // 親(か、その上のどれか)が Destroy 済みのアクターも Destroy する(親を消すと子孫も消える。HIER-2a)。
+        // 祖先をすべて調べるので、一覧の順番に関係なく1回で済む。
+        for (const core::ObjectHandle handle : actors)
+        {
+            Actor* actor = ResolveActor(handle);
+            if (actor == nullptr || actor->IsPendingDestroy())
+            {
+                continue;
+            }
+            const Actor* ancestor = actor->GetParent();
+            for (int depth = 0; ancestor != nullptr && depth < Actor::MaxHierarchyDepth; ++depth)
+            {
+                if (ancestor->IsPendingDestroy())
+                {
+                    actor->Destroy();
+                    break;
+                }
+                ancestor = ancestor->GetParent();
+            }
+        }
+
         // 先にコンポーネントを片付ける。
         // Destroy 済みのアクターは、そのコンポーネントもまとめて Destroy する(部品はアクターと一緒に消える)。
         // 生きているアクターは、Destroy 済みのコンポーネントを一覧から外す。
@@ -125,7 +146,6 @@ namespace husky::engine
             if (actor->IsPendingDestroy())
             {
                 actor->DestroyComponents();
-                actor->DetachFromHierarchy(); // 親の子の一覧から外し、子は親なしにする(HIER-1。HIER-2 で子も一緒に消す)
             }
             else
             {

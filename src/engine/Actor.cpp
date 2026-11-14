@@ -86,24 +86,104 @@ namespace husky::engine
         return before - components.size();
     }
 
-    // ---- 親子の階層(HIER-1)----
+
+    // ---- 親子の階層(HIER-1、HIER-2a)----
 
     Actor* Actor::GetParent() const
     {
         core::ObjectRegistry* registry = GetRegistry();
-        return registry != nullptr ? registry->Resolve<Actor>(m_parent) : nullptr;
+        return registry != nullptr ? registry->Resolve<Actor>(parent) : nullptr;
     }
 
-    bool Actor::SetParent(Actor* parent, bool keepWorldTransform)
+    bool Actor::IsDescendantOf(const Actor& ancestor) const
+    {
+        // 親、親の親…とたどる(輪になっていても、上限の段数で止まる)
+        const Actor* current = GetParent();
+        for (int depth = 0; current != nullptr && depth < MaxHierarchyDepth; ++depth)
+        {
+            if (current == &ancestor)
+            {
+                return true;
+            }
+            current = current->GetParent();
+        }
+        return false;
+    }
+
+    void Actor::GetChildren(std::vector<Actor*>& out) const
+    {
+        out.clear();
+        Scene* scene = GetScene();
+        if (scene == nullptr)
+        {
+            return;
+        }
+        scene->ForEachActor([&](Actor& actor) {
+            if (actor.GetParent() == this)
+            {
+                out.push_back(&actor);
+            }
+        });
+    }
+
+    void Actor::GetDescendants(std::vector<Actor*>& out) const
+    {
+        Scene* scene = GetScene();
+        if (scene == nullptr)
+        {
+            return;
+        }
+        // 親が先になるよう、見つけた順に1段ずつ広げる(幅優先)。first から後ろが、まだ子を調べていないもの
+        std::size_t first = out.size();
+        scene->ForEachActor([&](Actor& actor) {
+            if (actor.GetParent() == this)
+            {
+                out.push_back(&actor);
+            }
+        });
+        // 段数の上限で止める(輪になっていても、終わるように)
+        for (int depth = 1; depth < MaxHierarchyDepth && first < out.size(); ++depth)
+        {
+            const std::size_t end = out.size();
+            scene->ForEachActor([&](Actor& actor) {
+                Actor* actorParent = actor.GetParent();
+                if (actorParent == nullptr || &actor == this)
+                {
+                    return;
+                }
+                for (std::size_t i = first; i < end; ++i)
+                {
+                    if (out[i] == actorParent)
+                    {
+                        out.push_back(&actor);
+                        return;
+                    }
+                }
+            });
+            first = end;
+        }
+    }
+
+    int Actor::GetHierarchyDepth() const
+    {
+        int depth = 0;
+        for (const Actor* current = GetParent(); current != nullptr && depth < MaxHierarchyDepth; current = current->GetParent())
+        {
+            ++depth;
+        }
+        return depth;
+    }
+
+    bool Actor::SetParent(Actor* newParent, bool keepWorldTransform)
     {
         const char* refused = nullptr;
-        if (parent != nullptr)
+        if (newParent != nullptr)
         {
-            if (parent->GetRegistry() != GetRegistry() || GetRegistry() == nullptr)
+            if (newParent->GetRegistry() != GetRegistry() || GetRegistry() == nullptr)
             {
                 refused = "別のレジストリのアクターです";
             }
-            else if (parent->IsPendingDestroy() || IsPendingDestroy())
+            else if (newParent->IsPendingDestroy() || IsPendingDestroy())
             {
                 refused = "消えかけのアクターです";
             }
@@ -111,36 +191,24 @@ namespace husky::engine
             {
                 refused = "Rigidbody2D を持つアクター(動く体)は親を持てません";
             }
-            else
+            else if (newParent == this || newParent->IsDescendantOf(*this))
             {
-                // 親の親…とたどり、自分に行き着いたら輪になる(自分を親にするのも、ここで見つかる)
-                for (const Actor* ancestor = parent; ancestor != nullptr; ancestor = ancestor->GetParent())
-                {
-                    if (ancestor == this)
-                    {
-                        refused = "自分か自分の子孫は親にできません(輪になります)";
-                        break;
-                    }
-                }
+                refused = "自分か自分の子孫は親にできません(輪になります)";
+            }
+            else if (newParent->GetHierarchyDepth() + 1 >= MaxHierarchyDepth)
+            {
+                refused = "親子の段数が多すぎます";
             }
         }
         if (refused != nullptr)
         {
-            HUSKY_LOG(SceneLog::ParentRefused, name, parent->name, refused);
+            HUSKY_LOG(SceneLog::ParentRefused, name, newParent->name, refused);
             return false;
         }
 
         // 付け替える前のワールドの値を控える(付け替えた後に、同じ見え方になるよう transform を直すため)
         const Transform world = GetWorldTransform();
-        if (Actor* old = GetParent())
-        {
-            old->RemoveChild(GetHandle());
-        }
-        m_parent = parent != nullptr ? parent->GetHandle() : core::ObjectHandle{};
-        if (parent != nullptr)
-        {
-            parent->m_children.push_back(GetHandle());
-        }
+        parent = newParent != nullptr ? newParent->GetHandle() : core::ObjectHandle{};
         if (keepWorldTransform)
         {
             SetWorldTransform(world);
@@ -149,27 +217,26 @@ namespace husky::engine
         return true;
     }
 
-    core::Matrix4 Actor::GetWorldMatrix() const
+    core::Matrix4 Actor::ComputeWorldMatrix(bool render, int depth) const
     {
-        const core::Matrix4 local = MakeModelMatrix(transform);
-        const Actor* parent = GetParent();
-        if (parent == nullptr)
+        const core::Matrix4 local = MakeModelMatrix(render ? GetRenderTransform() : transform);
+        const Actor* actorParent = GetParent();
+        if (actorParent == nullptr || depth >= MaxHierarchyDepth)
         {
-            return local;
+            return local; // 根(か、輪になっていて上限まで来た)
         }
         // 右から順に効く: まず自分のローカルの行列で親から見た場所へ、次に親のワールドの行列でワールドへ
-        return FromGlm(ToGlm(parent->GetWorldMatrix()) * ToGlm(local));
+        return FromGlm(ToGlm(actorParent->ComputeWorldMatrix(render, depth + 1)) * ToGlm(local));
+    }
+
+    core::Matrix4 Actor::GetWorldMatrix() const
+    {
+        return ComputeWorldMatrix(false, 0);
     }
 
     core::Matrix4 Actor::GetRenderWorldMatrix() const
     {
-        const core::Matrix4 local = MakeModelMatrix(GetRenderTransform());
-        const Actor* parent = GetParent();
-        if (parent == nullptr)
-        {
-            return local;
-        }
-        return FromGlm(ToGlm(parent->GetRenderWorldMatrix()) * ToGlm(local));
+        return ComputeWorldMatrix(true, 0);
     }
 
     Transform Actor::GetWorldTransform() const
@@ -183,63 +250,38 @@ namespace husky::engine
 
     void Actor::SetWorldTransform(const Transform& world)
     {
-        const Actor* parent = GetParent();
-        if (parent == nullptr)
+        const Actor* actorParent = GetParent();
+        if (actorParent == nullptr)
         {
             transform = world;
             return;
         }
         // ワールド = 親 × ローカル なので、ローカル = 親の逆行列 × ワールド
-        const glm::mat4 local = glm::inverse(ToGlm(parent->GetWorldMatrix())) * ToGlm(MakeModelMatrix(world));
+        const glm::mat4 local = glm::inverse(ToGlm(actorParent->GetWorldMatrix())) * ToGlm(MakeModelMatrix(world));
         transform = DecomposeModelMatrix(FromGlm(local));
     }
 
     core::Vector3 Actor::GetWorldPosition() const
     {
-        const Actor* parent = GetParent();
-        if (parent == nullptr)
+        const Actor* actorParent = GetParent();
+        if (actorParent == nullptr)
         {
             return transform.position;
         }
-        const glm::vec4 world = ToGlm(parent->GetWorldMatrix()) * glm::vec4(ToGlm(transform.position), 1.0f);
+        const glm::vec4 world = ToGlm(actorParent->GetWorldMatrix()) * glm::vec4(ToGlm(transform.position), 1.0f);
         return {world.x, world.y, world.z};
     }
 
     void Actor::SetWorldPosition(const core::Vector3& position)
     {
-        const Actor* parent = GetParent();
-        if (parent == nullptr)
+        const Actor* actorParent = GetParent();
+        if (actorParent == nullptr)
         {
             transform.position = position;
             return;
         }
         // 点を親のワールドの行列の逆で、親から見た位置へ戻す
-        const glm::vec4 local = glm::inverse(ToGlm(parent->GetWorldMatrix())) * glm::vec4(ToGlm(position), 1.0f);
+        const glm::vec4 local = glm::inverse(ToGlm(actorParent->GetWorldMatrix())) * glm::vec4(ToGlm(position), 1.0f);
         transform.position = {local.x, local.y, local.z};
-    }
-
-    void Actor::RemoveChild(core::ObjectHandle child)
-    {
-        m_children.erase(std::remove(m_children.begin(), m_children.end(), child), m_children.end());
-    }
-
-    void Actor::DetachFromHierarchy()
-    {
-        // 子を先に親なしにする(自分がまだ解決できるうちに、子のワールドの値を計算する)
-        core::ObjectRegistry* registry = GetRegistry();
-        const std::vector<core::ObjectHandle> children = m_children; // SetParent が m_children を書き換えるので写す
-        for (const core::ObjectHandle handle : children)
-        {
-            if (Actor* child = registry != nullptr ? registry->Resolve<Actor>(handle) : nullptr)
-            {
-                child->SetParent(nullptr, true);
-            }
-        }
-        m_children.clear();
-        if (Actor* parent = GetParent())
-        {
-            parent->RemoveChild(GetHandle());
-        }
-        m_parent = core::ObjectHandle{};
     }
 }

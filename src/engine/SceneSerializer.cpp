@@ -696,6 +696,17 @@ namespace husky::engine::SceneSerializer
             ++report.addedActorCount;
             report.addedActors.push_back(actor->GetHandle());
         }
+        // 親子が輪になっている(手で直したファイルなど)アクターは、親なしにする(HIER-2a)。
+        // 輪のままだと、親をたどる計算が上限の段数まで回り、見える場所も意味をなさない。
+        for (const core::ObjectHandle handle : report.addedActors)
+        {
+            Actor* actor = registry->Resolve<Actor>(handle);
+            if (actor != nullptr && actor->GetParent() != nullptr && actor->IsDescendantOf(*actor))
+            {
+                actor->SetParent(nullptr, false); // 親なしにするのはいつも断られない
+                report.warnings.push_back("アクター " + actor->name + " の親子が輪になっていたので、親なしにしました");
+            }
+        }
         return report;
     }
 }
