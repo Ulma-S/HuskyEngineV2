@@ -25,11 +25,12 @@
 #include "engine/Input.h"
 #include "engine/PhysicsScene2D.h"
 #include "engine/Scene.h"
-#include "platform/Keyboard.h"
+#include "platform/InputEvents.h"
 #include "render/RenderDevice.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <functional> // std::function(C# の Action<T> や Func<T> にあたる、関数を入れておける型)
 #include <string>
 #include <utility>    // std::move
@@ -105,11 +106,18 @@ namespace husky::engine
 
         // 1フレーム分の「描画以外」の処理を進める。ウィンドウも GPU も使わないので、テストから呼べる。
         //   1. dt を決める(FrameClock)
-        //   2. 入力を更新する(keyEvents は、このフレームに起きたキーイベント)。読み終わったアセットを書く(AssetLoader::Update)
+        //   2. 入力を更新する(events は、このフレームに起きたキーとマウスのイベントと画面の大きさ)。
+        //      読み終わったアセットを書く(AssetLoader::Update)
         //   3. 更新コールバック → シーンの更新(Scene::Tick。SetSceneTickEnabled(false) の間は、コマ送りのときだけ)
         //   4. フレームの終わり: Destroy 済みのアクターを一覧から外す → 破棄を確定 → (GcIntervalSeconds ごとに)GC
         // 戻り値: このフレームの dt(秒)。
+        double StepFrame(std::uint64_t nowNanoseconds, const platform::InputEvents& events);
+        // キーのイベントだけのフレーム(マウスのイベントは無し、画面の大きさは前のまま)。テストの書きやすさのため。
         double StepFrame(std::uint64_t nowNanoseconds, const std::vector<platform::KeyEvent>& keyEvents);
+        // テストで StepFrame(0, {}) や StepFrame(0, {KeyEvent{...}}) と書けるようにする入口。
+        // これが無いと、{} は vector<KeyEvent> にも InputEvents にもなれるので、どちらを呼ぶか決まらずコンパイルエラーになる。
+        // initializer_list(波かっこの並びそのものの型)は、波かっこからの変換がいちばん近いので、こちらが選ばれる。
+        double StepFrame(std::uint64_t nowNanoseconds, std::initializer_list<platform::KeyEvent> keyEvents);
 
         // シーンの更新(Scene::Tick)を止める・動かす。既定は動かす(製品とテストは、ずっと動かしたまま)。
         // 止めている間も、更新コールバック、アセットの読み込み、フレームの終わりの処理(破棄の確定、GC)、描画は動く。
@@ -171,6 +179,13 @@ namespace husky::engine
         int Run(const ApplicationDesc& desc);
 
     private:
+        // StepFrame の前半(プロファイラーとログのフレームの区切り、dt を決める)と、入力の後の残り。
+        // 2つの StepFrame は、入力の渡し方だけが違うので、それ以外をここで共有する。
+        double BeginStepFrame(std::uint64_t nowNanoseconds);
+        double FinishStepFrame(double dt);
+        // initializer_list の StepFrame が、キーのイベントを写す入れ物(毎回使い回す)。
+        std::vector<platform::KeyEvent> m_listedKeyEvents;
+
         // ウィンドウと描画の用意ができた後の、ゲームループ本体。
         void RunLoop(render::RenderDevice& renderDevice);
         // desc.defaultSpriteTexture を読み、根に加える(読めなければ、テクスチャ無しで描く)。

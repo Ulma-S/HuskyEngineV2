@@ -1,6 +1,7 @@
 #include "engine/CameraComponent.h"
 
 #include "engine/Actor.h"
+#include "engine/Input.h"
 #include "engine/Scene.h"
 
 namespace husky::engine
@@ -34,5 +35,19 @@ namespace husky::engine
     {
         const CameraView view = FindSceneCameraView(scene, screenWidth, screenHeight);
         return MakeOrthographicCamera(view.centerX, view.centerY, view.zoom, screenWidth, screenHeight);
+    }
+
+    bool FindMouseWorldPosition(Scene& scene, core::Vector3& outWorld)
+    {
+        const Input* input = scene.GetInput();
+        if (input == nullptr || input->GetScreenWidth() <= 0.0f || input->GetScreenHeight() <= 0.0f)
+        {
+            return false;
+        }
+        const float width = input->GetScreenWidth();
+        const float height = input->GetScreenHeight();
+        const core::Vector2 mouse = input->GetMousePosition();
+        outWorld = ScreenToWorld(MakeSceneCamera(scene, width, height), mouse.x, mouse.y, width, height);
+        return true;
     }
 }

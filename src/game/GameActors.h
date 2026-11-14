@@ -62,6 +62,7 @@ namespace husky::game
     };
 
     // 矢印キー(または WASD)で動くプレイヤーのアクター。見た目は SpriteComponent で足す。
+    // マウスの左ボタンでクリックした所へも歩いていく(UI-1 の例。着くか、キーで動かすとやめる)。
     class PlayerActor : public engine::Actor
     {
         HUSKY_OBJECT(PlayerActor, engine::Actor)
@@ -75,5 +76,10 @@ namespace husky::game
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(moveSpeed)
         HUSKY_REFLECTION_END()
+
+    private:
+        // クリックで決めた行き先(ワールドの位置)。その場限りの状態なので保存しない(HUSKY_PROPERTY にしない)。
+        core::Vector3 m_moveTarget;
+        bool m_hasMoveTarget = false;
     };
 }

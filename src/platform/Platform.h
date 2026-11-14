@@ -2,7 +2,7 @@
 // このヘッダには SDL の型を一切書かない(SDL を触ってよいのは platform の .cpp だけ)。
 #pragma once // このヘッダが同じ .cpp の中で2回読み込まれても、2回目は無視させる
 
-#include "platform/Keyboard.h"
+#include "platform/InputEvents.h"
 
 #include <cstdint> // std::uint64_t など、ビット数が決まった整数型
 #include <vector>  // std::vector(C# の List<T> にあたる、伸び縮みする配列)
@@ -30,24 +30,34 @@ namespace husky::platform
     // 動作スレッド: どこでも(SDL はどのスレッドからでもログを出すことがあり、受けたスレッドで流す)
     void ForwardSdlLogToEngine();
 
+    // 開発用の UI が、キーボード・マウスを使っているか。製品では開発用の UI が無いので、いつも両方 false
+    // (ProcessEvents の中で同じコードを使えるように、型は製品にも置く)。
+    struct NativeEventCapture
+    {
+        bool keyboard = false; // ImGui の WantCaptureKeyboard
+        bool mouse = false;    // ImGui の WantCaptureMouse(窓の上にマウスがある、窓をドラッグしているなど)
+    };
+
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】OS のイベントを、開発用の UI(ImGui)にも渡すための口。描画層(render)が登録する。
     // platform は ImGui を知らない。登録された関数に、イベントを1つずつ渡すだけ。
     //   nativeEvent: 中身は SDL_Event*(ヘッダに SDL の型を出さないため void* にしている)
-    //   戻り値: true なら「UI がキーボードを使っている」ので、キーを押した入力はゲームに渡さない
-    //           (キーを離した入力は渡す。押したままの状態でゲームに残らないようにするため)
+    //   戻り値: UI がキーボード・マウスを使っているか(NativeEventCapture)。使っている間は、
+    //           キーやボタンを押した入力とホイールはゲームに渡さない。離した入力とマウスの位置は渡す
+    //           (UI の上で離したせいで、ゲームの中で押したままの状態が残らないようにするため)
     // nullptr を渡すと外せる。
-    using NativeEventHook = bool (*)(const void* nativeEvent);
+    using NativeEventHook = NativeEventCapture (*)(const void* nativeEvent);
     void SetNativeEventHook(NativeEventHook hook);
 #endif
 
-    // OS から届いたイベント(閉じるボタン、キー入力など)を、溜まっている分すべて処理する。
+    // OS から届いたイベント(閉じるボタン、キー入力、マウスなど)を、溜まっている分すべて処理する。
     // 毎フレーム1回呼ぶ。
-    // outKeyEvents: このフレームに起きたキーイベントを、起きた順に入れて返す(最初に中身を空にする)。
-    //   & は参照渡し。C++ では vector も渡すと丸ごとコピーされるため、呼ぶ側の vector を直接書き換えるのに使う。
+    // outEvents: このフレームに起きたキーとマウスのイベントを、起きた順に入れて返す(最初に keys と mouse を空にする。
+    //   画面の大きさは触らない)。
+    //   & は参照渡し。C++ では vector も渡すと丸ごとコピーされるため、呼ぶ側の入れ物を直接書き換えるのに使う。
     // 戻り値: アプリの終了が要求されたら true。
     // 動作スレッド: メインスレッド
-    bool ProcessEvents(std::vector<KeyEvent>& outKeyEvents);
+    bool ProcessEvents(InputEvents& outEvents);
 
     // 起動してからの経過時間を、ナノ秒(10億分の1秒)の整数で返す。
     // 絶対値に意味はなく、2回呼んだ差を経過時間として使う。

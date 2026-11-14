@@ -3,7 +3,52 @@
 
 namespace husky::engine
 {
+    void Input::BeginFrame(const platform::InputEvents& events)
+    {
+        ApplyKeyEvents(events.keys);
+        ClearMouseFrameState();
+        m_screenWidth = events.screenWidth;
+        m_screenHeight = events.screenHeight;
+
+        // マウスのイベントも起きた順に反映する。キーと同じく、1フレームの間に押して離しても取りこぼさない。
+        for (const platform::MouseEvent& mouseEvent : events.mouse)
+        {
+            // どの種類のイベントにも、起きたときの位置が入っている。最後のものが、このフレームの位置になる。
+            m_mousePosition = core::Vector2{mouseEvent.x, mouseEvent.y};
+
+            const std::size_t index = ToIndex(mouseEvent.button);
+            switch (mouseEvent.type)
+            {
+            case platform::MouseEventType::Move:
+                break;
+            case platform::MouseEventType::ButtonDown:
+                if (!m_mouseIsDown[index])
+                {
+                    m_mouseWasPressed[index] = true;
+                }
+                m_mouseIsDown[index] = true;
+                break;
+            case platform::MouseEventType::ButtonUp:
+                if (m_mouseIsDown[index])
+                {
+                    m_mouseWasReleased[index] = true;
+                }
+                m_mouseIsDown[index] = false;
+                break;
+            case platform::MouseEventType::Wheel:
+                m_mouseWheel += mouseEvent.wheel; // 1フレームに何回か回れば足し合わせる
+                break;
+            }
+        }
+    }
+
     void Input::BeginFrame(const std::vector<platform::KeyEvent>& keyEvents)
+    {
+        ApplyKeyEvents(keyEvents);
+        ClearMouseFrameState();
+    }
+
+    void Input::ApplyKeyEvents(const std::vector<platform::KeyEvent>& keyEvents)
     {
         // 「このフレームで押された/離された」は1フレームだけ有効なので、毎フレーム消す。
         // 「押されているか」は、離されるまで続くので消さない。
@@ -35,6 +80,15 @@ namespace husky::engine
         }
     }
 
+    void Input::ClearMouseFrameState()
+    {
+        // 押されているか(m_mouseIsDown)と位置は、次のイベントまで続くので消さない。
+        m_mouseWasPressed.fill(false);
+        m_mouseWasReleased.fill(false);
+        m_mouseWheel = 0.0f;
+        m_mouseConsumed = false;
+    }
+
     bool Input::IsDown(Key key) const
     {
         return m_isDown[ToIndex(key)];
@@ -48,5 +102,20 @@ namespace husky::engine
     bool Input::WasReleased(Key key) const
     {
         return m_wasReleased[ToIndex(key)];
+    }
+
+    bool Input::IsMouseDown(MouseButton button) const
+    {
+        return !m_mouseConsumed && m_mouseIsDown[ToIndex(button)];
+    }
+
+    bool Input::WasMousePressed(MouseButton button) const
+    {
+        return !m_mouseConsumed && m_mouseWasPressed[ToIndex(button)];
+    }
+
+    bool Input::WasMouseReleased(MouseButton button) const
+    {
+        return m_mouseWasReleased[ToIndex(button)];
     }
 }

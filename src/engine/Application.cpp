@@ -41,18 +41,39 @@ namespace husky::engine
         m_scene->SetAudio(&m_audio); // アクターやコンポーネントは GetScene()->GetAudio() で音を鳴らす
     }
 
+    double Application::StepFrame(std::uint64_t nowNanoseconds, const platform::InputEvents& events)
+    {
+        const double dt = BeginStepFrame(nowNanoseconds);
+        // 2. 入力: このフレームのキーとマウスのイベントで、入力の状態を更新する
+        m_input.BeginFrame(events);
+        return FinishStepFrame(dt);
+    }
+
     double Application::StepFrame(std::uint64_t nowNanoseconds, const std::vector<platform::KeyEvent>& keyEvents)
+    {
+        const double dt = BeginStepFrame(nowNanoseconds);
+        m_input.BeginFrame(keyEvents); // 2. 入力(キーだけ)
+        return FinishStepFrame(dt);
+    }
+
+    double Application::StepFrame(std::uint64_t nowNanoseconds, std::initializer_list<platform::KeyEvent> keyEvents)
+    {
+        m_listedKeyEvents.assign(keyEvents); // assign は確保したメモリを使い回す
+        return StepFrame(nowNanoseconds, m_listedKeyEvents);
+    }
+
+    double Application::BeginStepFrame(std::uint64_t nowNanoseconds)
     {
         // 0. プロファイラーのフレームの区切り: 前のフレーム(その描画まで)に測った時間をまとめる
         core::Profiler::Get().EndFrame();
         core::Log::Get().AdvanceFrame(); // ログの記録のフレームの番号を進める
 
         // 1. このフレームの dt を決める(dt を決めるのは FrameClock だけ)
-        const double dt = m_clock.Tick(nowNanoseconds);
+        return m_clock.Tick(nowNanoseconds);
+    }
 
-        // 2. 入力: このフレームのキーイベントで、キーの状態を更新する
-        m_input.BeginFrame(keyEvents);
-
+    double Application::FinishStepFrame(double dt)
+    {
         // 2'. アセット: ワーカーが読み終わったものを、アセットに書く(GPU に送る)。ゲームの処理より前に行い、
         //     このフレームの更新と描画から、読み終わったアセットを使えるようにする。
         {
@@ -245,8 +266,8 @@ namespace husky::engine
 
     void Application::RunLoop(render::RenderDevice& renderDevice)
     {
-        // キーイベントの受け皿。ループの外に置いて毎フレーム使い回し、メモリの確保を減らす。
-        std::vector<platform::KeyEvent> keyEvents;
+        // 入力のイベントの受け皿。ループの外に置いて毎フレーム使い回し、メモリの確保を減らす。
+        platform::InputEvents inputEvents;
 
         // FPS 表示用の集計(1秒ごとにリセットする)
         int framesThisSecond = 0;
@@ -258,13 +279,16 @@ namespace husky::engine
         while (true)
         {
             // OS のイベントを処理する。閉じるボタンなら終わる。
-            if (platform::ProcessEvents(keyEvents))
+            if (platform::ProcessEvents(inputEvents))
             {
                 break;
             }
+            // 画面の大きさも入力と一緒に渡す(マウスの位置をワールドへ直すのに使う)。窓を広げると変わるので毎フレーム。
+            inputEvents.screenWidth = static_cast<float>(renderDevice.GetScreenWidth());
+            inputEvents.screenHeight = static_cast<float>(renderDevice.GetScreenHeight());
 
             // 描画以外の1フレーム分(dt、入力、更新、フレームの終わり)
-            const double dt = StepFrame(platform::GetTimeNanoseconds(), keyEvents);
+            const double dt = StepFrame(platform::GetTimeNanoseconds(), inputEvents);
             if (m_input.WasPressed(Key::Escape))
             {
                 break;

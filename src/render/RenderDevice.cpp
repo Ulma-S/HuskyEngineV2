@@ -442,12 +442,17 @@ namespace husky::render
         }
 
         // platform から届く OS のイベントを ImGui に渡す(platform::SetNativeEventHook に登録する)。
-        // 戻り値: ImGui がキーボードを使っているなら true(キーを押した入力はゲームに渡さない)。
-        bool ForwardEventToDevUi(const void* nativeEvent)
+        // 戻り値: ImGui がキーボード・マウスを使っているか(使っている間、押した入力はゲームに渡さない)。
+        // WantCapture〜 は前のフレームの ImGui::NewFrame で決まった値(窓の上にマウスがある、文字を入力中など)。
+        platform::NativeEventCapture ForwardEventToDevUi(const void* nativeEvent)
         {
             const SDL_Event* event = static_cast<const SDL_Event*>(nativeEvent);
             ImGui_ImplSDL3_ProcessEvent(event);
-            return ImGui::GetIO().WantCaptureKeyboard;
+            const ImGuiIO& io = ImGui::GetIO();
+            platform::NativeEventCapture capture;
+            capture.keyboard = io.WantCaptureKeyboard;
+            capture.mouse = io.WantCaptureMouse;
+            return capture;
         }
     }
 

@@ -297,3 +297,98 @@ TEST_CASE("PHY-5: プレイヤー(Kinematic)で木箱(Dynamic)を押せる。木
     }
     CHECK(first->transform.position.x <= husky::game::WorldWidth - 32.0f + 1.0f);
 }
+
+TEST_CASE("Game: 左ボタンでクリックした所へ、プレイヤーが歩いていく。キーで動かすとやめる(UI-1)")
+{
+    using husky::platform::InputEvents;
+    using husky::platform::Key;
+    using husky::platform::KeyEvent;
+    using husky::platform::MouseEvent;
+    using husky::platform::MouseEventType;
+
+    Application app;
+    app.GetClock().SetFixedDelta(0.1);
+    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    REQUIRE(player != nullptr);
+    player->transform.position = husky::core::Vector3{500.0f, 100.0f, 0.0f};
+
+    // カメラが無いので、画面ちょうどのカメラ(左下が原点、1 単位 = 1 ピクセル)。
+    // 画面の (200, 620) は、y を裏返してワールドの (200, 720 - 620) = (200, 100)。
+    InputEvents click;
+    click.screenWidth = 1280.0f;
+    click.screenHeight = 720.0f;
+    MouseEvent down;
+    down.type = MouseEventType::ButtonDown;
+    down.x = 200.0f;
+    down.y = 620.0f;
+    click.mouse.push_back(down);
+
+    InputEvents none; // イベントの無いフレーム(画面の大きさだけ)
+    none.screenWidth = 1280.0f;
+    none.screenHeight = 720.0f;
+
+    // 押したフレームから歩き出す: 速さ 300 × 0.1 秒 = 30 ずつ左へ
+    app.StepFrame(0, click);
+    CHECK(player->transform.position.x == doctest::Approx(470.0f));
+    CHECK(player->transform.position.y == doctest::Approx(100.0f));
+
+    // 300 離れているので、10 フレーム目でぴったり着いて止まる
+    for (int i = 0; i < 9; ++i)
+    {
+        app.StepFrame(0, none);
+    }
+    CHECK(player->transform.position.x == doctest::Approx(200.0f));
+    app.StepFrame(0, none);
+    CHECK(player->transform.position.x == doctest::Approx(200.0f));
+
+    // もう一度クリックして、キーで動かすと、行き先はやめる(キーを離しても行き先へは戻らない)
+    // (前のクリックのボタンをまだ離していないので、離してから押す。押したままだと「押した瞬間」にならない)
+    MouseEvent up0 = click.mouse[0];
+    up0.type = MouseEventType::ButtonUp;
+    click.mouse.insert(click.mouse.begin(), up0);
+    click.mouse[1].x = 600.0f;
+    app.StepFrame(0, click); // 200 → 230
+    InputEvents up = none;
+    up.keys.push_back(KeyEvent{Key::Up, true});
+    app.StepFrame(0, up); // 上へ 30
+    CHECK(player->transform.position.x == doctest::Approx(230.0f));
+    CHECK(player->transform.position.y == doctest::Approx(130.0f));
+    InputEvents release = none;
+    release.keys.push_back(KeyEvent{Key::Up, false});
+    app.StepFrame(0, release);
+    CHECK(player->transform.position.x == doctest::Approx(230.0f));
+    CHECK(player->transform.position.y == doctest::Approx(130.0f));
+}
+
+TEST_CASE("Game: マウスの下のワールドの位置は、シーンのカメラで直す。画面の大きさが無ければ求めない(UI-1)")
+{
+    using husky::platform::InputEvents;
+    using husky::platform::MouseEvent;
+
+    Application app;
+    husky::core::Vector3 world{-1.0f, -1.0f, 0.0f};
+
+    // 画面の大きさを渡していない(テストや CLI): 求めず、outWorld も変えない
+    app.StepFrame(0, InputEvents{});
+    CHECK_FALSE(husky::engine::FindMouseWorldPosition(app.GetScene(), world));
+    CHECK(world.x == -1.0f);
+
+    // カメラを (1000, 2000) に置く(zoom 1): 画面の真ん中 (640, 360) がカメラの位置に映る。
+    // 画面で右へ 100・下へ 50 は、ワールドで右へ 100・下へ 50(y は -)
+    auto* cameraActor = app.GetScene().Spawn<husky::engine::Actor>();
+    REQUIRE(cameraActor != nullptr);
+    cameraActor->transform.position = husky::core::Vector3{1000.0f, 2000.0f, 0.0f};
+    REQUIRE(cameraActor->AddComponent<husky::engine::CameraComponent>() != nullptr);
+
+    InputEvents events;
+    events.screenWidth = 1280.0f;
+    events.screenHeight = 720.0f;
+    MouseEvent move; // 既定の種類は Move
+    move.x = 740.0f;
+    move.y = 410.0f;
+    events.mouse.push_back(move);
+    app.StepFrame(0, events);
+    REQUIRE(husky::engine::FindMouseWorldPosition(app.GetScene(), world));
+    CHECK(world.x == doctest::Approx(1100.0f));
+    CHECK(world.y == doctest::Approx(1950.0f));
+}

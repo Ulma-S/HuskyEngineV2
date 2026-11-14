@@ -44,6 +44,18 @@ namespace husky::platform
             }
         }
 
+        // SDL のマウスのボタンの番号を、エンジンの MouseButton に変換する。対応しないボタン(横のボタンなど)なら false。
+        bool ToMouseButton(Uint8 sdlButton, MouseButton& outButton)
+        {
+            switch (sdlButton)
+            {
+            case SDL_BUTTON_LEFT:   outButton = MouseButton::Left;   return true;
+            case SDL_BUTTON_RIGHT:  outButton = MouseButton::Right;  return true;
+            case SDL_BUTTON_MIDDLE: outButton = MouseButton::Middle; return true;
+            default:                return false;
+            }
+        }
+
 #if HUSKY_DEVELOPMENT
         // 開発用の UI にイベントを渡す関数(描画層が SetNativeEventHook で登録する)。
         NativeEventHook g_nativeEventHook = nullptr;
@@ -113,11 +125,11 @@ namespace husky::platform
 #endif
     }
 
-    bool ProcessEvents(std::vector<KeyEvent>& outKeyEvents)
+    bool ProcessEvents(InputEvents& outEvents)
     {
         // 前のフレームの分を消す。clear() は中身を空にするだけで、確保したメモリは残すので、
-        // 毎フレーム同じ vector を使い回せば、メモリの確保がほとんど起きない。
-        outKeyEvents.clear();
+        // 毎フレーム同じ入れ物を使い回せば、メモリの確保がほとんど起きない。
+        outEvents.Clear();
 
         bool quitRequested = false;
 
@@ -126,21 +138,64 @@ namespace husky::platform
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
-            // 開発ビルドだけ: まず開発用の UI に渡す。UI がキーボードを使っているなら、キーを押した入力はゲームに渡さない。
-            bool uiWantsKeyboard = false;
+            // 開発ビルドだけ: まず開発用の UI に渡す。UI が使っているなら、押した入力はゲームに渡さない
+            // (キーボードならキーを押した入力、マウスならボタンを押した入力とホイール)。
+            // 離した入力とマウスの動きは渡す(ゲームの中で押したままの状態が残らないように、位置が古くならないように)。
+            NativeEventCapture capture;
 #if HUSKY_DEVELOPMENT
             if (g_nativeEventHook != nullptr)
             {
-                uiWantsKeyboard = g_nativeEventHook(&event);
+                capture = g_nativeEventHook(&event);
             }
 #endif
-            if (uiWantsKeyboard && event.type == SDL_EVENT_KEY_DOWN)
+            if (capture.keyboard && event.type == SDL_EVENT_KEY_DOWN)
+            {
+                continue;
+            }
+            if (capture.mouse && (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_WHEEL))
             {
                 continue;
             }
 
             switch (event.type)
             {
+            case SDL_EVENT_MOUSE_MOTION:
+            {
+                MouseEvent mouseEvent;
+                mouseEvent.type = MouseEventType::Move;
+                mouseEvent.x = event.motion.x;
+                mouseEvent.y = event.motion.y;
+                outEvents.mouse.push_back(mouseEvent);
+                break;
+            }
+
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            {
+                MouseEvent mouseEvent;
+                if (!ToMouseButton(event.button.button, mouseEvent.button))
+                {
+                    break;
+                }
+                mouseEvent.type = (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) ? MouseEventType::ButtonDown : MouseEventType::ButtonUp;
+                mouseEvent.x = event.button.x;
+                mouseEvent.y = event.button.y;
+                outEvents.mouse.push_back(mouseEvent);
+                break;
+            }
+
+            case SDL_EVENT_MOUSE_WHEEL:
+            {
+                MouseEvent mouseEvent;
+                mouseEvent.type = MouseEventType::Wheel;
+                mouseEvent.x = event.wheel.mouse_x;
+                mouseEvent.y = event.wheel.mouse_y;
+                // OS の設定で向きが逆(「ナチュラル」なスクロール)なら、SDL は FLIPPED を付けて送ってくる。
+                // ゲームからはいつも「奥へ回すと +」に見えるようにそろえる。
+                mouseEvent.wheel = (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) ? -event.wheel.y : event.wheel.y;
+                outEvents.mouse.push_back(mouseEvent);
+                break;
+            }
             case SDL_EVENT_QUIT:
                 // 最後のウィンドウが閉じられたときや、OS から終了を求められたときに届く。
                 quitRequested = true;
@@ -163,7 +218,7 @@ namespace husky::platform
                 KeyEvent keyEvent;
                 keyEvent.key = key;
                 keyEvent.isDown = (event.type == SDL_EVENT_KEY_DOWN);
-                outKeyEvents.push_back(keyEvent); // push_back は C# の List.Add にあたる
+                outEvents.keys.push_back(keyEvent); // push_back は C# の List.Add にあたる
                 break;
             }
 

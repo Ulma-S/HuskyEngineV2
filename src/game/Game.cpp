@@ -15,6 +15,7 @@
 #include "game/GameActors.h"
 
 #include <algorithm> // std::clamp
+#include <cmath>     // std::sqrt
 #include <cstdint>
 
 #include <random> // std::mt19937(乱数)
@@ -239,12 +240,29 @@ namespace husky::game
 
     void PlayerActor::Tick(double dt)
     {
-        const engine::Scene* scene = GetScene();
+        engine::Scene* scene = GetScene();
         const engine::Input* input = scene != nullptr ? scene->GetInput() : nullptr;
         if (input == nullptr)
         {
             return;
         }
+        // 世界の外へは出られない(位置は真ん中なので、四方の端から大きさの半分だけ内側まで)。
+        const float half = PlayerSize / 2.0f;
+
+        // 左ボタンを押した瞬間に、マウスの下のワールドの位置を行き先にする(UI-1)。
+        // マウスの位置は画面のピクセル(下が +y)なので、カメラを通してワールド(上が +y)へ直す。
+        if (input->WasMousePressed(engine::MouseButton::Left))
+        {
+            core::Vector3 world;
+            if (engine::FindMouseWorldPosition(*scene, world))
+            {
+                // 行き先も世界の中に収める(外を押されても、端で止まれるように)
+                m_moveTarget = core::Vector3{std::clamp(world.x, half, WorldWidth - half),
+                                             std::clamp(world.y, half, WorldHeight - half), 0.0f};
+                m_hasMoveTarget = true;
+            }
+        }
+
         // 押されている方向キーから、動く向きを決める(-1, 0, +1)。
         float moveX = 0.0f;
         float moveY = 0.0f;
@@ -255,12 +273,32 @@ namespace husky::game
 
         // 速さ × dt = このフレームで進む距離。フレームレートが違っても、1秒で進む距離は同じになる。
         const float step = moveSpeed * static_cast<float>(dt);
-        transform.position.x += moveX * step;
-        transform.position.y += moveY * step;
+        if (moveX != 0.0f || moveY != 0.0f)
+        {
+            m_hasMoveTarget = false; // キーで動かしたら、クリックの行き先はやめる
+            transform.position.x += moveX * step;
+            transform.position.y += moveY * step;
+        }
+        else if (m_hasMoveTarget)
+        {
+            // 行き先へまっすぐ進む。このフレームで着ける距離なら、ぴったり行き先に置いてやめる(行き過ぎて揺れないように)。
+            const float toX = m_moveTarget.x - transform.position.x;
+            const float toY = m_moveTarget.y - transform.position.y;
+            const float distance = std::sqrt(toX * toX + toY * toY);
+            if (distance <= step)
+            {
+                transform.position.x = m_moveTarget.x;
+                transform.position.y = m_moveTarget.y;
+                m_hasMoveTarget = false;
+            }
+            else
+            {
+                transform.position.x += toX / distance * step;
+                transform.position.y += toY / distance * step;
+            }
+        }
 
-        // 世界の外へは出られない(位置は真ん中なので、四方の端から大きさの半分だけ内側まで)。
         // std::clamp(値, 下限, 上限): 値を範囲の中に収める(C# の Math.Clamp)。
-        const float half = PlayerSize / 2.0f;
         transform.position.x = std::clamp(transform.position.x, half, WorldWidth - half);
         transform.position.y = std::clamp(transform.position.y, half, WorldHeight - half);
     }

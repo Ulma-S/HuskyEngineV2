@@ -41,4 +41,11 @@ namespace husky::engine
     // シーンのカメラが「どこを、どれだけの拡大で映すか」(CameraView)。カメラが無ければ、画面ちょうどのカメラの値
     // (真ん中 = 画面の大きさの半分、zoom 1)。エディタのカメラを、ゲームのカメラと同じ見え方から始めるのに使う(RS-2)。
     CameraView FindSceneCameraView(Scene& scene, float screenWidth, float screenHeight);
+
+    // マウスの下のワールドの位置(UI-1)。シーンの入力(Scene::GetInput)のマウスの位置を、シーンのカメラ
+    // (MakeSceneCamera と同じ見え方)で ScreenToWorld に通す。画面のピクセル(下が +y)からワールド(上が +y)へ直る。
+    // 入力が無い、画面の大きさが 0(テストで渡していない、CLI)のときは false を返し、outWorld は変えない。
+    // ゲームのカメラで直すので、編集中のエディタのカメラ(シーンビュー)とは合わない(編集中はシーンの Tick が止まっている)。
+    // 動作スレッド: ゲームスレッド
+    bool FindMouseWorldPosition(Scene& scene, core::Vector3& outWorld);
 }
