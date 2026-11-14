@@ -84,6 +84,17 @@ namespace husky::engine
         ParentRefused = 7,
         ChildBodyIgnored = 8,
         UIButtonTargetMissing = 9,
+        // SC-2b: 入れ物のシーン
+        ParentAcrossScenes = 10,
+        SceneNotInList = 11,
+        SceneAlreadyLoaded = 12,
+        SceneNotLoaded = 13,
+        RootSceneUnload = 14,
+        SceneLoadFailed = 15,
+        SceneUnloaded = 16,
+        SceneListDuplicateName = 17,
+        SceneListEntryMissing = 18,
+        SceneMoveRefused = 19,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Engine.Scene")
@@ -104,6 +115,25 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(ChildBodyIgnored, Warning,
                           "親を持つアクター {actor} の Rigidbody2D は使いません(動く体は親を持てません)。コライダーは形だけで置きます",
                           HUSKY_LOG_ARG(actor, String))
+        HUSKY_LOG_MESSAGE(ParentAcrossScenes, Error,
+                          "{actor} の親を {parent} にできません: 親子はシーンをまたげません(シーン「{scene}」と「{parentScene}」)",
+                          HUSKY_LOG_ARG(actor, String), HUSKY_LOG_ARG(parent, String), HUSKY_LOG_ARG(scene, String),
+                          HUSKY_LOG_ARG(parentScene, String))
+        HUSKY_LOG_MESSAGE(SceneNotInList, Error, "シーン {name} はシーンの一覧にありません", HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(SceneAlreadyLoaded, Error, "シーン {name} はもう読んであります(同じシーンは同時に1つだけ)",
+                          HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(SceneNotLoaded, Error, "シーン {name} は読まれていないので下ろせません", HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(RootSceneUnload, Error, "ルートシーン {name} は下ろせません", HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(SceneLoadFailed, Error, "シーン {name} を読めません: {reason}", HUSKY_LOG_ARG(name, String),
+                          HUSKY_LOG_ARG(reason, String))
+        HUSKY_LOG_MESSAGE(SceneUnloaded, Info, "シーン {name} を下ろしました: アクター {actors}", HUSKY_LOG_ARG(name, String),
+                          HUSKY_LOG_ARG(actors, Int))
+        HUSKY_LOG_MESSAGE(SceneListDuplicateName, Error, "シーンの一覧で名前 {name} が重なっています({path})。後のものは使いません",
+                          HUSKY_LOG_ARG(name, String), HUSKY_LOG_ARG(path, String))
+        HUSKY_LOG_MESSAGE(SceneListEntryMissing, Error, "シーンの一覧の {index} 番目のシーンがアセットの表にありません",
+                          HUSKY_LOG_ARG(index, Int))
+        HUSKY_LOG_MESSAGE(SceneMoveRefused, Error, "{actor} をシーン {scene} へ移せません: 親が別のシーンにいます",
+                          HUSKY_LOG_ARG(actor, String), HUSKY_LOG_ARG(scene, String))
         HUSKY_LOG_MESSAGE(UIButtonTargetMissing, Warning, "ボタン {button} の呼び先を呼べません: {reason}",
                           HUSKY_LOG_ARG(button, String), HUSKY_LOG_ARG(reason, String))
     HUSKY_LOG_CHANNEL_END()

@@ -36,11 +36,14 @@
 #include <initializer_list>
 #include <functional> // std::function(C# の Action<T> や Func<T> にあたる、関数を入れておける型)
 #include <string>
+#include <string_view>
 #include <utility>    // std::move
 #include <vector>
 
 namespace husky::engine
 {
+    class Scene; // 入れ物のシーン(Scene.h)
+
     // Run で開くウィンドウなどの設定。
     struct ApplicationDesc
     {
@@ -142,9 +145,24 @@ namespace husky::engine
         // ウィンドウも GPU も使わないので、テストからも呼べる。
         bool LoadSceneFile(const std::string& path);
 
-        // シーンのファイルの中身(値の木。SceneAsset::GetData など)から、アクターを今のシーンの後ろに足す(SC-1)。
+        // シーンのファイルの中身(値の木。SceneAsset::GetData など)から、アクターをワールドの一覧の後ろに足す(SC-1)。
         // label: ログに出す名前(ファイルのパスなど)。警告はログに出す。
-        void AddSceneData(const ArchiveValue& data, const std::string& label);
+        // target: 足したアクターを入れるシーン(SC-2b)。nullptr ならルートシーン。
+        void AddSceneData(const ArchiveValue& data, const std::string& label, Scene* target = nullptr);
+
+        // シーンの一覧(SceneList の .sdata)を GUID で読み、「名前 → シーンの GUID」の表を作る(SC-2b)。
+        // 読み終わるまで待つ。名前の重なり・表に無いシーンはエラーのログ(そのシーンは使わない)。
+        // 戻り値: 一覧を読めたら true(中にエラーがあっても true)。
+        bool LoadSceneList(const core::Guid& sceneListGuid);
+        // 一覧の名前からシーンの GUID を引く。無ければ nullptr。
+        const core::Guid* FindSceneGuid(std::string_view sceneName) const;
+        // 一覧の先頭のシーンの名前(最初のシーン)。一覧が空なら空の文字列。
+        const std::string& GetFirstSceneName() const;
+
+        // World::LoadScene / UnloadScene で頼まれたものを、頼まれた順に行う(SC-2b)。
+        // StepFrame が物理の後・UI の配置の前に呼ぶ(読んだ UI がそのフレームの配置に間に合うように)。
+        // テストやエディタから直接呼んでもよい。頼まれたものが無ければ何もしない(確保しない)。
+        void ProcessSceneRequests();
 
         // シーンを読むときに、プレハブから置いたアクターの元のプレハブを GUID から探す(SceneSerializer::Read に渡す)。
         // アセットの表で探して読み、読み終わるまで待つ(シーンを読むのは、起動、Stop、CLI のときの1回だけなので)。
@@ -227,6 +245,14 @@ namespace husky::engine
         PhysicsScene2D m_physics2D; // シーンのコライダーと当たり判定の世界(COL-3)
         core::ObjectRegistry m_registry;
         World* m_world = nullptr; // m_registry が持ち主。ここは借りているだけ
+
+        // シーンの一覧(LoadSceneList)の表: 名前 → シーンの GUID。並びは一覧の順。
+        struct SceneListEntry
+        {
+            std::string name;
+            core::Guid guid;
+        };
+        std::vector<SceneListEntry> m_sceneList;
 
         UpdateCallback m_updateCallback;
         core::ObjectHandle m_defaultSpriteTexture; // 既定のテクスチャのアセット(Run の中で読み、根に加える)

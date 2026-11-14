@@ -6,6 +6,7 @@
 #include "engine/EngineLog.h"
 #include "engine/GlmConversion.h"
 #include "engine/Rigidbody2D.h"
+#include "engine/Scene.h"
 #include "engine/TransformMatrix.h"
 
 #include <glm/matrix.hpp> // glm::inverse
@@ -14,6 +15,12 @@
 
 namespace husky::engine
 {
+    namespace
+    {
+        // 親子がシーンをまたぐときの断る理由。SetParent はこの定数かどうか(アドレス)で、エラーのログを選ぶ。
+        constexpr const char* ParentAcrossScenesReason = "親子はシーンをまたげません(同じシーンのアクターだけを親にできます)";
+    }
+
     Actor* Component::GetOwner() const
     {
         core::ObjectRegistry* registry = GetRegistry();
@@ -24,6 +31,12 @@ namespace husky::engine
     {
         core::ObjectRegistry* registry = GetRegistry();
         return registry != nullptr ? registry->Resolve<World>(m_world) : nullptr;
+    }
+
+    Scene* Actor::GetScene() const
+    {
+        core::ObjectRegistry* registry = GetRegistry();
+        return registry != nullptr ? registry->Resolve<Scene>(m_scene) : nullptr;
     }
 
     void Actor::RelinkComponentOwners()
@@ -199,6 +212,10 @@ namespace husky::engine
             {
                 refused = "親子の段数が多すぎます";
             }
+            else if (newParent->m_scene != m_scene)
+            {
+                refused = ParentAcrossScenesReason; // 親子はシーンをまたげない(SC-2b)
+            }
         }
         return refused;
     }
@@ -212,7 +229,18 @@ namespace husky::engine
         }
         if (refused != nullptr)
         {
-            HUSKY_LOG(SceneLog::ParentRefused, name, newParent->name, refused);
+            if (refused == ParentAcrossScenesReason)
+            {
+                // シーンをまたぐ親子は、使う側の誤りなのでエラー(ユーザーの決定)
+                const Scene* scene = GetScene();
+                const Scene* parentScene = newParent->GetScene();
+                HUSKY_LOG(SceneLog::ParentAcrossScenes, name, newParent->name, scene != nullptr ? scene->name : std::string(),
+                          parentScene != nullptr ? parentScene->name : std::string());
+            }
+            else
+            {
+                HUSKY_LOG(SceneLog::ParentRefused, name, newParent->name, refused);
+            }
             return false;
         }
 

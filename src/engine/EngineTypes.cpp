@@ -15,6 +15,7 @@
 #include "engine/PixelRect.h"
 #include "engine/PrefabAsset.h"
 #include "engine/SceneAsset.h"
+#include "engine/Scene.h"
 #include "engine/RenderReflection.h"
 #include "engine/ScriptableData.h"
 #include "engine/SoundAsset.h"
@@ -50,6 +51,8 @@ namespace husky::engine
     HUSKY_OBJECT_DEFINE(SpriteSheetAsset)
     HUSKY_OBJECT_DEFINE(PrefabAsset)
     HUSKY_OBJECT_DEFINE(SceneAsset)
+    HUSKY_OBJECT_DEFINE(SceneList)
+    HUSKY_OBJECT_DEFINE(Scene)
     HUSKY_OBJECT_DEFINE(FontAsset)
     HUSKY_OBJECT_DEFINE(Asset)
     HUSKY_OBJECT_DEFINE(SoundAsset)
@@ -71,6 +74,7 @@ namespace husky::engine
         types.Register<UIImageComponent>(); // UI の画像と文字(UI-6a)
         types.Register<UITextComponent>();
         types.Register<UIButtonComponent>(); // UI のボタン(UI-6b)
+        types.Register<SceneList>();         // シーンの一覧(SC-2b。.sdata の "type" から作る)
     }
 }
 

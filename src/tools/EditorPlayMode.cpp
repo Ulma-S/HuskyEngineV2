@@ -125,6 +125,9 @@ namespace husky::tools
                 actor->Destroy();
             }
         }
+        // 1'. 再生中に読んだ子のシーンも下ろし、頼まれたままの読み込みも捨てる(シーンの木を再生の前に戻す。SC-2b)。
+        //     今は編集中に子のシーンを持てないので、控えはルートシーンのアクターだけ(エディタで子のシーンを開くのは SC-4)。
+        scene.UnloadAllChildScenes();
 
         // 2. 控えから、再生を始める前のアクターを作り直す(一覧の後ろに足される。消す印の付いた古いものは、フレームの終わりに外れる)。
         const engine::SceneSerializer::ReadReport report =

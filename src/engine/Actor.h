@@ -19,6 +19,7 @@
 namespace husky::engine
 {
     class World; // 前方宣言(World.h が Actor.h を読むので、ここでは読まない)
+    class Scene; // 入れ物のシーン(Scene.h)
 
     // 動作スレッド: ゲームスレッドのみ
     class Actor : public core::Object
@@ -29,6 +30,8 @@ namespace husky::engine
         // シーンの外で作った(registry.Create<Actor>() など)か、シーンがもう無ければ nullptr。
         // シーンからは、エンジンの機能(入力など)を引ける(World::GetInput など)。
         World* GetWorld() const;
+        // このアクターが入っているシーン(入れ物。Scene.h)。ワールドに入れる前は nullptr。
+        Scene* GetScene() const;
 
         // 毎フレーム、シーンの更新(World::Tick)から呼ばれる。dt はこのフレームの経過時間(秒)。
         // 子クラスで override して、動きを書く。Destroy 済みのアクターでは呼ばれない。
@@ -234,6 +237,8 @@ namespace husky::engine
         // このアクターがいるシーン。World::Spawn が設定する。
         // プロパティとして登録しないので、弱い参照(アクターがシーンを生かし続けることはない。生かす向きはシーン → アクター)。
         core::ObjectHandle m_world;
+        // このアクターが入っているシーン(SC-2b)。m_world と同じく弱い参照。World::Spawn / AddLoadedActor / MoveToScene が書く。
+        core::ObjectHandle m_scene;
 
         // ハンドルからコンポーネントを引く。もう無いか、型が違うか、レジストリで作っていなければ nullptr。
         template <typename T>

@@ -14,6 +14,7 @@
 #include "engine/UIComponents.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
+#include "engine/Scene.h"
 #include "engine/SceneAsset.h"
 #include "engine/SceneSerializer.h"
 #include "platform/FileSystem.h"
@@ -128,6 +129,10 @@ namespace husky::engine
             m_sceneStepRequested = false;
         }
 
+        // 3''. シーンを読む・下ろす(SC-2b)。Tick の途中ではなく、ここでまとめて行う。下ろしたアクターはこのフレームの終わりに消え、
+        //      読んだアクターは次のフレームから更新される(UI の配置はこの後なので、このフレームから正しい場所に描かれる)。
+        ProcessSceneRequests();
+
         // 3'. UI の配置(UI-5a): Canvas の下の UIActor の四角を求め、transform に書く。編集中(Tick が止まっている)も
         //     インスペクタで直した RectTransform が見えるように、毎フレーム行う。画面の大きさは入力と一緒に届いたもの。
         {
@@ -180,7 +185,7 @@ namespace husky::engine
         return true;
     }
 
-    void Application::AddSceneData(const ArchiveValue& data, const std::string& label)
+    void Application::AddSceneData(const ArchiveValue& data, const std::string& label, Scene* target)
     {
         const SceneSerializer::ReadReport report = SceneSerializer::Read(
             data, *m_world, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
@@ -188,7 +193,161 @@ namespace husky::engine
         {
             HUSKY_LOG(SceneLog::ReadWarning, label, warning);
         }
+        // 足したアクターをシーンへ移す。親のいないものだけを移せば、子孫は一緒に移る(親子は同じシーンの決まり)。
+        if (target != nullptr && !target->IsRoot())
+        {
+            for (const core::ObjectHandle handle : report.addedActors)
+            {
+                Actor* actor = m_registry.Resolve<Actor>(handle);
+                if (actor != nullptr && actor->GetParent() == nullptr)
+                {
+                    m_world->MoveToScene(*actor, *target);
+                }
+            }
+        }
         HUSKY_LOG(SceneLog::Loaded, label, report.addedActorCount, report.createdCount, report.warnings.size());
+    }
+
+    namespace
+    {
+        // "scenes/title.scene" → "title"(ファイル名から拡張子を除く)。
+        std::string SceneNameFromPath(const std::string& path)
+        {
+            const std::size_t slash = path.find_last_of("/\\");
+            const std::size_t begin = slash == std::string::npos ? 0 : slash + 1;
+            const std::size_t dot = path.find_last_of('.');
+            const std::size_t end = dot == std::string::npos || dot < begin ? path.size() : dot;
+            return path.substr(begin, end - begin);
+        }
+    }
+
+    bool Application::LoadSceneList(const core::Guid& sceneListGuid)
+    {
+        m_sceneList.clear();
+        core::AssetRef<SceneList> reference;
+        reference.guid = sceneListGuid;
+        const SceneList* list = m_loader.Resolve(reference);
+        if (list == nullptr)
+        {
+            m_loader.WaitForAllLoads(); // 読み込み中なら待つ
+            list = m_loader.Resolve(reference);
+        }
+        if (list == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneLoadFailed, sceneListGuid.ToString(), "シーンの一覧(SceneList の .sdata)を読めません");
+            return false;
+        }
+        for (std::size_t i = 0; i < list->scenes.size(); ++i)
+        {
+            const core::Guid& guid = list->scenes[i].guid;
+            const std::string* path = m_assets.FindPath(guid);
+            if (guid.IsNull() || path == nullptr)
+            {
+                HUSKY_LOG(SceneLog::SceneListEntryMissing, static_cast<std::int64_t>(i));
+                continue;
+            }
+            std::string sceneName = SceneNameFromPath(*path);
+            if (FindSceneGuid(sceneName) != nullptr)
+            {
+                HUSKY_LOG(SceneLog::SceneListDuplicateName, sceneName, *path); // 黙ってどちらかを選ばない
+                continue;
+            }
+            m_sceneList.push_back({std::move(sceneName), guid});
+        }
+        return true;
+    }
+
+    const core::Guid* Application::FindSceneGuid(std::string_view sceneName) const
+    {
+        for (const SceneListEntry& entry : m_sceneList)
+        {
+            if (entry.name == sceneName)
+            {
+                return &entry.guid;
+            }
+        }
+        return nullptr;
+    }
+
+    const std::string& Application::GetFirstSceneName() const
+    {
+        static const std::string empty;
+        return m_sceneList.empty() ? empty : m_sceneList.front().name;
+    }
+
+    void Application::ProcessSceneRequests()
+    {
+        if (m_world->GetSceneRequests().empty())
+        {
+            return; // ふつうのフレームはここで終わる(確保しない)
+        }
+        // 頼まれたものを写してから空にする(読んでいる間に頼まれたものは、次のフレームに回す)。
+        const std::vector<World::SceneRequest> requests = m_world->GetSceneRequests();
+        m_world->ClearSceneRequests();
+        for (const World::SceneRequest& request : requests)
+        {
+            Scene* existing = m_world->FindScene(request.sceneName);
+            if (!request.load)
+            {
+                if (existing == nullptr)
+                {
+                    HUSKY_LOG(SceneLog::SceneNotLoaded, request.sceneName);
+                }
+                else if (existing->IsRoot())
+                {
+                    HUSKY_LOG(SceneLog::RootSceneUnload, request.sceneName);
+                }
+                else
+                {
+                    std::size_t destroyed = 0;
+                    m_world->UnloadSceneNow(*existing, &destroyed);
+                    HUSKY_LOG(SceneLog::SceneUnloaded, request.sceneName, static_cast<std::int64_t>(destroyed));
+                }
+                continue;
+            }
+
+            if (existing != nullptr)
+            {
+                HUSKY_LOG(SceneLog::SceneAlreadyLoaded, request.sceneName);
+                continue;
+            }
+            const core::Guid* guid = FindSceneGuid(request.sceneName);
+            if (guid == nullptr)
+            {
+                HUSKY_LOG(SceneLog::SceneNotInList, request.sceneName);
+                continue;
+            }
+            Scene* parent = m_world->GetRootScene();
+            if (!request.parent.IsNull())
+            {
+                parent = m_registry.Resolve<Scene>(request.parent);
+                if (parent == nullptr || parent->IsPendingDestroy())
+                {
+                    HUSKY_LOG(SceneLog::SceneLoadFailed, request.sceneName, "親のシーンがもうありません");
+                    continue;
+                }
+            }
+            // シーンのアセットを読む(読み終わるまで待つ。途中まで読めたフレームを作らない)。
+            core::AssetRef<SceneAsset> reference;
+            reference.guid = *guid;
+            const SceneAsset* asset = m_loader.Resolve(reference);
+            if (asset != nullptr && asset->GetState() == AssetState::Loading)
+            {
+                m_loader.WaitForAllLoads();
+            }
+            if (asset == nullptr || !asset->IsLoaded())
+            {
+                HUSKY_LOG(SceneLog::SceneLoadFailed, request.sceneName, "シーンのファイルを読めません");
+                continue;
+            }
+            Scene* scene = m_world->CreateChildScene(*parent, request.sceneName, *guid);
+            if (scene == nullptr)
+            {
+                HUSKY_LOG(SceneLog::SceneLoadFailed, request.sceneName, "シーンを作れません(メモリが足りません)");
+                continue;
+            }
+            AddSceneData(asset->GetData(), request.sceneName, scene);
+        }
     }
 
 #if HUSKY_DEVELOPMENT

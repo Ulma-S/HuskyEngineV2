@@ -9,8 +9,11 @@
 
 #include "engine/ArchiveValue.h"
 #include "engine/Asset.h"
+#include "engine/ScriptableData.h"
+#include "core/AssetRef.h"
 
 #include <memory>
+#include <vector>
 
 namespace husky::engine
 {
@@ -33,4 +36,18 @@ namespace husky::engine
 
     // シーンの読み方(拡張子 .scene)。Application のコンストラクタが RegisterKind で登録する。
     std::unique_ptr<AssetKind> CreateSceneAssetKind();
+
+    // シーンの一覧(SC-2b。Unity の Build Settings のシーンの一覧にあたる)。ScriptableData のファイル(.sdata)に書く。
+    // ゲームはシーンを名前(ファイル名から拡張子を除いたもの)で指し、エンジンはこの一覧から名前で探して読む。
+    // 先頭が最初のシーン。名前が重なっていればエラー(後のものは使わない)。Application::LoadSceneList で読む。
+    class SceneList : public ScriptableData
+    {
+        HUSKY_OBJECT(SceneList, ScriptableData)
+    public:
+        std::vector<core::AssetRef<SceneAsset>> scenes;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(scenes)
+        HUSKY_REFLECTION_END()
+    };
 }

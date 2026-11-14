@@ -22,6 +22,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -35,6 +37,7 @@ namespace husky::engine
 {
     class Input; // 前方宣言: ポインタで持つだけなので、中身(Input.h)は要らない
     class AssetLoader; // 同じく前方宣言(ポインタで持つだけ)
+    class Scene;       // 入れ物のシーン(Scene.h)
 
     // 動作スレッド: ゲームスレッドのみ
     class World : public core::Object
@@ -64,6 +67,7 @@ namespace husky::engine
                 // 設定するのはコンストラクタの後なので、アクターのコンストラクタの中では GetWorld() は nullptr。
                 Actor& base = *actor;
                 base.m_world = GetHandle();
+                base.m_scene = GetRootSceneHandle(); // 置き場所を指定しなければルートシーン(SC-2b)
                 if (base.guid.IsNull())
                 {
                     base.guid = core::Guid::Generate(); // 変わらない ID(Actor::guid)を振る
@@ -72,6 +76,56 @@ namespace husky::engine
             }
             return actor;
         }
+
+        // T 型のアクターを作り、scene に入れる(Spawn と MoveToScene)。作れなければ nullptr。
+        template <typename T, typename... Args>
+        T* SpawnInScene(Scene& scene, Args&&... args)
+        {
+            T* actor = Spawn<T>(std::forward<Args>(args)...);
+            if (actor != nullptr)
+            {
+                MoveToScene(*actor, scene);
+            }
+            return actor;
+        }
+
+        // ---- シーン(SC-2b。入れ物の木。Scene.h) ----
+
+        // ルートシーン。無ければ作る(ワールドをレジストリで作っていなければ nullptr)。
+        Scene* GetRootScene();
+        // 名前でシーンを探す(ルートシーンも含む、木の全部)。無ければ nullptr。
+        Scene* FindScene(std::string_view sceneName);
+
+        // シーンを読む・下ろすのを頼む。実際に行うのは、このフレームの物理の後(Application::ProcessSceneRequests)。
+        // 名前はシーンの一覧(Application::LoadSceneList)の名前。parent を省くとルートシーンの下に読む。
+        // 一覧に無い・もう読んである・読めないときは、そのときにエラーのログを出して何もしない。
+        void LoadScene(std::string_view sceneName, Scene* parent = nullptr);
+        // ルートシーンは下ろせない(エラーのログ)。
+        void UnloadScene(std::string_view sceneName);
+
+        // 頼まれたものの一覧(Application が読む)。
+        struct SceneRequest
+        {
+            bool load = true;          // true: 読む、false: 下ろす
+            std::string sceneName;     // シーンの名前
+            core::ObjectHandle parent; // 読むときの親のシーン(空ならルートシーン)
+        };
+        const std::vector<SceneRequest>& GetSceneRequests() const { return m_sceneRequests; }
+        void ClearSceneRequests() { m_sceneRequests.clear(); }
+
+        // parent の下に、空のシーンを作ってつなぐ(読み込みは呼ぶ側。Application が使う)。作れなければ nullptr。
+        Scene* CreateChildScene(Scene& parent, std::string_view sceneName, const core::Guid& asset);
+
+        // シーンをその場で下ろす: 中のアクター(子のシーンの中も)を Destroy し、シーンを木から外して Destroy する。
+        // ルートシーンは下ろさない(false)。戻り値: 下ろせたら true。outDestroyedActors に Destroy したアクターの数。
+        bool UnloadSceneNow(Scene& scene, std::size_t* outDestroyedActors = nullptr);
+
+        // ルートシーンの下の子のシーンを全部その場で下ろす(エディタの Stop など、木を最初に戻すとき)。
+        // 中のアクターも Destroy する。頼まれたものの一覧も空にする。
+        void UnloadAllChildScenes();
+
+        // アクターを子孫ごと scene へ移す。アクターに別のシーンの親がいるときは、エラーのログを出して false。
+        bool MoveToScene(Actor& actor, Scene& scene);
 
         // このシーンを作ったレジストリ(アクターやコンポーネントもここにある)。レジストリで作っていなければ nullptr。
         // 保存・読み込み(SceneSerializer)で、ハンドルを引いたりオブジェクトを作ったりするのに使う。
@@ -137,11 +191,20 @@ namespace husky::engine
         // シーンにいるアクターのハンドルの一覧。プロパティとして登録しているので、GC がたどる(強い参照)。
         std::vector<core::ObjectHandle> actors;
 
+        // ルートシーン(強い参照。GetRootScene が最初に呼ばれたときに作る)。
+        core::ObjectHandle rootScene;
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(actors)
+            HUSKY_PROPERTY(rootScene)
         HUSKY_REFLECTION_END()
 
     private:
+        // ルートシーンのハンドル(無ければ作る)。Spawn がテンプレートなので、Scene の中身を知らずに呼べる形にしている。
+        core::ObjectHandle GetRootSceneHandle();
+
+        std::vector<SceneRequest> m_sceneRequests; // LoadScene / UnloadScene で頼まれたもの
+
         // Tick の順番表の1行。1行が「アクター自身の Tick」か「コンポーネント1つの Tick」の1回分。
         struct TickEntry
         {

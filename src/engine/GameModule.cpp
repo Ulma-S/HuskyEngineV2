@@ -229,6 +229,7 @@ namespace husky::engine
                 actor->Destroy();
             }
         }
+        scene.UnloadAllChildScenes(); // 子のシーンも下ろす(控えから戻すアクターはルートシーンに入る。編集中だけなので今は子のシーンは無い)
         scene.RemoveDestroyedActors();
 
         // 3. 外す。外せなければ(ゲームの型のものが残っている)、シーンを戻してやめる

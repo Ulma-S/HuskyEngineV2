@@ -204,7 +204,7 @@ TEST_CASE("Actor: シーンへの参照は弱い。アクターだけが残っ�
     registry.AddRoot(mover->GetHandle()); // アクターだけを根にする
     registry.RemoveRoot(scene->GetHandle());
 
-    CHECK(registry.CollectGarbage() == 1); // シーンだけが回収される
+    CHECK(registry.CollectGarbage() == 2); // ワールドとルートシーンが回収される
     CHECK(mover->GetWorld() == nullptr);   // シーンがもう無いと分かる
 }
 

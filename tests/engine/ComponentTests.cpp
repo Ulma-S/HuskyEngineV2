@@ -195,14 +195,14 @@ TEST_CASE("Component: アクターを Destroy すると、そのコンポーネ�
     Actor* actor = scene->Spawn<Actor>();
     const auto counterHandle = actor->AddComponent<Counter>()->GetHandle();
     const auto otherHandle = actor->AddComponent<Other>()->GetHandle();
-    CHECK(registry.GetObjectCount() == 4); // シーン、アクター、コンポーネント2つ
+    CHECK(registry.GetObjectCount() == 5); // ワールド、ルートシーン、アクター、コンポーネント2つ
 
     actor->Destroy();
     EndFrame(registry, *scene);
 
     CHECK(registry.Resolve(counterHandle) == nullptr);
     CHECK(registry.Resolve(otherHandle) == nullptr);
-    CHECK(registry.GetObjectCount() == 1); // シーンだけ
+    CHECK(registry.GetObjectCount() == 2); // ワールドとルートシーンだけ
 }
 
 TEST_CASE("Component: シーンにいるアクターのコンポーネントは GC で回収されない。アクターごと届かなくなると回収される")

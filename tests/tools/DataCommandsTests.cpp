@@ -69,8 +69,9 @@ TEST_CASE("SD-3a: data.create で型の既定の値の .sdata と .meta を作�
 
     // --- data.create: 型の選択肢、ファイルと .meta、表に入る。上書き・外・違う拡張子・ScriptableData でない型は断る ---
     const auto typeChoices = commands.Find("data.create")->args[0].choices(app, ArchiveValue());
-    REQUIRE(typeChoices.size() == 1);
-    CHECK(typeChoices[0].value == "EnemySettings");
+    REQUIRE(typeChoices.size() == 2); // エンジンのシーンの一覧(SceneList。先に登録)と、ゲームの型
+    CHECK(typeChoices[1].value == "EnemySettings");
+    CHECK(typeChoices[0].value == "SceneList");
 
     const EditorCommandResult created =
         commands.Execute("data.create", app, Args(R"({"type": "EnemySettings", "path": "data/enemy.sdata"})"));
