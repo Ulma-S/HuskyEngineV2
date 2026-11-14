@@ -8,10 +8,12 @@
 #include "engine/Collider2D.h"
 #include "engine/Rigidbody2D.h"
 #include "game/CameraFollowComponent.h"
+#include "game/HudComponent.h"
 #include "engine/Input.h"
 #include "engine/Prefab.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
+#include "engine/UIActor.h"
 #include "game/GameActors.h"
 
 #include <algorithm> // std::clamp
@@ -238,6 +240,16 @@ namespace husky::game
         }
     }
 
+    void PlayerActor::OnOverlap(const engine::OverlapEvent& event)
+    {
+        // 触れ始め(begin)で、相手が跳ね回るものなら 1 点(木箱は物理で押し合うので、ここには来ない)
+        core::ObjectRegistry* registry = GetOwnerRegistry();
+        if (event.begin && registry != nullptr && registry->Resolve<BouncerActor>(event.otherActor) != nullptr)
+        {
+            ++score;
+        }
+    }
+
     void PlayerActor::Tick(double dt)
     {
         engine::Scene* scene = GetScene();
@@ -308,6 +320,7 @@ namespace husky::game
         types.Register<BouncerActor>();
         types.Register<PlayerActor>();
         types.Register<CameraFollowComponent>();
+        types.Register<HudComponent>(); // スコアと残り時間の表示(UI-7)
         types.Register<BouncerSettings>(); // .sdata の "type" から作れるように(ScriptableData も同じ登録簿)
     }
 
@@ -401,6 +414,25 @@ namespace husky::game
             // 最初から追いついた位置に置く(編集中は Tick が止まり、追いかけないため)。
             camera->transform.position.x = player->transform.position.x;
             camera->transform.position.y = player->transform.position.y;
+        }
+    }
+
+    void SpawnHudIfMissing(engine::Application& app)
+    {
+        bool hasCanvas = false;
+        app.GetScene().ForEachActor([&](engine::Actor& actor) {
+            if (actor.GetComponent<engine::CanvasComponent>() != nullptr)
+            {
+                hasCanvas = true;
+            }
+        });
+        if (hasCanvas)
+        {
+            return;
+        }
+        if (const engine::PrefabAsset* hudPrefab = LoadPrefab(app, "prefabs/hud.prefab"))
+        {
+            PlacePrefab<engine::Actor>(app, *hudPrefab);
         }
     }
 }

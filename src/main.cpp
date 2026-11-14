@@ -220,6 +220,8 @@ int main(int argc, char** argv)
         HUSKY_LOG(game::GameLog::NoSceneFile, scenePath);
         game::SpawnInitialActors(app);
     }
+    // シーンに UI(Canvas)が無ければ、HUD(スコア・残り時間・リセットのボタン)を置く(UI-7)
+    game::SpawnHudIfMissing(app);
 
 #if HUSKY_DEVELOPMENT
     // 【開発ビルドだけ】編集の状態で始める(Unity と同じ)。置いたものは、Play を押すまで動かない。

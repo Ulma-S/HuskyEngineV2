@@ -39,4 +39,9 @@ namespace husky::game
     // プレハブを読むので、先にアセットの表(app.GetAssetDatabase().Scan)を作っておくこと。プレハブが無ければ、ログに出してそれを置かない。
     // 乱数の種を固定しているので、毎回同じ配置になる。
     void SpawnInitialActors(engine::Application& app);
+
+    // シーンに Canvas(CanvasComponent を持つアクター)が無ければ、HUD のプレハブ(prefabs/hud.prefab)を置く(UI-7)。
+    // シーンのファイルを読んだ後も、コードで最初の配置をした後も呼ぶ(F5 で保存すれば、次からはファイルの HUD が使われる)。
+    // 先にアセットの表が要る。
+    void SpawnHudIfMissing(engine::Application& app);
 }

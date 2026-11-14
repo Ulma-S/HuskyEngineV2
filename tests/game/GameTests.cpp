@@ -12,6 +12,8 @@
 #include "platform/FileSystem.h"
 #include "game/BouncerSettings.h"
 #include "game/GameActors.h"
+#include "game/HudComponent.h"
+#include "engine/UIActor.h"
 #include "TestFolder.h"
 
 #include <doctest/doctest.h>
@@ -391,4 +393,122 @@ TEST_CASE("Game: マウスの下のワールドの位置は、シーンのカメ
     REQUIRE(husky::engine::FindMouseWorldPosition(app.GetScene(), world));
     CHECK(world.x == doctest::Approx(1100.0f));
     CHECK(world.y == doctest::Approx(1950.0f));
+}
+
+// ---- HUD(UI-7) ----
+
+namespace
+{
+    // シーンで最初の T のコンポーネント
+    template <typename T>
+    T* FindFirstComponent(Application& app)
+    {
+        T* found = nullptr;
+        app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+            if (found == nullptr)
+            {
+                found = actor.GetComponent<T>();
+            }
+        });
+        return found;
+    }
+
+    husky::engine::Actor* FindActorNamed(Application& app, const char* name)
+    {
+        husky::engine::Actor* found = nullptr;
+        app.GetScene().ForEachActor([&](husky::engine::Actor& actor) {
+            if (found == nullptr && actor.name == name)
+            {
+                found = &actor;
+            }
+        });
+        return found;
+    }
+}
+
+TEST_CASE("Game: Canvas の無いシーンには HUD のプレハブを置く。もう Canvas があれば置かない")
+{
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    husky::game::SpawnHudIfMissing(app);
+    REQUIRE(FindFirstComponent<husky::engine::CanvasComponent>(app) != nullptr);
+    REQUIRE(FindFirstComponent<husky::game::HudComponent>(app) != nullptr);
+    CHECK(FindActorNamed(app, "ResetButton") != nullptr);
+    const std::size_t count = app.GetScene().actors.size();
+    CHECK(count == 5); // HUD、スコア、残り時間、ボタン、ボタンの文字
+
+    husky::game::SpawnHudIfMissing(app); // 2回目は置かない
+    CHECK(app.GetScene().actors.size() == count);
+}
+
+TEST_CASE("Game: HUD はプレイヤーのスコアと残り時間を文字に書き、時間切れで止まり、リセットのボタンで最初に戻る")
+{
+    Application app;
+    husky::game::RegisterGameTypes(app.GetTypeRegistry());
+    ScanBuiltAssets(app);
+    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    REQUIRE(player != nullptr);
+    husky::game::SpawnHudIfMissing(app);
+    husky::game::HudComponent* hud = FindFirstComponent<husky::game::HudComponent>(app);
+    REQUIRE(hud != nullptr);
+    husky::engine::UITextComponent* scoreText = hud->scoreText.Resolve(app.GetRegistry());
+    husky::engine::UITextComponent* timeText = hud->timeText.Resolve(app.GetRegistry());
+    REQUIRE(scoreText != nullptr);
+    REQUIRE(timeText != nullptr);
+
+    app.GetClock().SetFixedDelta(0.1); // dt は上限で切られるので、小さく進める
+    app.StepFrame(0, {}); // 残り 59.9 秒(切り上げて 60 秒 = 01:00)
+    CHECK(timeText->text == "残り時間: 01:00");
+    CHECK(scoreText->text == "スコア: 0");
+
+    player->score += 3; // 跳ね回るものに 3 回触れた
+    for (int i = 0; i < 10; ++i) // 1 秒進めて、残り 58.9 秒(切り上げて 59 秒)
+    {
+        app.StepFrame(0, {});
+    }
+    CHECK(scoreText->text == "スコア: 3");
+    CHECK(timeText->text == "残り時間: 00:59");
+
+    // 60 秒を過ぎるまで進める
+    for (int i = 0; i < 600 && !hud->IsFinished(); ++i)
+    {
+        app.StepFrame(0, {});
+    }
+    REQUIRE(hud->IsFinished());
+    CHECK(timeText->text == "おしまい!");
+    player->score += 5; // 時間切れの後は数えない
+    app.StepFrame(0, {});
+    CHECK(scoreText->text == "スコア: 3");
+
+    // リセットのボタン(プレハブの中で HudComponent::ResetGame を指している)を押す
+    husky::engine::Actor* button = FindActorNamed(app, "ResetButton");
+    REQUIRE(button != nullptr);
+    husky::engine::UIButtonComponent* buttonComponent = button->GetComponent<husky::engine::UIButtonComponent>();
+    REQUIRE(buttonComponent != nullptr);
+    husky::engine::ClickUIButton(*button, *buttonComponent);
+    CHECK(scoreText->text == "スコア: 0");
+    CHECK(timeText->text == "残り時間: 01:00");
+    CHECK_FALSE(hud->IsFinished());
+}
+
+TEST_CASE("Game: プレイヤーのスコアは、跳ね回るものが触れ始めたときだけ増える")
+{
+    Application app;
+    auto* player = app.GetScene().Spawn<husky::game::PlayerActor>();
+    auto* bouncer = app.GetScene().Spawn<husky::game::BouncerActor>();
+    auto* other = app.GetScene().Spawn<husky::engine::Actor>();
+    REQUIRE(player != nullptr);
+    REQUIRE(bouncer != nullptr);
+    REQUIRE(other != nullptr);
+    husky::engine::OverlapEvent event;
+    event.begin = true;
+    event.otherActor = bouncer->GetHandle();
+    player->OnOverlap(event);
+    event.begin = false; // 離れたときは数えない
+    player->OnOverlap(event);
+    event.begin = true;
+    event.otherActor = other->GetHandle(); // 跳ね回るもの以外
+    player->OnOverlap(event);
+    CHECK(player->score == 1);
 }

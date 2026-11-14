@@ -416,6 +416,7 @@ target_link_libraries(husky_render
 # 起動する exe(HuskyEngineV2)と、エディタ(HuskyEditorCli)の両方がリンクする(エディタもゲームの型を知る必要があるため)。
 add_library(husky_game STATIC
     src/game/CameraFollowComponent.cpp
+    src/game/HudComponent.cpp
     src/game/Game.cpp
 )
 husky_set_compile_options(husky_game)

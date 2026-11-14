@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 0,
+      "type": "UIActor",
+      "properties": {
+        "name": "HUD",
+        "parent": null,
+        "prefabActorId": "9626f94d-d776-4e23-846e-c31e1788cd5c",
+        "components": [
+          1,
+          2
+        ],
+        "rectTransform": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchoredPosition": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "sizeDelta": {
+            "x": 100.0,
+            "y": 100.0
+          }
+        }
+      }
+    },
+    {
+      "id": 1,
+      "type": "CanvasComponent",
+      "properties": {
+        "prefabComponentId": "f5000c3a-e6aa-4e66-9938-5a424c9aafff",
+        "referenceWidth": 1280.0,
+        "referenceHeight": 720.0
+      }
+    },
+    {
+      "id": 2,
+      "type": "HudComponent",
+      "properties": {
+        "prefabComponentId": "3c6ecfed-cc65-435a-9c6f-e44f43eb48ef",
+        "scoreText": 4,
+        "timeText": 6,
+        "timeLimit": 60.0
+      }
+    },
+    {
+      "id": 3,
+      "type": "UIActor",
+      "properties": {
+        "name": "ScoreText",
+        "parent": 0,
+        "prefabActorId": "0d8c4337-b4e3-483d-8b9b-1ff018b5734c",
+        "components": [
+          4
+        ],
+        "rectTransform": {
+          "anchorMin": {
+            "x": 0.0,
+            "y": 1.0
+          },
+          "anchorMax": {
+            "x": 0.0,
+            "y": 1.0
+          },
+          "pivot": {
+            "x": 0.0,
+            "y": 1.0
+          },
+          "anchoredPosition": {
+            "x": 24.0,
+            "y": -16.0
+          },
+          "sizeDelta": {
+            "x": 420.0,
+            "y": 48.0
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "UITextComponent",
+      "properties": {
+        "prefabComponentId": "3c90dbd0-bd06-4c51-8e8f-b3d8b20db8c7",
+        "font": "0a2f250f-023f-45b3-b5fd-192a91cd42f9",
+        "text": "スコア: 0",
+        "fontSize": 32.0,
+        "color": {
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "alignment": "Left",
+        "verticalAlignment": "Middle",
+        "wrap": true,
+        "lineSpacing": 1.0
+      }
+    },
+    {
+      "id": 5,
+      "type": "UIActor",
+      "properties": {
+        "name": "TimeText",
+        "parent": 0,
+        "prefabActorId": "18dfae90-3a2e-41d4-a3dc-14392004773d",
+        "components": [
+          6
+        ],
+        "rectTransform": {
+          "anchorMin": {
+            "x": 1.0,
+            "y": 1.0
+          },
+          "anchorMax": {
+            "x": 1.0,
+            "y": 1.0
+          },
+          "pivot": {
+            "x": 1.0,
+            "y": 1.0
+          },
+          "anchoredPosition": {
+            "x": -24.0,
+            "y": -16.0
+          },
+          "sizeDelta": {
+            "x": 420.0,
+            "y": 48.0
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "UITextComponent",
+      "properties": {
+        "prefabComponentId": "cb21b3dd-d8e2-4a8e-8045-d5e61a77c8f5",
+        "font": "0a2f250f-023f-45b3-b5fd-192a91cd42f9",
+        "text": "残り時間: 01:00",
+        "fontSize": 32.0,
+        "color": {
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "alignment": "Right",
+        "verticalAlignment": "Middle",
+        "wrap": true,
+        "lineSpacing": 1.0
+      }
+    },
+    {
+      "id": 7,
+      "type": "UIActor",
+      "properties": {
+        "name": "ResetButton",
+        "parent": 0,
+        "prefabActorId": "726e9222-901f-4c84-800a-7d722a4f9463",
+        "components": [
+          8,
+          9
+        ],
+        "rectTransform": {
+          "anchorMin": {
+            "x": 0.5,
+            "y": 0.0
+          },
+          "anchorMax": {
+            "x": 0.5,
+            "y": 0.0
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.0
+          },
+          "anchoredPosition": {
+            "x": 0.0,
+            "y": 20.0
+          },
+          "sizeDelta": {
+            "x": 220.0,
+            "y": 56.0
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "UIImageComponent",
+      "properties": {
+        "prefabComponentId": "b3dcff78-71b5-4027-a47b-f0505eb0fd29",
+        "color": {
+          "r": 0.2,
+          "g": 0.45,
+          "b": 0.85,
+          "a": 0.95
+        },
+        "texture": null,
+        "region": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "sheet": null,
+        "sprite": 0
+      }
+    },
+    {
+      "id": 9,
+      "type": "UIButtonComponent",
+      "properties": {
+        "prefabComponentId": "60e144fc-4aa0-437e-bb47-ba194a50f09c",
+        "interactable": true,
+        "normalColor": {
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "hoveredColor": {
+          "r": 0.85,
+          "g": 0.85,
+          "b": 0.85,
+          "a": 1.0
+        },
+        "pressedColor": {
+          "r": 0.65,
+          "g": 0.65,
+          "b": 0.65,
+          "a": 1.0
+        },
+        "disabledColor": {
+          "r": 0.5,
+          "g": 0.5,
+          "b": 0.5,
+          "a": 0.6
+        },
+        "target": 0,
+        "targetComponent": "HudComponent",
+        "method": "ResetGame"
+      }
+    },
+    {
+      "id": 10,
+      "type": "UIActor",
+      "properties": {
+        "name": "ResetLabel",
+        "parent": 7,
+        "prefabActorId": "b97bf6cd-b60e-446b-afbd-41dfc31a5407",
+        "components": [
+          11
+        ],
+        "rectTransform": {
+          "anchorMin": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "anchorMax": {
+            "x": 1.0,
+            "y": 1.0
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "anchoredPosition": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "sizeDelta": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "UITextComponent",
+      "properties": {
+        "prefabComponentId": "73f6eb09-868e-4501-a73c-861a72fa2102",
+        "font": "0a2f250f-023f-45b3-b5fd-192a91cd42f9",
+        "text": "リセット",
+        "fontSize": 28.0,
+        "color": {
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "alignment": "Center",
+        "verticalAlignment": "Middle",
+        "wrap": true,
+        "lineSpacing": 1.0
+      }
+    }
+  ],
+  "actors": [
+    0,
+    3,
+    5,
+    7,
+    10
+  ]
+}

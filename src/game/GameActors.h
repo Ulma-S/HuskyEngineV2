@@ -72,6 +72,11 @@ namespace husky::game
         // 入力は、自分のいるシーンから引く(配られるのを待たない)。
         // シーンにいない、またはシーンに入力が渡されていなければ、動かない。
         void Tick(double dt) override;
+        // 跳ね回るものが触れ始めるたびに score を 1 増やす(UI-7 の例。HUD が表示する)。
+        void OnOverlap(const engine::OverlapEvent& event) override;
+
+        // 触れられた回数(その場限りの数なので保存しない)。HUD がリセットで基準を取り直す。
+        int score = 0;
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(moveSpeed)
