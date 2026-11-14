@@ -95,6 +95,7 @@ namespace husky::engine
         SceneListDuplicateName = 17,
         SceneListEntryMissing = 18,
         SceneMoveRefused = 19,
+        CrossSceneReference = 20, // SC-3
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Engine.Scene")
@@ -134,6 +135,9 @@ namespace husky::engine
                           HUSKY_LOG_ARG(index, Int))
         HUSKY_LOG_MESSAGE(SceneMoveRefused, Error, "{actor} をシーン {scene} へ移せません: 親が別のシーンにいます",
                           HUSKY_LOG_ARG(actor, String), HUSKY_LOG_ARG(scene, String))
+        HUSKY_LOG_MESSAGE(CrossSceneReference, Error,
+                          "シーンの保存({path}): シーンの外を指す参照 {count} 個は保存できません(シーンをまたぐ参照は保存しない決まり。null と書きました)",
+                          HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(count, Int))
         HUSKY_LOG_MESSAGE(UIButtonTargetMissing, Warning, "ボタン {button} の呼び先を呼べません: {reason}",
                           HUSKY_LOG_ARG(button, String), HUSKY_LOG_ARG(reason, String))
     HUSKY_LOG_CHANNEL_END()

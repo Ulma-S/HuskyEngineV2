@@ -327,34 +327,310 @@ namespace husky::engine
                     continue;
                 }
             }
-            // シーンのアセットを読む(読み終わるまで待つ。途中まで読めたフレームを作らない)。
+            if (parent != nullptr)
+            {
+                LoadChildSceneNow(*guid, *parent);
+            }
+        }
+    }
+
+    namespace
+    {
+        // シーンのアセットを読み終わるまで待って返す。読めなければ nullptr。
+        const SceneAsset* LoadSceneAssetNow(AssetLoader& loader, const core::Guid& guid)
+        {
             core::AssetRef<SceneAsset> reference;
-            reference.guid = *guid;
-            const SceneAsset* asset = m_loader.Resolve(reference);
+            reference.guid = guid;
+            const SceneAsset* asset = loader.Resolve(reference);
             if (asset != nullptr && asset->GetState() == AssetState::Loading)
             {
-                m_loader.WaitForAllLoads();
+                loader.WaitForAllLoads(); // 途中まで読めたフレームを作らない
             }
-            if (asset == nullptr || !asset->IsLoaded())
-            {
-                HUSKY_LOG(SceneLog::SceneLoadFailed, request.sceneName, "シーンのファイルを読めません");
-                continue;
-            }
-            Scene* scene = m_world->CreateChildScene(*parent, request.sceneName, *guid);
-            if (scene == nullptr)
-            {
-                HUSKY_LOG(SceneLog::SceneLoadFailed, request.sceneName, "シーンを作れません(メモリが足りません)");
-                continue;
-            }
-            AddSceneData(asset->GetData(), request.sceneName, scene);
+            return asset != nullptr && asset->IsLoaded() ? asset : nullptr;
         }
+
+        // シーンの中を探す(GUID で。同じシーンは同時に1つだけの決まりを、名前と GUID の両方で確かめる)。
+        bool IsSceneAssetLoaded(core::ObjectRegistry& registry, const Scene& scene, const core::Guid& guid, int depth)
+        {
+            if (scene.asset == guid)
+            {
+                return true;
+            }
+            for (const core::ObjectHandle handle : scene.children)
+            {
+                const Scene* child = registry.Resolve<Scene>(handle);
+                if (child != nullptr && !child->IsPendingDestroy() && depth < 64
+                    && IsSceneAssetLoaded(registry, *child, guid, depth + 1))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    Scene* Application::LoadChildSceneNow(const core::Guid& guid, Scene& parent)
+    {
+        const std::string* path = m_assets.FindPath(guid);
+        if (path == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneLoadFailed, guid.ToString(), "アセットの表にありません");
+            return nullptr;
+        }
+        const std::string sceneName = SceneNameFromPath(*path);
+        if (m_world->FindScene(sceneName) != nullptr || IsSceneAssetLoaded(m_registry, *m_world->GetRootScene(), guid, 0))
+        {
+            HUSKY_LOG(SceneLog::SceneAlreadyLoaded, sceneName); // 輪(自分を中に含む)もここで止まる
+            return nullptr;
+        }
+        const SceneAsset* asset = LoadSceneAssetNow(m_loader, guid);
+        if (asset == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneLoadFailed, sceneName, "シーンのファイルを読めません");
+            return nullptr;
+        }
+        Scene* scene = m_world->CreateChildScene(parent, sceneName, guid);
+        if (scene == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneLoadFailed, sceneName, "シーンを作れません(メモリが足りません)");
+            return nullptr;
+        }
+        std::vector<std::string> warnings;
+        SceneSerializer::ReadChildScenes(asset->GetData(), scene->childScenes, &warnings);
+        for (const std::string& warning : warnings)
+        {
+            HUSKY_LOG(SceneLog::ReadWarning, sceneName, warning);
+        }
+        AddSceneData(asset->GetData(), sceneName, scene);
+        LoadMarkedChildScenes(*scene);
+        return scene;
+    }
+
+    void Application::LoadMarkedChildScenes(Scene& scene)
+    {
+        // 読んでいる間に scene.childScenes は変わらないが、写してから回す(読む先で何が起きても壊れないように)。
+        const std::vector<Scene::ChildSceneEntry> entries = scene.childScenes;
+        for (const Scene::ChildSceneEntry& entry : entries)
+        {
+            if (entry.loadOnOpen)
+            {
+                LoadChildSceneNow(entry.scene, scene);
+            }
+        }
+    }
+
+    void Application::ClearWorld()
+    {
+        for (const core::ObjectHandle handle : m_world->actors)
+        {
+            if (Actor* actor = m_registry.Resolve<Actor>(handle))
+            {
+                actor->Destroy();
+            }
+        }
+        m_world->UnloadAllChildScenes();
+        m_world->RemoveDestroyedActors(); // 一覧から外す(メモリから消えるのはフレームの終わりの破棄の確定)
+        if (Scene* root = m_world->GetRootScene())
+        {
+            root->name.clear();
+            root->asset = core::Guid();
+            root->childScenes.clear();
+        }
+    }
+
+    void Application::OpenRootSceneData(const ArchiveValue& data, std::string_view sceneName, const core::Guid& asset,
+                                        const std::string& label, bool loadChildren)
+    {
+        ClearWorld();
+        Scene* root = m_world->GetRootScene();
+        if (root == nullptr)
+        {
+            return;
+        }
+        root->name = std::string(sceneName);
+        root->asset = asset;
+        std::vector<std::string> warnings;
+        SceneSerializer::ReadChildScenes(data, root->childScenes, &warnings);
+        for (const std::string& warning : warnings)
+        {
+            HUSKY_LOG(SceneLog::ReadWarning, label, warning);
+        }
+        AddSceneData(data, label); // 指定が無いのでルートシーンに入る
+        if (loadChildren)
+        {
+            LoadMarkedChildScenes(*root);
+        }
+    }
+
+    bool Application::OpenRootScene(std::string_view sceneName, bool loadChildren)
+    {
+        const core::Guid* guid = FindSceneGuid(sceneName);
+        if (guid == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneNotInList, std::string(sceneName));
+            return false;
+        }
+        const core::Guid found = *guid; // ClearWorld の後も使うので写す
+        const SceneAsset* asset = LoadSceneAssetNow(m_loader, found);
+        if (asset == nullptr)
+        {
+            HUSKY_LOG(SceneLog::SceneLoadFailed, std::string(sceneName), "シーンのファイルを読めません");
+            return false;
+        }
+        // 中身を写してから開く(開く途中の GC でアセットが回収されても壊れないように)。
+        const ArchiveValue data = asset->GetData();
+        OpenRootSceneData(data, sceneName, found, std::string(sceneName), loadChildren);
+        return true;
+    }
+
+    bool Application::OpenRootSceneFile(const std::string& path, bool loadChildren)
+    {
+        std::string text;
+        if (!platform::ReadTextFile(path.c_str(), text))
+        {
+            return false; // 理由は platform がログに出している
+        }
+        ArchiveValue file;
+        std::string error;
+        if (!JsonFormat::Read(text, file, &error))
+        {
+            HUSKY_LOG(SceneLog::ReadFailed, path, error);
+            return false;
+        }
+        OpenRootSceneData(file, SceneNameFromPath(path), core::Guid(), path, loadChildren);
+        return true;
+    }
+
+    ArchiveValue Application::CaptureScenes(std::vector<std::string>* warnings)
+    {
+        ArchiveValue snapshot = ArchiveValue::MakeObject();
+        ArchiveValue& entries = snapshot.Set("scenes", ArchiveValue::MakeArray());
+        // 親が先になる順(深さ優先)に並べる。番号は entries の中の位置。
+        struct Pending
+        {
+            Scene* scene;
+            std::int64_t parent;
+        };
+        std::vector<Pending> stack{{m_world->GetRootScene(), -1}};
+        std::int64_t index = 0;
+        while (!stack.empty())
+        {
+            const Pending current = stack.back();
+            stack.pop_back();
+            if (current.scene == nullptr)
+            {
+                continue;
+            }
+            SceneSerializer::WriteResult written = SceneSerializer::WriteScene(*m_world, *current.scene);
+            if (warnings != nullptr)
+            {
+                warnings->insert(warnings->end(), written.warnings.begin(), written.warnings.end());
+            }
+            ArchiveValue entry = ArchiveValue::MakeObject();
+            entry.Set("name", ArchiveValue(current.scene->name));
+            entry.Set("asset", ArchiveValue(current.scene->asset.ToString()));
+            entry.Set("parent", ArchiveValue(current.parent));
+            entry.Set("data", std::move(written.value));
+            entries.Append(std::move(entry));
+            const std::int64_t self = index++;
+            // 子は逆の順に積む(取り出すときに元の順になる)
+            for (auto it = current.scene->children.rbegin(); it != current.scene->children.rend(); ++it)
+            {
+                Scene* child = m_registry.Resolve<Scene>(*it);
+                if (child != nullptr && !child->IsPendingDestroy())
+                {
+                    stack.push_back({child, self});
+                }
+            }
+        }
+        return snapshot;
+    }
+
+    std::size_t Application::RestoreScenes(const ArchiveValue& snapshot, std::vector<std::string>* warnings)
+    {
+        ClearWorld();
+        const ArchiveValue* entries = snapshot.Find("scenes");
+        if (entries == nullptr)
+        {
+            return 0;
+        }
+        const std::size_t before = m_world->actors.size();
+        std::vector<Scene*> created; // 控えの番号 → 作ったシーン
+        for (std::size_t i = 0; i < entries->GetArraySize(); ++i)
+        {
+            const ArchiveValue& entry = entries->At(i);
+            const ArchiveValue* data = entry.Find("data");
+            const ArchiveValue* nameValue = entry.Find("name");
+            const ArchiveValue* assetValue = entry.Find("asset");
+            const ArchiveValue* parentValue = entry.Find("parent");
+            const std::string sceneName = nameValue != nullptr ? nameValue->AsString() : std::string();
+            core::Guid asset;
+            if (assetValue != nullptr)
+            {
+                core::Guid::Parse(assetValue->AsString(), asset);
+            }
+            const std::int64_t parentIndex = parentValue != nullptr ? parentValue->AsInt(-1) : -1;
+            Scene* scene = nullptr;
+            if (i == 0)
+            {
+                scene = m_world->GetRootScene();
+                if (scene != nullptr)
+                {
+                    scene->name = sceneName;
+                    scene->asset = asset;
+                }
+            }
+            else if (parentIndex >= 0 && static_cast<std::size_t>(parentIndex) < created.size() && created[parentIndex] != nullptr)
+            {
+                scene = m_world->CreateChildScene(*created[parentIndex], sceneName, asset);
+            }
+            created.push_back(scene);
+            if (scene == nullptr || data == nullptr)
+            {
+                if (warnings != nullptr)
+                {
+                    warnings->push_back("控えの " + std::to_string(i) + " 番目のシーンを作れません");
+                }
+                continue;
+            }
+            SceneSerializer::ReadChildScenes(*data, scene->childScenes, warnings);
+            const SceneSerializer::ReadReport report = SceneSerializer::Read(
+                *data, *m_world, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
+            if (warnings != nullptr)
+            {
+                warnings->insert(warnings->end(), report.warnings.begin(), report.warnings.end());
+            }
+            if (!scene->IsRoot())
+            {
+                for (const core::ObjectHandle handle : report.addedActors)
+                {
+                    Actor* actor = m_registry.Resolve<Actor>(handle);
+                    if (actor != nullptr && actor->GetParent() == nullptr)
+                    {
+                        m_world->MoveToScene(*actor, *scene);
+                    }
+                }
+            }
+        }
+        return m_world->actors.size() - before;
     }
 
 #if HUSKY_DEVELOPMENT
     bool Application::SaveSceneFile(const std::string& path)
     {
         // オブジェクト → 値の木 → 文字列 → ファイル、の順に変換する(LoadSceneFile の逆)。
-        const SceneSerializer::WriteResult saved = SceneSerializer::Write(*m_world);
+        // 書くのはルートシーン(開いているシーン)に直接いるアクターと、子のシーンの記録だけ(SC-3)。
+        Scene* root = m_world->GetRootScene();
+        if (root == nullptr)
+        {
+            return false;
+        }
+        const SceneSerializer::WriteResult saved = SceneSerializer::WriteScene(*m_world, *root);
+        if (saved.outsideReferences > 0)
+        {
+            // シーンをまたぐ参照は保存できない決まり(ユーザーの決定)。null と書いて保存は続ける。
+            HUSKY_LOG(SceneLog::CrossSceneReference, path, static_cast<std::int64_t>(saved.outsideReferences));
+        }
         for (const std::string& warning : saved.warnings)
         {
             HUSKY_LOG(SceneLog::SaveWarning, path, warning);

@@ -159,6 +159,25 @@ namespace husky::engine
         // 一覧の先頭のシーンの名前(最初のシーン)。一覧が空なら空の文字列。
         const std::string& GetFirstSceneName() const;
 
+        // ---- ルートシーンを開く・木ごとの控え(SC-3)。起動とエディタだけが使う(実行中にルートシーンは替えない決まり) ----
+
+        // ワールドを空にして(全アクターを Destroy し、子のシーンを下ろす)、シーンの一覧の name のシーンをルートシーンとして開く。
+        // loadChildren が true なら、ファイルの子のシーンの記録のうち load の印のあるものも続けて読む(その子の記録も同じく)。
+        // 戻り値: 開けたら true(一覧に無い・読めないときはエラーのログで false。ワールドは空のまま)。
+        bool OpenRootScene(std::string_view sceneName, bool loadChildren = true);
+        // ファイル(シーンの一覧に無くてよい。開発ビルドの main.json や --scene)をルートシーンとして開く。名前はファイル名から。
+        bool OpenRootSceneFile(const std::string& path, bool loadChildren = true);
+        // 中身(値の木)をルートシーンとして開く(上の2つの中身)。
+        void OpenRootSceneData(const ArchiveValue& data, std::string_view sceneName, const core::Guid& asset,
+                               const std::string& label, bool loadChildren = true);
+
+        // シーンの木ごとの控え(エディタの Play / Stop、ゲームのコードの読み直し)。ファイルには書かない。
+        // 控え: {"scenes": [{"name", "asset", "parent"(先に並ぶ親の番号、ルートは -1), "data"(シーンのファイルの形)}]}。
+        // シーンをまたぐ参照は控えにも入らない(warnings に数を書く)。
+        ArchiveValue CaptureScenes(std::vector<std::string>* warnings = nullptr);
+        // ワールドを空にして控えから作り直す(子のシーンの記録の load の印では読まない。控えにあるものだけ)。戻り値: 作ったアクターの数。
+        std::size_t RestoreScenes(const ArchiveValue& snapshot, std::vector<std::string>* warnings = nullptr);
+
         // World::LoadScene / UnloadScene で頼まれたものを、頼まれた順に行う(SC-2b)。
         // StepFrame が物理の後・UI の配置の前に呼ぶ(読んだ UI がそのフレームの配置に間に合うように)。
         // テストやエディタから直接呼んでもよい。頼まれたものが無ければ何もしない(確保しない)。
@@ -253,6 +272,14 @@ namespace husky::engine
             core::Guid guid;
         };
         std::vector<SceneListEntry> m_sceneList;
+
+        // ワールドを空にする: 全アクターを Destroy して一覧から外し、子のシーンを下ろし、ルートシーンの名前・GUID・記録を空にする。
+        void ClearWorld();
+        // GUID のシーンを parent の下に、その場で読む(読み終わるまで待つ)。load の印のある子のシーンも続けて読む。
+        // 同じシーン(名前か GUID)がもう読んであれば断る(輪もここで止まる)。読めなければエラーのログで nullptr。
+        Scene* LoadChildSceneNow(const core::Guid& guid, Scene& parent);
+        // scene の子のシーンの記録のうち、load の印のあるものを読む。
+        void LoadMarkedChildScenes(Scene& scene);
 
         UpdateCallback m_updateCallback;
         core::ObjectHandle m_defaultSpriteTexture; // 既定のテクスチャのアセット(Run の中で読み、根に加える)

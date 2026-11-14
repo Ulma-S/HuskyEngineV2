@@ -70,14 +70,14 @@ namespace husky::tools
             return EditorCommandResult::Success("Resumed");
         }
 
-        // 編集から: 今のシーンを控えてから動かす。控えは保存と同じ形の値の木(ファイルには書かない)。
-        engine::SceneSerializer::WriteResult saved = engine::SceneSerializer::Write(app.GetWorld());
-        m_snapshot = std::move(saved.value);
+        // 編集から: 今のシーンの木を控えてから動かす(シーンごとに保存と同じ形の値の木。ファイルには書かない。SC-3)。
+        std::vector<std::string> warnings;
+        m_snapshot = app.CaptureScenes(&warnings);
         m_state = State::Playing;
         app.SetSceneTickEnabled(true);
         EditorCommandResult result = EditorCommandResult::Success(
             "Playing (" + std::to_string(app.GetWorld().actors.size()) + " actors saved for Stop)");
-        result.details = std::move(saved.warnings); // 控えに入らなかったもの(保存の警告と同じ)
+        result.details = std::move(warnings); // 控えに入らなかったもの(保存の警告と同じ)
         return result;
     }
 
@@ -115,31 +115,17 @@ namespace husky::tools
         app.GetAudio().StopAll();
         app.GetAudio().SetPaused(false); // 一時停止したまま止めたときも、次に鳴らせるように解く
 
-        // 1. 今いるアクターをすべて Destroy する(消えるのはフレームの終わり。それまでは Tick も描画もされない)。
-        engine::World& scene = app.GetWorld();
-        core::ObjectRegistry& registry = app.GetRegistry();
-        for (const core::ObjectHandle handle : scene.actors)
-        {
-            if (engine::Actor* actor = registry.Resolve<engine::Actor>(handle))
-            {
-                actor->Destroy();
-            }
-        }
-        // 1'. 再生中に読んだ子のシーンも下ろし、頼まれたままの読み込みも捨てる(シーンの木を再生の前に戻す。SC-2b)。
-        //     今は編集中に子のシーンを持てないので、控えはルートシーンのアクターだけ(エディタで子のシーンを開くのは SC-4)。
-        scene.UnloadAllChildScenes();
-
-        // 2. 控えから、再生を始める前のアクターを作り直す(一覧の後ろに足される。消す印の付いた古いものは、フレームの終わりに外れる)。
-        const engine::SceneSerializer::ReadReport report =
-            engine::SceneSerializer::Read(m_snapshot, scene, app.GetTypeRegistry(),
-                                          [&app](const core::Guid& guid) { return app.FindPrefabForScene(guid); });
+        // 1. ワールドを空にして、控えからシーンの木ごと作り直す(再生中に読んだ・下ろした子のシーンも、再生の前に戻る。SC-3)。
+        //    消す印の付いた古いアクターは一覧から外れ、メモリから消えるのはフレームの終わり。
+        std::vector<std::string> warnings;
+        const std::size_t restored = app.RestoreScenes(m_snapshot, &warnings);
 
         // 3. 編集の状態に戻す。
         EnterEditMode(app);
 
         EditorCommandResult result = EditorCommandResult::Success(
-            "Stopped (restored " + std::to_string(report.addedActorCount) + " actors)");
-        result.details = report.warnings;
+            "Stopped (restored " + std::to_string(restored) + " actors)");
+        result.details = std::move(warnings);
 
         // 4. 再生中に、読むだけの ScriptableData が書き換えられていないか(1 秒に 1 回の確かめの間に止めても見逃さないように)。
         //    エラーの中身(ファイルとプロパティの名前)はログに出る。ここでは数を結果に添える。

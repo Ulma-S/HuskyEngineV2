@@ -34,6 +34,15 @@ namespace husky::engine
         // 子のシーン(強い参照。シーンを生かす向きは ワールド → ルートシーン → 子のシーン)。
         std::vector<core::ObjectHandle> children;
 
+        // シーンのファイルに書く子のシーンの記録(SC-3)。ファイルの "scenes": [{"scene": GUID, "load": true}]。
+        // loadOnOpen が true のものは、このシーンを開いた・読んだときに一緒に読む(false は記録だけ。ゲームが LoadScene で読む)。
+        struct ChildSceneEntry
+        {
+            core::Guid scene;
+            bool loadOnOpen = true;
+        };
+        std::vector<ChildSceneEntry> childScenes;
+
         // 親のシーン。ルートシーンなら nullptr。
         Scene* GetParent() const;
         bool IsRoot() const { return m_parent.IsNull(); }

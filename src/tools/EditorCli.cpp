@@ -293,7 +293,8 @@ namespace husky::tools
             out += "FAILED: the scene file does not exist: " + options.scenePath + "\n";
             return CliExitCode::CommandFailed;
         }
-        if (!options.scenePath.empty() && !newScene && !app.LoadSceneFile(options.scenePath))
+        // ルートシーンとして開く。子のシーンは読まない(保存するのはルートシーンのファイルだけなので、子のアクターが混ざらないように)
+        if (!options.scenePath.empty() && !newScene && !app.OpenRootSceneFile(options.scenePath, false))
         {
             out += "FAILED: could not load the scene: " + options.scenePath + "\n";
             return CliExitCode::CommandFailed;

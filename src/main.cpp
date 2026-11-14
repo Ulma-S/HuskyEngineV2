@@ -237,7 +237,13 @@ int main(int argc, char** argv)
 #endif
 
     // 最初のシーン: シーンのファイルがあれば読み込む。無ければ、コードで置く(ファイルは、開発ビルドの保存のコマンドで作る)。
-    if (!platform::FileExists(scenePath.c_str()) || !app.LoadSceneFile(scenePath))
+    // シーンの一覧(SC-2b)があれば読む(ゲームはシーンを名前で LoadScene する)。
+    if (const husky::core::Guid* sceneList = app.GetAssetDatabase().FindGuid("settings/scenes.sdata"))
+    {
+        app.LoadSceneList(*sceneList);
+    }
+    // シーンのファイルをルートシーンとして開く(SC-3。load の印のある子のシーンも読む)。
+    if (!platform::FileExists(scenePath.c_str()) || !app.OpenRootSceneFile(scenePath))
     {
         HUSKY_LOG(game::GameLog::NoSceneFile, scenePath);
         if (gameModule.spawnInitialActors != nullptr)

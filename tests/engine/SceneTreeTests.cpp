@@ -280,3 +280,174 @@ TEST_CASE("Scene: シーンの一覧で名前が重なれば後のものは使�
     app.StepFrame(16'000'000, {});
     CHECK(FindActor(app, "A") == nullptr);
 }
+
+// ---- SC-3: ルートシーンを開く、子のシーンの記録、シーンごとの保存、木ごとの控え ----
+namespace
+{
+    // ほかのアクターを指すだけのアクター(シーンをまたぐ参照を作るため)。
+    class Pointer : public Actor
+    {
+        HUSKY_OBJECT_INLINE(Pointer, Actor)
+    public:
+        husky::core::ObjectHandle target;
+
+        HUSKY_REFLECTION_BEGIN()
+            HUSKY_PROPERTY(target)
+        HUSKY_REFLECTION_END()
+    };
+
+    // 名前を付けたアクターと、子のシーンの記録を持つシーンのファイルの文字列。
+    std::string MakeSceneWithChildren(const std::vector<std::string>& names, const std::vector<Scene::ChildSceneEntry>& children)
+    {
+        Application source;
+        for (const std::string& actorName : names)
+        {
+            source.GetWorld().Spawn<Actor>()->name = actorName;
+        }
+        Scene* root = source.GetWorld().GetRootScene();
+        root->childScenes = children;
+        std::string text;
+        REQUIRE(husky::engine::JsonFormat::Write(husky::engine::SceneSerializer::WriteScene(source.GetWorld(), *root).value, text,
+                                                 true));
+        return text;
+    }
+
+    // master(Master)の中に system(Bgm、load)・title(Logo、load)・game(Player、load しない)。
+    struct MasterScenes
+    {
+        TestFolder folder{"husky_test_scene_master"};
+        MasterScenes()
+        {
+            WriteScene(folder, "scenes/system.scene", MakeGuid(13, 2), MakeSceneText({"Bgm"}));
+            WriteScene(folder, "scenes/title.scene", MakeGuid(13, 3), MakeSceneText({"Logo"}));
+            WriteScene(folder, "scenes/game.scene", MakeGuid(13, 4), MakeSceneText({"Player"}));
+            WriteScene(folder, "scenes/master.scene", MakeGuid(13, 1),
+                       MakeSceneWithChildren({"Master"}, {{MakeGuid(13, 2), true}, {MakeGuid(13, 3), true}, {MakeGuid(13, 4), false}}));
+            WriteSceneList(folder, MakeGuid(13, 9), {MakeGuid(13, 1), MakeGuid(13, 2), MakeGuid(13, 3), MakeGuid(13, 4)});
+        }
+    };
+}
+
+TEST_CASE("Scene: OpenRootScene はワールドを空にしてルートシーンとして開き、load の印のある子のシーンも読む(SC-3)")
+{
+    MasterScenes files;
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(files.folder.Root()));
+    REQUIRE(app.LoadSceneList(MakeGuid(13, 9)));
+    World& world = app.GetWorld();
+    Actor* old = world.Spawn<Actor>();
+    old->name = "Old";
+
+    CHECK_FALSE(app.OpenRootScene("nothing"));
+    REQUIRE(app.OpenRootScene(app.GetFirstSceneName()));
+    Scene* root = world.GetRootScene();
+    CHECK(root->name == "master");
+    CHECK(root->asset == MakeGuid(13, 1));
+    REQUIRE(root->childScenes.size() == 3);
+    CHECK_FALSE(root->childScenes[2].loadOnOpen);
+    CHECK(FindActor(app, "Old") == nullptr); // 前のアクターは消えた
+    CHECK(FindActor(app, "Master")->GetScene() == root);
+    Scene* system = world.FindScene("system");
+    REQUIRE(system != nullptr);
+    CHECK(system->GetParent() == root);
+    CHECK(FindActor(app, "Bgm")->GetScene() == system);
+    CHECK(world.FindScene("title") != nullptr);
+    CHECK(world.FindScene("game") == nullptr); // 印が無いので読まない(ゲームが LoadScene で読む)
+    CHECK(root->children.size() == 2);
+
+    // ルートシーン(master)は下ろせない
+    world.UnloadScene("master");
+    app.ProcessSceneRequests();
+    CHECK(world.GetRootScene() == root);
+    CHECK(FindActor(app, "Master") != nullptr);
+
+    // 子を読まずに開く(CLI の形)
+    REQUIRE(app.OpenRootScene("master", false));
+    CHECK(world.GetRootScene()->children.empty());
+    CHECK(FindActor(app, "Bgm") == nullptr);
+}
+
+TEST_CASE("Scene: 子のシーンの記録が輪になっていても、同じシーンは1つだけなので止まる(SC-3)")
+{
+    TestFolder folder("husky_test_scene_loop");
+    WriteScene(folder, "scenes/a.scene", MakeGuid(14, 1), MakeSceneWithChildren({"A"}, {{MakeGuid(14, 2), true}}));
+    WriteScene(folder, "scenes/b.scene", MakeGuid(14, 2), MakeSceneWithChildren({"B"}, {{MakeGuid(14, 1), true}}));
+    WriteSceneList(folder, MakeGuid(14, 9), {MakeGuid(14, 1), MakeGuid(14, 2)});
+
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    REQUIRE(app.LoadSceneList(MakeGuid(14, 9)));
+    REQUIRE(app.OpenRootScene("a"));
+    World& world = app.GetWorld();
+    Scene* b = world.FindScene("b");
+    REQUIRE(b != nullptr);
+    CHECK(b->children.empty()); // b の中の a は「もう読んである」で断った
+    int count = 0;
+    world.ForEachActor([&](Actor&) { ++count; });
+    CHECK(count == 2);
+}
+
+TEST_CASE("Scene: WriteScene はそのシーンのアクターと子のシーンの記録だけを書き、シーンをまたぐ参照を数える(SC-3)")
+{
+    MasterScenes files;
+    Application app;
+    app.GetTypeRegistry().Register<Pointer>();
+    REQUIRE(app.GetAssetDatabase().Scan(files.folder.Root()));
+    REQUIRE(app.LoadSceneList(MakeGuid(13, 9)));
+    REQUIRE(app.OpenRootScene("master"));
+    World& world = app.GetWorld();
+    Scene* root = world.GetRootScene();
+
+    // ルートシーンのアクターから system のアクターを指す(実行中はつないでよいが、保存はできない)
+    Pointer* pointer = world.Spawn<Pointer>();
+    pointer->target = FindActor(app, "Bgm")->GetHandle();
+    Pointer* local = world.Spawn<Pointer>();
+    local->target = FindActor(app, "Master")->GetHandle(); // 同じシーンの中は保存できる
+
+    const husky::engine::SceneSerializer::WriteResult written = husky::engine::SceneSerializer::WriteScene(world, *root);
+    CHECK(written.outsideReferences == 1);
+    const husky::engine::ArchiveValue* actors = written.value.Find("actors");
+    REQUIRE(actors != nullptr);
+    CHECK(actors->GetArraySize() == 3); // Master と Pointer 2つ(Bgm と Logo は子のシーンのファイルのもの)
+    std::vector<Scene::ChildSceneEntry> children;
+    husky::engine::SceneSerializer::ReadChildScenes(written.value, children);
+    REQUIRE(children.size() == 3);
+    CHECK(children[0].scene == MakeGuid(13, 2));
+    CHECK_FALSE(children[2].loadOnOpen);
+}
+
+TEST_CASE("Scene: CaptureScenes / RestoreScenes はシーンの木ごと戻す(エディタの Play / Stop)(SC-3)")
+{
+    MasterScenes files;
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(files.folder.Root()));
+    REQUIRE(app.LoadSceneList(MakeGuid(13, 9)));
+    REQUIRE(app.OpenRootScene("master"));
+    World& world = app.GetWorld();
+
+    std::vector<std::string> warnings;
+    const husky::engine::ArchiveValue snapshot = app.CaptureScenes(&warnings);
+
+    // 再生中のつもり: title を下ろして game を読み、ルートシーンにも置く
+    world.UnloadScene("title");
+    world.LoadScene("game");
+    world.Spawn<Actor>()->name = "Spawned";
+    app.StepFrame(16'000'000, {});
+    CHECK(world.FindScene("title") == nullptr);
+    CHECK(world.FindScene("game") != nullptr);
+
+    const std::size_t restored = app.RestoreScenes(snapshot, &warnings);
+    CHECK(restored == 3); // Master、Bgm、Logo
+    Scene* root = world.GetRootScene();
+    CHECK(root->name == "master");
+    CHECK(root->childScenes.size() == 3);
+    CHECK(world.FindScene("game") == nullptr);
+    Scene* title = world.FindScene("title");
+    REQUIRE(title != nullptr);
+    CHECK(title->GetParent() == root);
+    CHECK(title->asset == MakeGuid(13, 3));
+    CHECK(FindActor(app, "Logo")->GetScene() == title);
+    CHECK(FindActor(app, "Bgm")->GetScene() == world.FindScene("system"));
+    CHECK(FindActor(app, "Spawned") == nullptr);
+    CHECK(FindActor(app, "Player") == nullptr);
+}

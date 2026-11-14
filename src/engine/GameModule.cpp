@@ -210,14 +210,11 @@ namespace husky::engine
         core::TypeRegistry& types = app.GetTypeRegistry();
         const std::string sourcePath = host.GetSourcePath();
 
-        // 1. シーンを控える(Play と同じ形)
-        SceneSerializer::WriteResult saved = SceneSerializer::Write(scene);
-        result.warnings = std::move(saved.warnings);
+        // 1. シーンの木を控える(Play と同じ形。SC-3)
+        const ArchiveValue saved = app.CaptureScenes(&result.warnings);
         const std::size_t actorCount = scene.actors.size();
         const auto restoreScene = [&]() {
-            const SceneSerializer::ReadReport report = SceneSerializer::Read(
-                saved.value, scene, types, [&app](const core::Guid& guid) { return app.FindPrefabForScene(guid); });
-            result.warnings.insert(result.warnings.end(), report.warnings.begin(), report.warnings.end());
+            app.RestoreScenes(saved, &result.warnings);
         };
 
         // 2. アクターを全部消す(ゲームのコードが作ったエンジンの型のコンポーネントも、vtable がゲームの DLL を

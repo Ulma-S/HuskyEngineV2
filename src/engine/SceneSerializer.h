@@ -43,6 +43,7 @@
 #include "core/TypeRegistry.h"
 #include "engine/ArchiveValue.h"
 #include "engine/PrefabAsset.h"
+#include "engine/Scene.h"
 #include "engine/World.h"
 
 #include <cstddef>
@@ -59,7 +60,16 @@ namespace husky::engine::SceneSerializer
     {
         ArchiveValue value;
         std::vector<std::string> warnings; // 保存しなかった相手を指すハンドルなど
+        std::size_t outsideReferences = 0; // 書くものの外を指していたので null と書いたハンドルの数(WriteScene では、シーンをまたぐ参照)
     };
+
+    // シーン1つ(SC-3)を保存する: そのシーンに入っている生きているアクター(子のシーンの中のものは含まない)と、
+    // 子のシーンの記録(Scene::childScenes を、いちばん上の "scenes" に)。シーンの外を指すハンドルは null と書き、
+    // outsideReferences に数える(シーンをまたぐ参照は保存できない決まり。エラーにするかは呼ぶ側)。
+    WriteResult WriteScene(World& world, const Scene& scene);
+
+    // シーンのファイルの "scenes"(子のシーンの記録)を読む。無ければ空。形の違う記録は飛ばして warnings に足す。
+    void ReadChildScenes(const ArchiveValue& value, std::vector<Scene::ChildSceneEntry>& out, std::vector<std::string>* warnings = nullptr);
 
     // シーンの生きている(Destroy 済みでない)アクターと、その生きているコンポーネントを保存する。
     // プレハブから置いたアクター(Actor::prefab の中身が読み込まれている)は、プレハブとの違いだけを書く(下の「プレハブから置いたもの」)。

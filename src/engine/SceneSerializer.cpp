@@ -331,6 +331,57 @@ namespace husky::engine::SceneSerializer
         return WriteActors(scene, actors);
     }
 
+    WriteResult WriteScene(World& world, const Scene& scene)
+    {
+        std::vector<Actor*> actors;
+        world.ForEachActor([&](Actor& actor) {
+            if (actor.GetScene() == &scene) // このシーンに直接いるものだけ(子のシーンのものは、子のシーンのファイルに書く)
+            {
+                actors.push_back(&actor);
+            }
+        });
+        WriteResult result = WriteActors(world, actors);
+        if (!scene.childScenes.empty())
+        {
+            ArchiveValue& entries = result.value.Set("scenes", ArchiveValue::MakeArray());
+            for (const Scene::ChildSceneEntry& child : scene.childScenes)
+            {
+                ArchiveValue entry = ArchiveValue::MakeObject();
+                entry.Set("scene", ArchiveValue(child.scene.ToString()));
+                entry.Set("load", ArchiveValue(child.loadOnOpen));
+                entries.Append(std::move(entry));
+            }
+        }
+        return result;
+    }
+
+    void ReadChildScenes(const ArchiveValue& value, std::vector<Scene::ChildSceneEntry>& out, std::vector<std::string>* warnings)
+    {
+        out.clear();
+        const ArchiveValue* entries = value.Find("scenes");
+        if (entries == nullptr)
+        {
+            return;
+        }
+        for (std::size_t i = 0; i < entries->GetArraySize(); ++i)
+        {
+            const ArchiveValue& entry = entries->At(i);
+            const ArchiveValue* scene = entry.Find("scene");
+            Scene::ChildSceneEntry child;
+            if (scene == nullptr || !core::Guid::Parse(scene->AsString(), child.scene) || child.scene.IsNull())
+            {
+                if (warnings != nullptr)
+                {
+                    warnings->push_back("\"scenes\" の " + std::to_string(i) + " 番目: \"scene\" が GUID ではないので飛ばします");
+                }
+                continue;
+            }
+            const ArchiveValue* load = entry.Find("load");
+            child.loadOnOpen = load == nullptr || load->AsBool(true);
+            out.push_back(child);
+        }
+    }
+
     WriteResult WriteActors(World& scene, const std::vector<Actor*>& actors, const WriteOptions& options)
     {
         WriteResult result;
@@ -563,6 +614,7 @@ namespace husky::engine::SceneSerializer
             actorArray.Append(ArchiveValue(id));
         }
 
+        result.outsideReferences = missingCount;
         if (missingCount > 0)
         {
             result.warnings.push_back("保存しないオブジェクトを指すハンドルを null にしました(" +
