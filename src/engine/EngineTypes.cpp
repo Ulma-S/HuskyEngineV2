@@ -14,6 +14,7 @@
 #include "engine/FontAsset.h"
 #include "engine/PixelRect.h"
 #include "engine/PrefabAsset.h"
+#include "engine/SceneAsset.h"
 #include "engine/RenderReflection.h"
 #include "engine/ScriptableData.h"
 #include "engine/SoundAsset.h"
@@ -48,6 +49,7 @@ namespace husky::engine
     HUSKY_OBJECT_DEFINE(TextureAsset)
     HUSKY_OBJECT_DEFINE(SpriteSheetAsset)
     HUSKY_OBJECT_DEFINE(PrefabAsset)
+    HUSKY_OBJECT_DEFINE(SceneAsset)
     HUSKY_OBJECT_DEFINE(FontAsset)
     HUSKY_OBJECT_DEFINE(Asset)
     HUSKY_OBJECT_DEFINE(SoundAsset)

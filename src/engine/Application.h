@@ -142,6 +142,10 @@ namespace husky::engine
         // ウィンドウも GPU も使わないので、テストからも呼べる。
         bool LoadSceneFile(const std::string& path);
 
+        // シーンのファイルの中身(値の木。SceneAsset::GetData など)から、アクターを今のシーンの後ろに足す(SC-1)。
+        // label: ログに出す名前(ファイルのパスなど)。警告はログに出す。
+        void AddSceneData(const ArchiveValue& data, const std::string& label);
+
         // シーンを読むときに、プレハブから置いたアクターの元のプレハブを GUID から探す(SceneSerializer::Read に渡す)。
         // アセットの表で探して読み、読み終わるまで待つ(シーンを読むのは、起動、Stop、CLI のときの1回だけなので)。
         // 表に無い・読めないときは nullptr(読む側が警告を出し、ファイルの値だけで作る)。

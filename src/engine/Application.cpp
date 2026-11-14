@@ -14,6 +14,7 @@
 #include "engine/UIComponents.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
+#include "engine/SceneAsset.h"
 #include "engine/SceneSerializer.h"
 #include "platform/FileSystem.h"
 #include "engine/SpriteComponent.h"
@@ -47,6 +48,7 @@ namespace husky::engine
         m_loader.RegisterKind(CreateSpriteSheetAssetKind());
         m_loader.RegisterKind(CreatePrefabAssetKind());
         m_loader.RegisterKind(CreateScriptableDataAssetKind());
+        m_loader.RegisterKind(CreateSceneAssetKind()); // SC-1
         m_scene->SetAudio(&m_audio); // アクターやコンポーネントは GetScene()->GetAudio() で音を鳴らす
     }
 
@@ -174,14 +176,19 @@ namespace husky::engine
             HUSKY_LOG(SceneLog::ReadFailed, path, error);
             return false;
         }
+        AddSceneData(file, path);
+        return true;
+    }
+
+    void Application::AddSceneData(const ArchiveValue& data, const std::string& label)
+    {
         const SceneSerializer::ReadReport report = SceneSerializer::Read(
-            file, *m_scene, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
+            data, *m_scene, m_types, [this](const core::Guid& guid) { return FindPrefabForScene(guid); });
         for (const std::string& warning : report.warnings)
         {
-            HUSKY_LOG(SceneLog::ReadWarning, path, warning);
+            HUSKY_LOG(SceneLog::ReadWarning, label, warning);
         }
-        HUSKY_LOG(SceneLog::Loaded, path, report.addedActorCount, report.createdCount, report.warnings.size());
-        return true;
+        HUSKY_LOG(SceneLog::Loaded, label, report.addedActorCount, report.createdCount, report.warnings.size());
     }
 
 #if HUSKY_DEVELOPMENT

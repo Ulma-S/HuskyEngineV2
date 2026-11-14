@@ -312,6 +312,7 @@ add_library(husky_engine ${HUSKY_MODULE_TYPE}
     src/engine/FontAsset.cpp
     src/engine/SpriteSheetAsset.cpp
     src/engine/PrefabAsset.cpp
+    src/engine/SceneAsset.cpp
     src/engine/Camera.cpp
     src/engine/Collider2D.cpp
     src/engine/AudioSourceComponent.cpp
@@ -615,6 +616,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/AssetDatabaseTests.cpp
         tests/engine/AssetLoaderTests.cpp
         tests/engine/AssetKindTests.cpp
+        tests/engine/SceneAssetTests.cpp
         tests/engine/AssetRefTests.cpp
         tests/engine/SpriteSheetDataTests.cpp
         tests/engine/Box2DSmokeTests.cpp
