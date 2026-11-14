@@ -14,6 +14,7 @@
 #include "core/Log.h"
 #include "platform/LogFileWriter.h"
 #include "platform/MemoryHooks.h"
+#include "platform/Platform.h" // EnableUtf8ConsoleOutput
 #include "render/RenderDevice.h"
 
 #if HUSKY_DEVELOPMENT
@@ -47,6 +48,9 @@ int main()
     // 一番最初に: SDL のメモリの確保を、エンジンの入口(MemoryTracker)に通す。
     // SDL が何かを確保するより前でないといけない(platform/MemoryHooks.h)。
     platform::InstallMemoryHooks();
+    // ログの日本語(UTF-8)を、コンソールで文字化けさせない。これが無いと、Windows のコンソールは
+    // 既定の文字コード(日本語の Windows では Shift_JIS)で読むので、日本語が化ける(英数字は同じなので化けない)。
+    platform::EnableUtf8ConsoleOutput();
 
     // ログを画面(標準出力)に出す。main を抜けるときに外れる(core/Log.h)。
     husky::core::ConsoleLogSink consoleLog;
