@@ -332,6 +332,9 @@ namespace husky::tools
     // Undo は、その控えでの actor.restore(同じ guid で作り直す)。ほかのアクターからの参照(カメラの追う相手など)は、
     // 戻してもつながり直らない(今の制限)。
     EditorCommand MakeDestroyActorCommand();
+    // actor.setParent(HIER-3): アクターの親を付け替える(actor、parent(省くか "" で親なし)、keepWorld(既定 true)、
+    // transform(付け替えた後のローカルの値。Undo / Redo が使う))。輪になる・Rigidbody2D を持つときは断る。Undo できる。
+    EditorCommand MakeSetParentCommand();
 
     // 「アクターを戻す」コマンド(actor.restore)を作る。引数: data(actor.destroy が控えた、アクター1体のシーンの形)。
     // シーンを読むときと同じ道具(SceneSerializer::Read)で、同じ guid のアクターを一覧の末尾に作る。プレハブから置いたものは、

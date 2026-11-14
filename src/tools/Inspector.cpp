@@ -191,6 +191,10 @@ namespace husky::tools
             return changed;
         }
 
+        // アクターの親を選ぶ箱(HIER-3。中身は下、参照を選ぶ箱の後)
+        bool DrawParentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                              const engine::AssetDatabase* assets);
+
         // 最初から入っている差し替えを登録する(1回だけ)。
         void RegisterBuiltInDrawers()
         {
@@ -202,6 +206,7 @@ namespace husky::tools
             registered = true;
             RegisterPropertyDrawer(engine::SpriteComponent::StaticType(), "sprite", DrawSpriteSlicePicker);
             RegisterPropertyDrawer(engine::SpriteAnimatorComponent::StaticType(), "animation", DrawSpriteAnimationPicker);
+            RegisterPropertyDrawer(engine::Actor::StaticType(), "parent", DrawParentPicker);
         }
 
         PropertyDrawer FindDrawer(const Property& property)
@@ -367,6 +372,66 @@ namespace husky::tools
         // 配列(SF-2b)を、折りたためる見出しの中に要素ごとに描く。DrawProperty の中で使うので、先に宣言だけする。
         bool DrawArray(const Property& property, void* container, core::ObjectRegistry& registry,
                        const engine::AssetDatabase* assets, PropertyEditRecorder* recorder);
+
+        // アクターの親(HIER-3)を選ぶ箱。選んだら g_parentRequest に積み、SceneInspector::Draw が actor.setParent を通す
+        // (property.set では親を変えられない。輪・段数・Rigidbody2D の決まりと、見える場所を保つため)。
+        struct ParentRequest
+        {
+            core::ObjectHandle actor;
+            core::ObjectHandle parent;
+            bool pending = false;
+        };
+        ParentRequest g_parentRequest;
+
+        bool DrawParentPicker(const Property& property, void* container, core::ObjectRegistry& registry,
+                              const engine::AssetDatabase* assets)
+        {
+            (void)property;
+            (void)assets;
+            // container は、プロパティの持ち主(Actor)の先頭。void* から元の型へ戻す
+            const engine::Actor& actor = *static_cast<const engine::Actor*>(container);
+            const core::ObjectHandle current = actor.GetParentHandle();
+            if (g_pickScene == nullptr)
+            {
+                ImGui::Text("parent: %s", DescribeHandle(current, registry));
+                return false;
+            }
+            if (!ImGui::BeginCombo("parent", DescribeHandle(current, registry)))
+            {
+                return false;
+            }
+            auto request = [&](core::ObjectHandle parent) {
+                g_parentRequest.actor = actor.GetHandle();
+                g_parentRequest.parent = parent;
+                g_parentRequest.pending = true;
+            };
+            if (ImGui::Selectable("(none)", current.IsNull()) && !current.IsNull())
+            {
+                request({});
+            }
+            // 親にできるものだけを並べる(自分・子孫・段数が多すぎるものは出さない)
+            g_pickScene->ForEachActor([&](engine::Actor& candidate) {
+                if (actor.WhyCannotSetParent(&candidate) != nullptr)
+                {
+                    return;
+                }
+                ImGui::PushID(static_cast<int>(candidate.GetHandle().index));
+                if (ImGui::Selectable(DescribeHandle(candidate.GetHandle(), registry), candidate.GetHandle() == current) &&
+                    candidate.GetHandle() != current)
+                {
+                    request(candidate.GetHandle());
+                }
+                ImGui::PopID();
+            });
+            ImGui::EndCombo();
+            return false; // 書き換えは、描き終わった後にコマンドで行う
+        }
+
+        // ハンドルを、開いているアクターの一覧に入れる数にする(場所と世代をつなぐ)。
+        std::uint64_t ExpandKey(core::ObjectHandle handle)
+        {
+            return (static_cast<std::uint64_t>(handle.index) << 32) | handle.generation;
+        }
 
         bool DrawProperty(const Property& property, void* container, core::ObjectRegistry& registry,
                           const engine::AssetDatabase* assets, PropertyEditRecorder* recorder,
@@ -660,13 +725,40 @@ namespace husky::tools
             // --- アクターの一覧 ---
             ImGui::Text("Actors: %zu", scene.actors.size());
             ImGui::BeginChild("Actors", ImVec2(0.0f, 160.0f), ImGuiChildFlags_Borders);
+            // 選び直したら(シーンビューでクリックしたなど)、先祖を開いて見えるようにする
+            if (m_selected != m_revealedFor)
+            {
+                m_revealedFor = m_selected;
+                const engine::Actor* chosen = registry.Resolve<engine::Actor>(m_selected);
+                for (const engine::Actor* ancestor = chosen != nullptr ? chosen->GetParent() : nullptr; ancestor != nullptr;
+                     ancestor = ancestor->GetParent())
+                {
+                    if (IsExpanded(ancestor->GetHandle()))
+                    {
+                        break; // ここから上は開いている
+                    }
+                    SetExpanded(ancestor->GetHandle(), true);
+                }
+            }
+            BuildTreeRows(scene, registry);
+            // 一番上の行は「シーン」: ここへ落とすと親なしになる
+            ImGui::Selectable("(scene root: drop here for no parent)", false);
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HUSKY_ACTOR"))
+                {
+                    RequestSetParent(app, commands, *static_cast<const core::ObjectHandle*>(payload->Data), {});
+                }
+                ImGui::EndDragDropTarget();
+            }
             // ImGuiListClipper: 見えている行だけを作る(1000 行あっても、画面に入る十数行ぶんしか処理しない)。
             ImGuiListClipper clipper;
-            clipper.Begin(static_cast<int>(scene.actors.size()));
+            clipper.Begin(static_cast<int>(m_treeRows.size()));
             while (clipper.Step())
             {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                 {
+                    const auto [i, depth] = m_treeRows[static_cast<std::size_t>(row)];
                     const core::ObjectHandle handle = scene.actors[static_cast<std::size_t>(i)];
                     const engine::Actor* actor = registry.Resolve<engine::Actor>(handle);
                     if (actor == nullptr)
@@ -675,9 +767,43 @@ namespace husky::tools
                     }
                     const char* label = actor->name.empty() ? actor->GetType().GetName() : actor->name.c_str();
                     ImGui::PushID(i);
-                    if (ImGui::Selectable(label, handle == m_selected))
+                    // 深さの分だけ右へずらし、子があれば開け閉めの矢印を付ける
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(depth) * ImGui::GetTreeNodeToLabelSpacing());
+                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                               ImGuiTreeNodeFlags_OpenOnArrow;
+                    if (m_firstChild[static_cast<std::size_t>(i)] < 0)
+                    {
+                        flags |= ImGuiTreeNodeFlags_Leaf;
+                    }
+                    if (handle == m_selected)
+                    {
+                        flags |= ImGuiTreeNodeFlags_Selected;
+                    }
+                    ImGui::SetNextItemOpen(IsExpanded(handle));
+                    ImGui::TreeNodeEx("##actor", flags, "%s", label);
+                    if (ImGui::IsItemToggledOpen())
+                    {
+                        SetExpanded(handle, !IsExpanded(handle));
+                    }
+                    else if (ImGui::IsItemClicked())
                     {
                         m_selected = handle;
+                    }
+                    // ドラッグで、ほかのアクターの上に落とすと、その子になる
+                    if (ImGui::BeginDragDropSource())
+                    {
+                        ImGui::SetDragDropPayload("HUSKY_ACTOR", &handle, sizeof(handle));
+                        ImGui::TextUnformatted(label);
+                        ImGui::EndDragDropSource();
+                    }
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HUSKY_ACTOR"))
+                        {
+                            RequestSetParent(app, commands, *static_cast<const core::ObjectHandle*>(payload->Data), handle);
+                            SetExpanded(handle, true); // 落とした先を開いて、子が見えるようにする
+                        }
+                        ImGui::EndDragDropTarget();
                     }
                     ImGui::PopID();
                 }
@@ -783,6 +909,11 @@ namespace husky::tools
                 marks.overrides = &m_overrides;
                 m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
                 DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
+                if (g_parentRequest.pending)
+                {
+                    g_parentRequest.pending = false;
+                    RequestSetParent(app, commands, g_parentRequest.actor, g_parentRequest.parent);
+                }
                 if (ImGui::Button("Destroy"))
                 {
                     // 編集中は actor.destroy を通す(Ctrl+Z で戻せる)。再生中など、コマンドが使えないときは、
@@ -912,6 +1043,131 @@ namespace husky::tools
         // 描き終わった: 編集の途中の部品が描かれなくなっていたら(選択を変えたなど)、ここで確定する。
         g_pickScene = nullptr;
         m_recorder.EndFrame();
+    }
+
+    // ---- アクターの木(HIER-3)----
+
+    bool SceneInspector::IsExpanded(core::ObjectHandle actor) const
+    {
+        // 並べてある(小さい順)ので、二分探索で探す
+        return std::binary_search(m_expanded.begin(), m_expanded.end(), ExpandKey(actor));
+    }
+
+    void SceneInspector::SetExpanded(core::ObjectHandle actor, bool expanded)
+    {
+        const std::uint64_t key = ExpandKey(actor);
+        // lower_bound: key 以上の最初の場所(並びを保ったまま入れる場所)
+        const auto at = std::lower_bound(m_expanded.begin(), m_expanded.end(), key);
+        const bool present = at != m_expanded.end() && *at == key;
+        if (expanded && !present)
+        {
+            m_expanded.insert(at, key);
+        }
+        else if (!expanded && present)
+        {
+            m_expanded.erase(at);
+        }
+    }
+
+    void SceneInspector::BuildTreeRows(engine::Scene& scene, core::ObjectRegistry& registry)
+    {
+        m_sceneForRows = &scene;
+        // 1. ハンドルの場所 → シーンの一覧の位置の表を作る(親のハンドルから、親の位置を引くため)。
+        //    ハッシュ表は要素ごとに確保するので、場所を添字にした配列にする(大きくなるだけで、温まった後は確保しない)。
+        const std::size_t count = scene.actors.size();
+        m_firstChild.assign(count, -1);
+        m_nextSibling.assign(count, -1);
+        m_isRoot.assign(count, 0);
+        m_treeRows.clear();
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const core::ObjectHandle handle = scene.actors[i];
+            if (handle.index >= m_rowOfSlot.size())
+            {
+                m_rowOfSlot.resize(static_cast<std::size_t>(handle.index) + 1, -1);
+            }
+            m_rowOfSlot[handle.index] = static_cast<int>(i);
+        }
+        // 2. 後ろから見て、親の「最初の子」の前へつなぐ(こうすると、子は一覧の順に並ぶ)
+        for (std::size_t k = count; k-- > 0;) // k-- > 0: count - 1 から 0 まで逆順に回す書き方
+        {
+            const engine::Actor* actor = registry.Resolve<engine::Actor>(scene.actors[k]);
+            if (actor == nullptr || actor->IsPendingDestroy())
+            {
+                continue;
+            }
+            const core::ObjectHandle parent = actor->GetParentHandle();
+            int parentRow = -1;
+            if (!parent.IsNull() && parent.index < m_rowOfSlot.size())
+            {
+                const int row = m_rowOfSlot[parent.index];
+                // 同じ場所の別の代(消えた親の跡に入った別のアクター)でないか、ハンドルごと比べる
+                if (row >= 0 && static_cast<std::size_t>(row) != k && scene.actors[static_cast<std::size_t>(row)] == parent)
+                {
+                    const engine::Actor* parentActor = registry.Resolve<engine::Actor>(parent);
+                    parentRow = parentActor != nullptr && !parentActor->IsPendingDestroy() ? row : -1;
+                }
+            }
+            if (parentRow >= 0)
+            {
+                m_nextSibling[k] = m_firstChild[static_cast<std::size_t>(parentRow)];
+                m_firstChild[static_cast<std::size_t>(parentRow)] = static_cast<int>(k);
+            }
+            else
+            {
+                m_isRoot[k] = 1;
+            }
+        }
+        // 3. 根から順に、開いているものの子孫を行にする(輪になっているものは根にならないので出ない)
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (m_isRoot[i] != 0)
+            {
+                AppendTreeRows(static_cast<int>(i), 0);
+            }
+        }
+        // 表を空に戻す(次のフレームに、消えたアクターの場所が残らないように)
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            m_rowOfSlot[scene.actors[i].index] = -1;
+        }
+    }
+
+    void SceneInspector::AppendTreeRows(int i, int depth)
+    {
+        m_treeRows.emplace_back(i, depth);
+        if (depth + 1 >= engine::Actor::MaxHierarchyDepth || !IsExpanded(m_sceneForRows->actors[static_cast<std::size_t>(i)]))
+        {
+            return;
+        }
+        for (int child = m_firstChild[static_cast<std::size_t>(i)]; child >= 0; child = m_nextSibling[static_cast<std::size_t>(child)])
+        {
+            AppendTreeRows(child, depth + 1);
+        }
+    }
+
+    void SceneInspector::RequestSetParent(engine::Application& app, EditorCommandRegistry* commands, core::ObjectHandle actor,
+                                          core::ObjectHandle parent)
+    {
+        core::ObjectRegistry& registry = app.GetRegistry();
+        engine::Actor* child = registry.Resolve<engine::Actor>(actor);
+        engine::Actor* newParent = registry.Resolve<engine::Actor>(parent);
+        if (child == nullptr || (!parent.IsNull() && newParent == nullptr) || child->GetParent() == newParent)
+        {
+            return;
+        }
+        // 編集中は actor.setParent を通す(Ctrl+Z で戻せる。断られたら、理由が結果の欄に出る)。
+        // 再生中など、コマンドが使えないときは、その場で付け替えるだけ(Stop で元に戻る)。
+        const EditorCommand* command = commands != nullptr ? commands->Find("actor.setParent") : nullptr;
+        if (command != nullptr && commands->GetUnavailableReason(*command, app) == nullptr)
+        {
+            engine::ArchiveValue args = engine::ArchiveValue::MakeObject();
+            args.Set("actor", engine::ArchiveValue(child->guid.ToString()));
+            args.Set("parent", engine::ArchiveValue(newParent != nullptr ? newParent->guid.ToString() : std::string()));
+            commands->Execute("actor.setParent", app, args);
+            return;
+        }
+        child->SetParent(newParent, true);
     }
 
     void SceneInspector::RefreshOverrides(const engine::Actor& actor, const core::TypeRegistry& types)

@@ -17,6 +17,7 @@
 #include "tools/PropertyEditRecorder.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility> // std::pair
 #include <vector>
@@ -73,6 +74,26 @@ namespace husky::tools
         std::vector<std::size_t> m_addedComponentIndexes;
         // 置いた後に外したコンポーネントの(型の名前、プレハブの中の ID の文字列)。1つずつ Revert ボタンを付ける(PF-7d)
         std::vector<std::pair<std::string, std::string>> m_removedComponents;
+
+        // ---- アクターの木(HIER-3)----
+        // 一覧を親子の木で描く。毎フレーム、シーンの一覧から作り直す(入れ物は使い回し、温まった後は確保しない)。
+        void BuildTreeRows(engine::Scene& scene, core::ObjectRegistry& registry);
+        // i 番目(シーンの一覧の位置)のアクターと、開いていればその子孫を、行に足す。
+        void AppendTreeRows(int i, int depth);
+        // 親を付け替える(編集中は actor.setParent を通して Undo できる。使えなければ、その場で付け替えるだけ)。
+        void RequestSetParent(engine::Application& app, EditorCommandRegistry* commands, core::ObjectHandle actor,
+                              core::ObjectHandle parent);
+        // 開いているアクター(ハンドルの場所と世代をつないだ数)。開いたり閉じたりしたときだけ変わる
+        std::vector<std::uint64_t> m_expanded;
+        bool IsExpanded(core::ObjectHandle actor) const;
+        void SetExpanded(core::ObjectHandle actor, bool expanded);
+        std::vector<int> m_rowOfSlot;    // ハンドルの場所(index)→ シーンの一覧の位置(-1 は無い)
+        std::vector<int> m_firstChild;   // シーンの一覧の位置 → 最初の子の位置(-1 は無い)
+        std::vector<int> m_nextSibling;  // シーンの一覧の位置 → 次の兄弟の位置(-1 は無い)
+        std::vector<char> m_isRoot;      // シーンの一覧の位置 → 親が無い(か、親が一覧にいない)か
+        std::vector<std::pair<int, int>> m_treeRows; // 描く行(シーンの一覧の位置、深さ)
+        core::ObjectHandle m_revealedFor;            // 先祖を開いて見えるようにした選択(選び直したら、もう一度開く)
+        engine::Scene* m_sceneForRows = nullptr;     // 行を作っている間だけ使う(AppendTreeRows がアクターのハンドルを引くため)
     };
 }
 

@@ -1143,6 +1143,12 @@ namespace husky::tools
                 error = "'" + propertyName + "' cannot be changed with property.set";
                 return false;
             }
+            // アクターの親は actor.setParent を通す(輪・段数・Rigidbody2D の決まりを守り、見える場所を保つため。HIER-3)
+            if (componentValue == nullptr && path.size() == 1 && path[0] == "parent")
+            {
+                error = "Use actor.setParent to change the parent";
+                return false;
+            }
 
             if (property->GetType() == core::PropertyType::ObjectHandle || property->GetType() == core::PropertyType::ObjectRef ||
                 IsReferenceArray(*property))
@@ -1556,6 +1562,137 @@ namespace husky::tools
             result.redo = MakeRestoreCall(data, parentGuid);
             result.data = engine::ArchiveValue::MakeObject();
             result.data.Set("guid", engine::ArchiveValue(guid.ToString()));
+            return result;
+        };
+        return command;
+    }
+
+    // ================= 親子(HIER-3) =================
+
+    namespace
+    {
+        // Transform を引数の値({"position": {x, y, z}, "rotation", "scale": {x, y, z}})にする。
+        engine::ArchiveValue MakeTransformArg(const engine::Transform& transform)
+        {
+            auto vector3 = [](const core::Vector3& value) {
+                engine::ArchiveValue out = engine::ArchiveValue::MakeObject();
+                out.Set("x", engine::ArchiveValue(static_cast<double>(value.x)));
+                out.Set("y", engine::ArchiveValue(static_cast<double>(value.y)));
+                out.Set("z", engine::ArchiveValue(static_cast<double>(value.z)));
+                return out;
+            };
+            engine::ArchiveValue value = engine::ArchiveValue::MakeObject();
+            value.Set("position", vector3(transform.position));
+            value.Set("rotation", engine::ArchiveValue(static_cast<double>(transform.rotation)));
+            value.Set("scale", vector3(transform.scale));
+            return value;
+        }
+
+        // MakeTransformArg の形から Transform を読む。書いていない値は、今の値(out の値)のまま。
+        void ReadTransformArg(const engine::ArchiveValue& value, engine::Transform& out)
+        {
+            auto vector3 = [](const engine::ArchiveValue* from, core::Vector3& to) {
+                if (from == nullptr)
+                {
+                    return;
+                }
+                to.x = static_cast<float>(from->Find("x") != nullptr ? from->Find("x")->AsFloat(to.x) : to.x);
+                to.y = static_cast<float>(from->Find("y") != nullptr ? from->Find("y")->AsFloat(to.y) : to.y);
+                to.z = static_cast<float>(from->Find("z") != nullptr ? from->Find("z")->AsFloat(to.z) : to.z);
+            };
+            vector3(value.Find("position"), out.position);
+            if (const engine::ArchiveValue* rotation = value.Find("rotation"))
+            {
+                out.rotation = static_cast<float>(rotation->AsFloat(out.rotation));
+            }
+            vector3(value.Find("scale"), out.scale);
+        }
+
+        // actor.setParent の呼び出し(Undo / Redo 用)。親は guid(親なしなら空)。transform は付け替えた後のローカルの値。
+        EditorCommandCall MakeSetParentCall(const core::Guid& actor, const std::string& parentGuid,
+                                            const engine::Transform& transform)
+        {
+            EditorCommandCall call;
+            call.name = "actor.setParent";
+            call.args = engine::ArchiveValue::MakeObject();
+            call.args.Set("actor", engine::ArchiveValue(actor.ToString()));
+            call.args.Set("parent", engine::ArchiveValue(parentGuid));
+            call.args.Set("keepWorld", engine::ArchiveValue(false));
+            call.args.Set("transform", MakeTransformArg(transform));
+            return call;
+        }
+    }
+
+    EditorCommand MakeSetParentCommand()
+    {
+        EditorCommand command;
+        command.name = "actor.setParent";
+        command.label = "Set parent";
+        command.description = "Make an actor the child of another actor, or give it no parent (leave out \"parent\" or give \"\"). "
+                              "By default it stays where it is on the screen (its transform becomes relative to the new parent). "
+                              "Refused if it would make a loop, or if the actor has a Rigidbody2D. Can be undone (editor.undo).";
+        command.modifiesScene = true;
+        EditorCommandArg actorArg{"actor", EditorArgType::String, "Name (if unique) or guid of the actor to move", true};
+        actorArg.choices = ActorChoices;
+        EditorCommandArg parentArg{"parent", EditorArgType::String, "Name (if unique) or guid of the new parent (\"\" for none)",
+                                   false};
+        parentArg.choices = ActorChoices;
+        EditorCommandArg keepArg{"keepWorld", EditorArgType::Bool,
+                                 "Keep the place on the screen (true), or keep the transform values as they are (false)", false};
+        keepArg.defaultValue = engine::ArchiveValue(true);
+        command.args = {
+            actorArg,
+            parentArg,
+            keepArg,
+            {"transform", EditorArgType::Any,
+             "Local transform to set after changing the parent ({\"position\": {...}, \"rotation\", \"scale\": {...}}). Used by undo",
+             false},
+        };
+        command.execute = [](EditorCommandContext& context) {
+            engine::Scene& scene = context.app.GetScene();
+            std::string error;
+            engine::Actor* actor = FindActorFromArg(scene, context.args.Find("actor")->AsString(), error);
+            if (actor == nullptr)
+            {
+                return EditorCommandResult::Failure(error);
+            }
+            engine::Actor* parent = nullptr;
+            const engine::ArchiveValue* parentArg = context.args.Find("parent");
+            if (parentArg != nullptr && !parentArg->AsString().empty())
+            {
+                parent = FindActorFromArg(scene, parentArg->AsString(), error);
+                if (parent == nullptr)
+                {
+                    return EditorCommandResult::Failure(error);
+                }
+            }
+            const engine::ArchiveValue* keepArg = context.args.Find("keepWorld");
+            const bool keepWorld = keepArg == nullptr || keepArg->AsBool(true);
+
+            // Undo のために、前の親と、前のローカルの値を控える
+            const engine::Actor* oldParent = actor->GetParent();
+            const std::string oldParentGuid = oldParent != nullptr ? oldParent->guid.ToString() : std::string();
+            const engine::Transform oldTransform = actor->transform;
+            if (oldParent == parent && context.args.Find("transform") == nullptr)
+            {
+                return EditorCommandResult::Failure(DescribeActor(*actor) + " already has that parent");
+            }
+            const char* refused = nullptr;
+            if (!actor->SetParent(parent, keepWorld, &refused))
+            {
+                return EditorCommandResult::Failure(std::string("Could not set the parent: ") +
+                                                    (refused != nullptr ? refused : "unknown reason"));
+            }
+            if (const engine::ArchiveValue* transformArg = context.args.Find("transform"))
+            {
+                ReadTransformArg(*transformArg, actor->transform);
+            }
+            EditorCommandResult result = EditorCommandResult::Success(
+                parent != nullptr ? "Set the parent of " + DescribeActor(*actor) + " to " + DescribeActor(*parent)
+                                  : "Removed the parent of " + DescribeActor(*actor));
+            result.undo = MakeSetParentCall(actor->guid, oldParentGuid, oldTransform);
+            result.redo = MakeSetParentCall(actor->guid, parent != nullptr ? parent->guid.ToString() : std::string(),
+                                            actor->transform);
             return result;
         };
         return command;

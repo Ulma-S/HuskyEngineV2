@@ -159,7 +159,9 @@ namespace husky::engine
         // transform を直す。false なら transform をそのまま新しい親から見た値として使う(見える場所が変わる)。
         // 断るとき(false を返し、警告を出す): 自分か自分の子孫を親にする(輪になる)、別のレジストリ・消えかけのアクター、
         // 段数が MaxHierarchyDepth を超える、自分が Rigidbody2D を持つ(物理がワールドの場所を決めるので、最初は動く体は親を持てない)。
-        bool SetParent(Actor* newParent, bool keepWorldTransform = true);
+        bool SetParent(Actor* newParent, bool keepWorldTransform = true, const char** whyRefused = nullptr);
+        // newParent を親にできるか(SetParent と同じ決まり)。できなければ理由(文字列の定数)、できれば nullptr。
+        const char* WhyCannotSetParent(const Actor* newParent) const;
         // 本当の transform から作ったワールドの行列(当たり判定、エディタ、ゲームの決め事に使う)。
         core::Matrix4 GetWorldMatrix() const;
         // 描くときの transform(GetRenderTransform。物理の補間)から作ったワールドの行列。親も描くときの値を使う。

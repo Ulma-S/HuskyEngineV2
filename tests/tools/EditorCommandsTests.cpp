@@ -1520,4 +1520,56 @@ TEST_CASE("使い勝手: component.add で足したコライダーは絵に合�
     REQUIRE(hero->GetComponent<husky::engine::BoxCollider2D>() != nullptr);
     CHECK(hero->GetComponent<husky::engine::BoxCollider2D>()->size.x == 10.0f);
 }
+
+TEST_CASE("EditorCommands: actor.setParent は親を付け替え、Undo / Redo で前と同じローカルの値に戻る。輪と property.set の parent は断る(HIER-3)")
+{
+    Application app;
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSetParentCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    car->name = "Car";
+    car->transform.position = {100.0f, 0.0f, 0.0f};
+    car->transform.rotation = 90.0f;
+    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    wheel->name = "Wheel";
+    wheel->transform.position = {100.0f, 20.0f, 0.0f};
+
+    // 既定は見える場所を保つ: ワールドの (100, 20) のまま、Car から見た値になる
+    const EditorCommandResult set = commands.Execute("actor.setParent", app, Json(R"({"actor": "Wheel", "parent": "Car"})"));
+    REQUIRE(set.succeeded);
+    CHECK(wheel->GetParent() == car);
+    CHECK(wheel->GetWorldPosition().x == doctest::Approx(100.0f));
+    CHECK(wheel->GetWorldPosition().y == doctest::Approx(20.0f));
+    const husky::engine::Transform local = wheel->transform;
+
+    // Undo: 親なしに戻り、ローカルの値もぴったり前の値
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(wheel->GetParent() == nullptr);
+    CHECK(wheel->transform.position == (husky::core::Vector3{100.0f, 20.0f, 0.0f}));
+    // Redo: 付け替えた後の値に、ぴったり戻る
+    REQUIRE(commands.Execute("editor.redo", app).succeeded);
+    CHECK(wheel->GetParent() == car);
+    CHECK(wheel->transform.position == local.position);
+    CHECK(wheel->transform.rotation == local.rotation);
+
+    // 輪になるものは断る(Car の親を、その子の Wheel にはできない)。同じ親も断る
+    CHECK_FALSE(commands.Execute("actor.setParent", app, Json(R"({"actor": "Car", "parent": "Wheel"})")).succeeded);
+    CHECK_FALSE(commands.Execute("actor.setParent", app, Json(R"({"actor": "Wheel", "parent": "Car"})")).succeeded);
+    // property.set では親を変えられない(決まりを守るため、actor.setParent を通す)
+    const EditorCommandResult viaProperty =
+        commands.Execute("property.set", app, Json(R"({"actor": "Wheel", "property": "parent", "value": null})"));
+    CHECK_FALSE(viaProperty.succeeded);
+    CHECK(wheel->GetParent() == car);
+
+    // 親なしにする(parent を "" に)。keepWorld が false なら、ローカルの値をそのままワールドの値として使う
+    REQUIRE(commands.Execute("actor.setParent", app, Json(R"({"actor": "Wheel", "parent": "", "keepWorld": false})")).succeeded);
+    CHECK(wheel->GetParent() == nullptr);
+    CHECK(wheel->transform.position == local.position);
+}
+
+
 #endif

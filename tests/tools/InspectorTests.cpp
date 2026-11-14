@@ -4,6 +4,7 @@
 // 「最後まで動く」こと自体が、使い方が正しいことの確認になる。マウスでの操作は、ゲームを起動して確かめる。
 #if HUSKY_DEVELOPMENT
 
+#include "core/MemoryTracker.h"
 #include "engine/Application.h"
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
@@ -18,6 +19,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using husky::core::ObjectHandle;
 using husky::engine::Actor;
@@ -213,4 +215,43 @@ TEST_CASE("Inspector: プレハブから置いたアクターは、プレハブ�
     imgui.Frame([&] { inspector.Draw(app, &commands); });
     CHECK(inspector.GetOverrideCount() == 2);
 }
+
+TEST_CASE("Inspector: アクターの一覧は親子の木で描き、1000 体でも温まった後は確保しない(HIER-3)")
+{
+    HeadlessImGui imgui;
+    Application app;
+    std::vector<Actor*> roots;
+    for (int i = 0; i < 1000; ++i)
+    {
+        Actor* actor = app.GetScene().Spawn<Actor>();
+        // 10 体ごとに、直前の根の子(と孫)にする
+        if (i % 10 != 0 && !roots.empty())
+        {
+            REQUIRE(actor->SetParent(roots.back()));
+        }
+        else
+        {
+            roots.push_back(actor);
+        }
+    }
+    SceneInspector inspector;
+    // 子のアクターを選ぶと、先祖が開いて見えるようになる
+    Actor* child = app.GetRegistry().Resolve<Actor>(app.GetScene().actors[15]);
+    REQUIRE(child != nullptr);
+    inspector.Select(child->GetHandle());
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        imgui.Frame([&] { inspector.Draw(app); });
+    }
+    inspector.Select(ObjectHandle{}); // 選んでいないとき(プロパティの欄は描かない)に、木だけを測る
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        imgui.Frame([&] { inspector.Draw(app); });
+    }
+    const std::uint64_t before = husky::core::GetMemoryStats().totalAllocations;
+    imgui.Frame([&] { inspector.Draw(app); });
+    CHECK(husky::core::GetMemoryStats().totalAllocations == before);
+}
+
+
 #endif

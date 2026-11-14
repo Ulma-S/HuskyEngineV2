@@ -123,6 +123,10 @@ int main()
     tools::EditorCommand restoreActor = tools::MakeRestoreActorCommand();
     restoreActor.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
     commands.Register(std::move(restoreActor));
+    // 親の付け替え(actor.setParent。HIER-3)。編集中だけ。
+    tools::EditorCommand setParent = tools::MakeSetParentCommand();
+    setParent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };
+    commands.Register(std::move(setParent));
     // コンポーネントを足す・外す(component.add / component.remove。PF-7c)。互いの Undo になる。編集中だけ。
     tools::EditorCommand addComponent = tools::MakeAddComponentCommand();
     addComponent.whyUnavailable = [&playMode](engine::Application&) { return playMode.WhyNotEditing(); };

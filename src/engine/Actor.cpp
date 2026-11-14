@@ -174,7 +174,7 @@ namespace husky::engine
         return depth;
     }
 
-    bool Actor::SetParent(Actor* newParent, bool keepWorldTransform)
+    const char* Actor::WhyCannotSetParent(const Actor* newParent) const
     {
         const char* refused = nullptr;
         if (newParent != nullptr)
@@ -199,6 +199,16 @@ namespace husky::engine
             {
                 refused = "親子の段数が多すぎます";
             }
+        }
+        return refused;
+    }
+
+    bool Actor::SetParent(Actor* newParent, bool keepWorldTransform, const char** whyRefused)
+    {
+        const char* refused = WhyCannotSetParent(newParent);
+        if (whyRefused != nullptr)
+        {
+            *whyRefused = refused;
         }
         if (refused != nullptr)
         {
