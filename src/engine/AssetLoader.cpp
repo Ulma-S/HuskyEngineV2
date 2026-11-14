@@ -4,11 +4,14 @@
 
 #include "engine/JsonFormat.h"
 #include "engine/ObjectSerializer.h"
+#include "engine/Prefab.h"          // 入れ子のプレハブを開く(Prefab::ExpandNested。HIER)
+#include "engine/SceneSerializer.h"
 #include "platform/FileSystem.h"
 #include "platform/Image.h"
 #include "audio/WavFile.h"
 
 
+#include <algorithm> // std::find
 #include <utility> // std::move, std::swap
 
 namespace husky::engine
@@ -207,18 +210,122 @@ namespace husky::engine
             m_pending.pop_back();
             done->Finish(*this); // 外してから書く(Finish の中で m_pending が増えても、done は動かない)
         }
+        UpdateWaitingPrefabs();
+    }
+
+    bool AssetLoader::WaitsOn(const core::Guid& from, const core::Guid& target, int depth) const
+    {
+        if (depth > 32)
+        {
+            return true; // 深すぎる: 輪とみなす
+        }
+        for (const WaitingPrefab& waiting : m_waitingPrefabs)
+        {
+            const PrefabAsset* asset = ResolvePrefab(waiting.asset);
+            if (asset == nullptr || asset->GetGuid() != from)
+            {
+                continue;
+            }
+            for (const core::Guid& nested : waiting.nested)
+            {
+                if (nested == target || WaitsOn(nested, target, depth + 1))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void AssetLoader::DropWaiting(std::size_t index)
+    {
+        for (const core::ObjectHandle nested : m_waitingPrefabs[index].nestedAssets)
+        {
+            m_registry.RemoveRoot(nested);
+        }
+        std::swap(m_waitingPrefabs[index], m_waitingPrefabs.back());
+        m_waitingPrefabs.pop_back();
+    }
+
+    bool AssetLoader::UpdateWaitingPrefabs()
+    {
+        bool progressed = false;
+        for (std::size_t i = 0; i < m_waitingPrefabs.size();)
+        {
+            PrefabAsset* asset = ResolvePrefab(m_waitingPrefabs[i].asset);
+            if (asset == nullptr || asset->m_state != AssetState::Loading)
+            {
+                DropWaiting(i); // 回収された・読み直しで外れた
+                progressed = true;
+                continue;
+            }
+            bool ready = true;
+            bool loop = false;
+            for (const core::ObjectHandle nestedHandle : m_waitingPrefabs[i].nestedAssets)
+            {
+                const PrefabAsset* nested = ResolvePrefab(nestedHandle);
+                if (nested != nullptr && nested->GetState() == AssetState::Loading)
+                {
+                    ready = false;
+                    loop = loop || nested->GetGuid() == asset->m_guid || WaitsOn(nested->GetGuid(), asset->m_guid, 0);
+                }
+            }
+            if (loop)
+            {
+                HUSKY_LOG(AssetLog::LoadWarning, "プレハブ", asset->m_guid.ToString(),
+                          "入れ子のプレハブが輪になっている(自分を中に含む)ので読めません");
+                asset->m_state = AssetState::Failed;
+                DropWaiting(i);
+                progressed = true;
+                continue;
+            }
+            if (!ready)
+            {
+                ++i;
+                continue;
+            }
+            // 入れ子が読み終わった(読めなかったものは、ファイルにある値だけで作る): 開いた形を作る
+            std::vector<std::string> warnings;
+            const SceneSerializer::PrefabFinder finder = [this](const core::Guid& guid) -> const PrefabAsset* {
+                const auto found = m_prefabs.find(guid);
+                const PrefabAsset* nested = found != m_prefabs.end() ? ResolvePrefab(found->second) : nullptr;
+                return nested != nullptr && nested->IsLoaded() ? nested : nullptr;
+            };
+            asset->m_data = Prefab::ExpandNested(asset->m_raw, m_registry, m_types, finder, warnings);
+            for (const std::string& warning : warnings)
+            {
+                HUSKY_LOG(AssetLog::LoadWarning, "プレハブ", asset->m_guid.ToString(), warning);
+            }
+            asset->m_state = AssetState::Loaded;
+            DropWaiting(i);
+            progressed = true;
+        }
+        return progressed;
     }
 
     void AssetLoader::WaitForAllLoads()
     {
         // スプライトシートが読み終わると、中の画像の読み込みが新しく始まる。増えたものも含めて、無くなるまで繰り返す。
-        while (!m_pending.empty())
+        while (!m_pending.empty() || !m_waitingPrefabs.empty())
         {
             for (const std::unique_ptr<PendingLoad>& load : m_pending)
             {
                 m_jobs.Wait(load->counter); // 待っている間、このスレッドも積まれたジョブを実行する
             }
+            const bool hadPending = !m_pending.empty();
             Update();
+            // 読み込み中のものが無いのに、入れ子を待っているプレハブが進まない: 待つ相手がもう来ない(念のため、読めなかったことにする)
+            if (!hadPending && m_pending.empty() && !m_waitingPrefabs.empty() && !UpdateWaitingPrefabs())
+            {
+                while (!m_waitingPrefabs.empty())
+                {
+                    if (PrefabAsset* stuck = ResolvePrefab(m_waitingPrefabs.back().asset))
+                    {
+                        stuck->m_state = AssetState::Failed;
+                    }
+                    DropWaiting(m_waitingPrefabs.size() - 1);
+                }
+            }
         }
     }
 
@@ -700,8 +807,26 @@ namespace husky::engine
             asset->m_state = AssetState::Failed;
             return;
         }
-        asset->m_data = std::move(load.data); // 値の木を、コピーせずにアセットへ移す
-        asset->m_state = AssetState::Loaded;
+        asset->m_raw = std::move(load.data); // 値の木を、コピーせずにアセットへ移す
+        // 入れ子のプレハブ(別のプレハブから置いたもの)が無ければ、そのまま使える
+        const std::vector<core::Guid> nested = Prefab::FindNestedPrefabs(asset->m_raw);
+        if (nested.empty())
+        {
+            asset->m_data = asset->m_raw;
+            asset->m_state = AssetState::Loaded;
+            return;
+        }
+        // 入れ子があれば、先にそれを読む(読み終わってから開いた形を作る。UpdateWaitingPrefabs)
+        WaitingPrefab waiting;
+        waiting.asset = asset->GetHandle();
+        waiting.nested = nested;
+        for (const core::Guid& guid : nested)
+        {
+            const core::ObjectHandle handle = LoadPrefab(guid);
+            m_registry.AddRoot(handle); // 待っている間に回収されないように
+            waiting.nestedAssets.push_back(handle);
+        }
+        m_waitingPrefabs.push_back(std::move(waiting));
     }
 
     void AssetLoader::OnPrefabDestroyed(PrefabAsset& asset)
@@ -711,6 +836,32 @@ namespace husky::engine
         {
             m_prefabs.erase(found);
         }
+    }
+
+    std::size_t AssetLoader::ReloadPrefabsNesting(const core::Guid& guid)
+    {
+        // 先に集めてから読み直す(読み直すと m_prefabs が変わるため)
+        std::vector<core::Guid> outers;
+        for (const auto& [cachedGuid, handle] : m_prefabs)
+        {
+            const PrefabAsset* cached = ResolvePrefab(handle);
+            if (cached == nullptr || cachedGuid == guid)
+            {
+                continue;
+            }
+            const std::vector<core::Guid> nested = Prefab::FindNestedPrefabs(cached->GetRawData());
+            if (std::find(nested.begin(), nested.end(), guid) != nested.end())
+            {
+                outers.push_back(cachedGuid);
+            }
+        }
+        std::size_t count = 0;
+        for (const core::Guid& outer : outers)
+        {
+            ReloadPrefab(outer);
+            count += 1 + ReloadPrefabsNesting(outer); // その外側も(輪は読み込みで断るので、ここでは深さを気にしない)
+        }
+        return count;
     }
 
     core::ObjectHandle AssetLoader::ReloadPrefab(const core::Guid& guid)

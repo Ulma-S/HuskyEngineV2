@@ -110,3 +110,31 @@ namespace husky::core
         return true;
     }
 }
+
+namespace husky::core
+{
+    namespace
+    {
+        // 64 ビットの数をよく混ぜる(splitmix64 の最後の段)。少し違う入力でも、出力はまったく違う値になる。
+        std::uint64_t Mix(std::uint64_t value)
+        {
+            value ^= value >> 30;
+            value *= 0xBF58476D1CE4E5B9ull;
+            value ^= value >> 27;
+            value *= 0x94D049BB133111EBull;
+            value ^= value >> 31;
+            return value;
+        }
+    }
+
+    Guid Guid::Combine(const Guid& a, const Guid& b)
+    {
+        Guid guid;
+        guid.high = Mix(a.high ^ Mix(b.high + 0x9E3779B97F4A7C15ull) ^ Mix(a.low + 1));
+        guid.low = Mix(a.low ^ Mix(b.low + 0x632BE59BD9B4E019ull) ^ Mix(b.high + 2));
+        // バージョン 4 と、variant の印(Generate と同じ位置)
+        guid.high = (guid.high & ~0x000000000000F000ull) | 0x0000000000004000ull;
+        guid.low = (guid.low & ~0xC000000000000000ull) | 0x8000000000000000ull;
+        return guid;
+    }
+}

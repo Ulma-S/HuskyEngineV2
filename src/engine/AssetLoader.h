@@ -140,6 +140,9 @@ namespace husky::engine
         // ファイルを書き直したプレハブを、新しいアセットとして読み直す(読み込んだアセットは変わらないデータなので、その場では書き換えない)。
         // 次からの LoadPrefab は新しいアセットを返す。古いアセットは、指している人(置いたものの prefab.asset)がいる間は残る。
         core::ObjectHandle ReloadPrefab(const core::Guid& guid);
+        // guid のプレハブを入れ子に持つ、読み込んだプレハブ(その外側も)を読み直す(HIER。中のプレハブを直したら、外側の開いた形も
+        // 作り直すため)。読み直したものの数を返す。読み終わるのを待つのは呼ぶ側(WaitForAllLoads)。
+        std::size_t ReloadPrefabsNesting(const core::Guid& guid);
 
         // ---- ScriptableData(.sdata。ScriptableData.h) ----
 
@@ -303,5 +306,20 @@ namespace husky::engine
         // 読み込み中の記録。ジョブがアドレスを覚えているので、記録そのものは動かないように unique_ptr で持つ
         // (vector が大きくなって中身が引っ越しても、記録の場所は変わらない)。
         std::vector<std::unique_ptr<PendingLoad>> m_pending;
+
+        // 入れ子のプレハブが読み終わるのを待っているプレハブ(HIER)。待っている間、入れ子のプレハブは根にして回収させない。
+        struct WaitingPrefab
+        {
+            core::ObjectHandle asset;
+            std::vector<core::Guid> nested;           // 入れ子のプレハブの GUID
+            std::vector<core::ObjectHandle> nestedAssets; // その読み込み(根に入れている)
+        };
+        std::vector<WaitingPrefab> m_waitingPrefabs;
+        // 待っているプレハブのうち、入れ子が読み終わったものを開いて読み終わりにする。1つでも進めば true。
+        bool UpdateWaitingPrefabs();
+        // from(待っているプレハブ)が、入れ子をたどって target を待っているか(輪の見つけ方)。
+        bool WaitsOn(const core::Guid& from, const core::Guid& target, int depth) const;
+        // 待ちの記録を外す(根も外す)。
+        void DropWaiting(std::size_t index);
     };
 }

@@ -2398,6 +2398,7 @@ namespace husky::tools
             }
             engine::AssetLoader& loader = app.GetAssetLoader();
             reloaded = loader.ReloadPrefab(guid);
+            loader.ReloadPrefabsNesting(guid); // このプレハブを入れ子に持つプレハブも、開いた形を作り直す(HIER)
             loader.WaitForAllLoads();
             const engine::PrefabAsset* newPrefab = loader.ResolvePrefab(reloaded);
             if (newPrefab == nullptr || !newPrefab->IsLoaded())
@@ -2456,7 +2457,7 @@ namespace husky::tools
             // 1. 新しいプレハブの値を作り、ファイルに書く(読み込んだアセットは書き換えない。変わらないデータなので)
             //    アクターごとに、プレハブの中の同じ ID のアクターの記録へ書く(子孫の違いも。HIER)。
             std::vector<std::vector<engine::Prefab::ValueChange>> changesOf(targets.size());
-            engine::ArchiveValue newData = found.prefab->GetData();
+            engine::ArchiveValue newData = found.prefab->GetRawData();
             for (std::size_t t = 0; t < targets.size(); ++t)
             {
                 for (const engine::Prefab::Override* item : targets[t].selected)
@@ -2611,8 +2612,8 @@ namespace husky::tools
                 // 新しい ID を振り、プレハブの中で、置いたものと同じ並びの位置に入れる
                 componentId = core::Guid::Generate();
                 const engine::ArchiveValue entry =
-                    engine::Prefab::MakeComponentEntry(*applied, found.prefab->GetData(), componentId, warnings);
-                if (!engine::Prefab::AddComponentToData(found.prefab->GetData(), entry, added->prefabIndex, newData, error,
+                    engine::Prefab::MakeComponentEntry(*applied, found.prefab->GetRawData(), componentId, warnings);
+                if (!engine::Prefab::AddComponentToData(found.prefab->GetRawData(), entry, added->prefabIndex, newData, error,
                                                         actor->prefabActorId))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
@@ -2634,7 +2635,7 @@ namespace husky::tools
                 {
                     return EditorCommandResult::Failure(who + " has no removed component with id " + removedValue->AsString());
                 }
-                if (!engine::Prefab::RemoveComponentFromData(found.prefab->GetData(), componentId, newData, error,
+                if (!engine::Prefab::RemoveComponentFromData(found.prefab->GetRawData(), componentId, newData, error,
                                                              actor->prefabActorId))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
@@ -2668,7 +2669,7 @@ namespace husky::tools
             });
             for (engine::Actor* other : instances)
             {
-                if (other == actor)
+                if (other == actor || other->prefabActorId != actor->prefabActorId) // プレハブの中の同じアクターだけ(入れ子で ID が重なるため。HIER)
                 {
                     continue;
                 }
@@ -3234,7 +3235,7 @@ namespace husky::tools
                 {
                     return EditorCommandResult::Failure(DescribeActor(*child) + " is not a child added to " + who);
                 }
-                if (!engine::Prefab::AddChildToData(found.prefab->GetData(), actor->prefabActorId, *child, newData, ids, warnings, error))
+                if (!engine::Prefab::AddChildToData(found.prefab->GetRawData(), actor->prefabActorId, *child, newData, ids, warnings, error))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
                 }
@@ -3252,7 +3253,7 @@ namespace husky::tools
                 {
                     return EditorCommandResult::Failure(who + " has no removed child with id " + removedValue->AsString());
                 }
-                if (!engine::Prefab::RemoveChildFromData(found.prefab->GetData(), removedId, newData, error))
+                if (!engine::Prefab::RemoveChildFromData(found.prefab->GetRawData(), removedId, newData, error))
                 {
                     return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
                 }

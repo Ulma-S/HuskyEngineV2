@@ -831,6 +831,13 @@ namespace husky::tools
                     const std::string* prefabPath = app.GetAssetDatabase().FindPath(selected->prefab.guid);
                     ImGui::Text("Prefab: %s (%zu overrides)", prefabPath != nullptr ? prefabPath->c_str() : "(missing)",
                                 m_overrides.size());
+                    // 入れ子のプレハブから来たアクターなら、元のプレハブも出す(違いの Apply は外側のプレハブに書く。HIER)
+                    if (!m_nestedSource.IsNull())
+                    {
+                        const std::string* nestedPath = app.GetAssetDatabase().FindPath(m_nestedSource);
+                        ImGui::TextDisabled("  nested from: %s (Apply writes to the outer prefab)",
+                                            nestedPath != nullptr ? nestedPath->c_str() : "(missing)");
+                    }
                     // 足した・外したコンポーネントは、値の違いとは別に数を出す(Revert all / Apply all の対象ではない)。
                     // 外したものは1つずつ並べ、Revert(prefab.revertComponent)でプレハブの値で戻せる(PF-7d)。
                     // 足したものの Revert は、そのコンポーネントの Remove component。
@@ -1250,6 +1257,14 @@ namespace husky::tools
         for (const engine::Prefab::ChildChange& removed : found.removedChildren)
         {
             m_removedChildren.emplace_back(removed.name, removed.prefabActorId.ToString());
+        }
+        m_nestedSource = {};
+        const engine::Scene* scene = actor.GetScene();
+        const engine::PrefabAsset* prefab =
+            scene != nullptr ? scene->GetObjectRegistry()->Resolve<engine::PrefabAsset>(actor.prefab.asset) : nullptr;
+        if (prefab != nullptr && prefab->IsLoaded())
+        {
+            m_nestedSource = engine::Prefab::FindNestedSource(*prefab, actor.prefabActorId);
         }
         m_overridesFor = actor.GetHandle();
         m_overridesAge = 0;

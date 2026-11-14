@@ -42,6 +42,10 @@ namespace husky::core
         // 形式は「バージョン 4(乱数)」の UUID(決まった位置の数ビットに、その印を書く)。
         static Guid Generate();
 
+        // 2つの GUID から、いつも同じ新しい GUID を作る(入れ子のプレハブで、外のプレハブの中の ID と中のプレハブの ID から、
+        // 外のプレハブでの ID を決めるため。HIER)。順番が違えば別の値。形式はバージョン 4 の印を付ける。
+        static Guid Combine(const Guid& a, const Guid& b);
+
         // "8-4-4-4-12" の小文字の 16 進数にする。
         std::string ToString() const;
 

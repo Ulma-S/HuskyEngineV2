@@ -28,6 +28,7 @@
 #include "engine/ArchiveValue.h"
 #include "engine/PrefabAsset.h"
 #include "engine/Scene.h"
+#include "engine/SceneSerializer.h"
 
 #include <string>
 #include <vector>
@@ -46,6 +47,23 @@ namespace husky::engine::Prefab
     // 根の親は書かない(プレハブの外なので。置いたものは親なしになる)。
     // アクターの外を指すハンドル(カメラの追う相手など)は、プレハブの中に相手がいないので null と書き、warnings に残す。
     WriteResult Write(Actor& actor);
+
+    // --- 入れ子のプレハブ(HIER。プレハブの中にある、別のプレハブから置いたもの) ---
+    // ファイルには、入れ子のアクターは元のプレハブ(prefab、prefabActorId)とその違いだけを書く(シーンのファイルと同じ形)。
+    // 入れ子の一まとまりの根の記録には、このプレハブの中での ID "nestedId" を書く。中の子の ID は Guid::Combine(nestedId, 元の ID)。
+    // 読むときは入れ子のプレハブを先に読み、開いた形(PrefabAsset::GetData)を作る。Apply はいつも外側のファイルに書く(ユーザーの決定)。
+
+    // ファイルの値の木 raw の中の、入れ子のプレハブの GUID(重なりなし)。
+    std::vector<core::Guid> FindNestedPrefabs(const ArchiveValue& raw);
+
+    // 入れ子のプレハブを開いた形を作る: 入れ子のアクターは元のプレハブの値に違いを重ね、つながりを外し、ID をこのプレハブの中の
+    // ID にする。入れ子が無ければ raw をそのまま返す。findPrefab が見つけられないものは、ファイルにある値だけで作る(warnings)。
+    // registry に一時的なオブジェクトを作る(作り終えたら Destroy する)。ゲームスレッドで呼ぶ。
+    ArchiveValue ExpandNested(const ArchiveValue& raw, core::ObjectRegistry& registry, const core::TypeRegistry& types,
+                              const SceneSerializer::PrefabFinder& findPrefab, std::vector<std::string>& warnings);
+
+    // プレハブの中の ID が prefabActorId のアクターが、入れ子のプレハブから来たものなら、その入れ子のプレハブの GUID。違えば空。
+    core::Guid FindNestedSource(const PrefabAsset& prefab, const core::Guid& prefabActorId);
 
     struct InstantiateResult
     {

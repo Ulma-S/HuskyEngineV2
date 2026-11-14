@@ -382,13 +382,17 @@ namespace husky::engine::SceneSerializer
         // アクターの番号 → 消した子の ID(prefabActorId)の配列(HIER-2b)。プレハブの根から置いたアクターにだけ書く。
         // 「無い子は消した」と推し量らずに書くのは、プレハブに後から足した子(これも置いたものに無い)と見分けるため。
         std::unordered_map<std::size_t, ArchiveValue> removedChildrenOf;
-        for (std::size_t k = 0; options.writeActorIdentity && k < actorIds.size(); ++k)
+        // プレハブを書くときの、入れ子のアクターか(その元のプレハブとの違いだけを書く)
+        auto isNested = [&options](const core::Object* object) {
+            return std::find(options.nestedActors.begin(), options.nestedActors.end(), object) != options.nestedActors.end();
+        };
+        for (std::size_t k = 0; k < actorIds.size(); ++k)
         {
             const std::size_t actorIndex = static_cast<std::size_t>(actorIds[k]);
             const std::size_t end = k + 1 < actorIds.size() ? static_cast<std::size_t>(actorIds[k + 1]) : objects.size();
             // アクターの番号の一覧から来たので、中身は Actor(単一継承なので static_cast で戻せる。RTTI は使わない)
             const Actor& actor = static_cast<const Actor&>(*objects[actorIndex]);
-            if (actor.prefab.IsNull())
+            if (actor.prefab.IsNull() || (!options.writeActorIdentity && !isNested(&actor)))
             {
                 continue;
             }
@@ -495,6 +499,7 @@ namespace husky::engine::SceneSerializer
         result.value = ArchiveValue::MakeObject();
         result.value.Set("version", ArchiveValue(FormatVersion));
         ArchiveValue& objectArray = result.value.Set("objects", ArchiveValue::MakeArray());
+        bool ownerNested = false; // 今書いているコンポーネントの持ち主が、入れ子のアクターか
         for (std::size_t i = 0; i < objects.size(); ++i)
         {
             ArchiveValue written = ObjectSerializer::Write(*objects[i], toId);
@@ -513,14 +518,24 @@ namespace husky::engine::SceneSerializer
                 static const std::vector<std::string_view> componentKeep = {"prefabComponentId"};
                 properties = DiffMembers(properties, *baseOf[i], objects[i]->GetType(), isActor ? actorKeep : componentKeep);
             }
+            if (isActor)
+            {
+                ownerNested = isNested(objects[i]);
+            }
             if (!options.writeActorIdentity && isActor)
             {
                 properties.Remove("guid");
-                properties.Remove("prefab");
-                // プレハブを書く: アクターに、プレハブの中の新しい ID を振る(HIER-2b。置いたものが、これで組になる)
-                properties.Set("prefabActorId", ArchiveValue(core::Guid::Generate().ToString()));
+                if (!ownerNested)
+                {
+                    properties.Remove("prefab"); // 入れ子のアクターは、元のプレハブを書く(その違いだけを書いている)
+                    if (!options.keepPrefabIds)
+                    {
+                        // プレハブを書く: アクターに、プレハブの中の新しい ID を振る(HIER-2b。置いたものが、これで組になる)
+                        properties.Set("prefabActorId", ArchiveValue(core::Guid::Generate().ToString()));
+                    }
+                }
             }
-            if (!options.writeActorIdentity && !isActor)
+            if (!options.writeActorIdentity && !isActor && !ownerNested && !options.keepPrefabIds)
             {
                 // プレハブを書く: コンポーネントに、プレハブの中の新しい ID を振る(置いたものが、これで組になる)
                 properties.Set("prefabComponentId", ArchiveValue(core::Guid::Generate().ToString()));
@@ -551,6 +566,51 @@ namespace husky::engine::SceneSerializer
         return result;
     }
 
+    namespace
+    {
+        // 記録の "prefab"(入れ子のプレハブの GUID の文字列)。無ければ空。
+        std::string NestedPrefabOf(const ArchiveValue& entry)
+        {
+            const ArchiveValue* properties = entry.Find("properties");
+            const ArchiveValue* prefab = properties != nullptr ? properties->Find("prefab") : nullptr;
+            return prefab != nullptr && prefab->GetType() == ArchiveValue::Type::String ? prefab->AsString() : std::string();
+        }
+
+        // プレハブのファイルのアクターの記録の、このプレハブの中での ID(HIER。入れ子を開いた形の ID と同じ)。
+        //   - ふつうのアクター: prefabActorId
+        //   - 入れ子のプレハブから置いたもの: その一まとまりの根(親が同じ入れ子のプレハブでないもの)の "nestedId" を N として、
+        //     根なら N、ほかは Guid::Combine(N, 入れ子のプレハブの中の ID)
+        core::Guid OuterActorIdOf(const EntryIndex& index, const ArchiveValue& entry)
+        {
+            const std::string nested = NestedPrefabOf(entry);
+            const core::Guid own = GuidPropertyOf(entry, "prefabActorId");
+            if (nested.empty())
+            {
+                return own;
+            }
+            const ArchiveValue* root = &entry;
+            for (int depth = 0; depth < Actor::MaxHierarchyDepth; ++depth)
+            {
+                const ArchiveValue* parentNumber = root->Find("properties")->Find("parent");
+                const ArchiveValue* parent = parentNumber != nullptr && parentNumber->GetType() == ArchiveValue::Type::Int
+                                                 ? FindEntry(index, parentNumber->AsInt())
+                                                 : nullptr;
+                if (parent == nullptr || NestedPrefabOf(*parent) != nested)
+                {
+                    break;
+                }
+                root = parent;
+            }
+            const ArchiveValue* nestedIdValue = root->Find("nestedId");
+            core::Guid nestedId;
+            if (nestedIdValue == nullptr || !core::Guid::Parse(nestedIdValue->AsString(), nestedId))
+            {
+                return core::Guid{};
+            }
+            return root == &entry ? nestedId : core::Guid::Combine(nestedId, own);
+        }
+    }
+
     std::int64_t FindPrefabActorNumber(const ArchiveValue& prefab, const core::Guid& prefabActorId)
     {
         const ArchiveValue* actors = prefab.Find("actors");
@@ -568,7 +628,7 @@ namespace husky::engine::SceneSerializer
         {
             const std::int64_t number = actors->At(i).AsInt(-1);
             const ArchiveValue* entry = FindEntry(index, number);
-            const core::Guid id = entry != nullptr ? GuidPropertyOf(*entry, "prefabActorId") : core::Guid{};
+            const core::Guid id = entry != nullptr ? OuterActorIdOf(index, *entry) : core::Guid{};
             anyId = anyId || !id.IsNull();
             if (id == prefabActorId)
             {

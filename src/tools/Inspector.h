@@ -77,6 +77,8 @@ namespace husky::tools
         // 置いた後に足した子の(名前、guid)と、消した子の(名前、プレハブの中の ID)。ボタンでコマンドを呼ぶ(HIER)
         std::vector<std::pair<std::string, std::string>> m_addedChildren;
         std::vector<std::pair<std::string, std::string>> m_removedChildren;
+        // 選んでいるアクターが入れ子のプレハブから来たものなら、その元のプレハブ(HIER)
+        core::Guid m_nestedSource;
 
         // ---- アクターの木(HIER-3)----
         // 一覧を親子の木で描く。毎フレーム、シーンの一覧から作り直す(入れ物は使い回し、温まった後は確保しない)。

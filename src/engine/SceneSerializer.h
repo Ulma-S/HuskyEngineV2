@@ -74,6 +74,12 @@ namespace husky::engine::SceneSerializer
         bool writeActorIdentity = true;
         // 書くものの外を指していても、null と書くだけで警告に数えないハンドル(HIER-2b。プレハブの根の親など)。
         core::ObjectHandle allowedOutside;
+        // writeActorIdentity が false でも、元のプレハブ(prefab、prefabActorId)を書き、そのプレハブとの違いだけを書くアクター
+        // (入れ子のプレハブ。プレハブの中にある、別のプレハブから置いたもの。HIER)。コンポーネントの ID も変えない。
+        std::vector<const Actor*> nestedActors;
+        // writeActorIdentity が false でも、プレハブの中の ID(prefabActorId、prefabComponentId)を振り直さない
+        // (入れ子を開いた形を作るとき。HIER)。
+        bool keepPrefabIds = false;
     };
 
     // scene の中の、指定したアクター(と、その生きているコンポーネント)だけを、シーンと同じ形で保存する。

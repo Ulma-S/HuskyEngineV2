@@ -1736,4 +1736,137 @@ TEST_CASE("EditorCommands: prefab.revertChild / prefab.applyChild で、置い�
     CHECK(childrenOf(*fresh)[0]->name == "Light");
 }
 
+
+TEST_CASE("EditorCommands: 入れ子のプレハブ: 中のプレハブとの違いだけを書き、中を直すと伝わり、Apply は外側に書く(HIER)")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_nested");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeDestroyActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeApplyChildCommand(folder.Root())));
+
+    auto spawn = [&](const char* path) {
+        const EditorCommandResult spawned =
+            commands.Execute("actor.spawn", app, Json((std::string("{\"prefab\": \"") + path + "\"}").c_str()));
+        REQUIRE(spawned.succeeded);
+        husky::core::Guid guid;
+        REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
+        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        REQUIRE(placed != nullptr);
+        return placed;
+    };
+    auto childrenOf = [](const husky::engine::Actor& actor) {
+        std::vector<husky::engine::Actor*> children;
+        actor.GetChildren(children);
+        return children;
+    };
+    auto widthOf = [](const husky::engine::Actor& actor) { return actor.GetComponent<husky::engine::SpriteComponent>()->width; };
+
+    // --- 中のプレハブ: Tire(幅 10)→ Bolt ---
+    husky::engine::Actor* tire = app.GetScene().Spawn<husky::engine::Actor>();
+    tire->name = "Tire";
+    tire->AddComponent<husky::engine::SpriteComponent>()->width = 10.0f;
+    husky::engine::Actor* bolt = app.GetScene().Spawn<husky::engine::Actor>();
+    bolt->name = "Bolt";
+    REQUIRE(bolt->SetParent(tire, false));
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Tire", "path": "prefabs/tire.prefab"})")).succeeded);
+    tire->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+
+    // --- 外のプレハブ: Car の下にタイヤを2つ置き、前のタイヤだけ幅 12 にする ---
+    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    car->name = "Car";
+    husky::engine::Actor* front = spawn("prefabs/tire.prefab");
+    husky::engine::Actor* rear = spawn("prefabs/tire.prefab");
+    REQUIRE(front->SetParent(car, false));
+    REQUIRE(rear->SetParent(car, false));
+    front->GetComponent<husky::engine::SpriteComponent>()->width = 12.0f;
+    const EditorCommandResult created = commands.Execute("prefab.create", app, Json(R"({"actor": "Car", "path": "prefabs/car.prefab"})"));
+    REQUIRE(created.succeeded);
+    CHECK(created.details.size() == 1); // guid の行だけ(警告なし)
+
+    // ファイル: タイヤは中のプレハブを指し、違いだけ。一まとまりの根に nestedId
+    ArchiveValue file;
+    std::string fileText;
+    REQUIRE(husky::platform::ReadTextFile((folder.Root() + "/prefabs/car.prefab").c_str(), fileText));
+    REQUIRE(husky::engine::JsonFormat::Read(fileText, file));
+    std::size_t nestedRoots = 0;
+    for (std::size_t i = 0; i < file.Find("objects")->GetArraySize(); ++i)
+    {
+        const ArchiveValue& entry = file.Find("objects")->At(i);
+        if (entry.Find("nestedId") != nullptr)
+        {
+            ++nestedRoots;
+            CHECK(entry.Find("properties")->Find("prefab") != nullptr);
+            CHECK(entry.Find("properties")->Find("name") == nullptr); // 名前は中のプレハブと同じなので書かない
+        }
+    }
+    CHECK(nestedRoots == 2);
+
+    // --- 外のプレハブを置く: 5 体(Car、タイヤ 2、ボルト 2)。前のタイヤだけ幅 12。全員が外のプレハブを指す ---
+    husky::engine::Actor* placedCar = spawn("prefabs/car.prefab");
+    std::vector<husky::engine::Actor*> placed = {placedCar};
+    placedCar->GetDescendants(placed);
+    REQUIRE(placed.size() == 5);
+    const husky::core::Guid carGuid = placedCar->prefab.guid;
+    for (const husky::engine::Actor* actor : placed)
+    {
+        CHECK(actor->prefab.guid == carGuid);
+    }
+    std::vector<husky::engine::Actor*> tires = childrenOf(*placedCar);
+    REQUIRE(tires.size() == 2);
+    CHECK(tires[0]->prefabActorId != tires[1]->prefabActorId);
+    husky::engine::Actor* placedFront = widthOf(*tires[0]) == 12.0f ? tires[0] : tires[1];
+    husky::engine::Actor* placedRear = placedFront == tires[0] ? tires[1] : tires[0];
+    CHECK(widthOf(*placedFront) == 12.0f);
+    CHECK(widthOf(*placedRear) == 10.0f);
+    // 入れ子の元のプレハブが分かる
+    const husky::engine::PrefabAsset* carPrefab = app.GetAssetLoader().ResolvePrefab(placedCar->prefab.asset);
+    REQUIRE(carPrefab != nullptr);
+    CHECK(husky::engine::Prefab::FindNestedSource(*carPrefab, placedRear->prefabActorId) == rear->prefab.guid);
+    CHECK(husky::engine::Prefab::FindNestedSource(*carPrefab, placedCar->prefabActorId).IsNull());
+
+    // --- 中のプレハブを直す(1つだけ置いたタイヤから、幅 20 を Apply)。外のプレハブから置き直すと、違いの無い後ろのタイヤだけが 20 ---
+    husky::engine::Actor* lone = spawn("prefabs/tire.prefab");
+    lone->GetComponent<husky::engine::SpriteComponent>()->width = 20.0f;
+    REQUIRE(commands.Execute("prefab.apply", app, Json(("{\"actor\": \"" + lone->guid.ToString() + "\"}").c_str())).succeeded);
+    husky::engine::Actor* secondCar = spawn("prefabs/car.prefab");
+    tires = childrenOf(*secondCar);
+    REQUIRE(tires.size() == 2);
+    const float widthA = widthOf(*tires[0]);
+    const float widthB = widthOf(*tires[1]);
+    CHECK(((widthA == 12.0f && widthB == 20.0f) || (widthA == 20.0f && widthB == 12.0f)));
+
+    // --- 置いた車のタイヤの違いを Apply すると、外側(車)のプレハブに書かれ、中のタイヤのプレハブは変わらない ---
+    husky::engine::Actor* secondRear = widthA == 20.0f ? tires[0] : tires[1];
+    secondRear->GetComponent<husky::engine::SpriteComponent>()->width = 15.0f;
+    REQUIRE(commands.Execute("prefab.apply", app, Json(("{\"actor\": \"" + secondRear->guid.ToString() + "\"}").c_str())).succeeded);
+    husky::engine::Actor* thirdCar = spawn("prefabs/car.prefab");
+    tires = childrenOf(*thirdCar);
+    REQUIRE(tires.size() == 2);
+    CHECK(((widthOf(*tires[0]) == 15.0f) || (widthOf(*tires[1]) == 15.0f)));
+    CHECK(widthOf(*spawn("prefabs/tire.prefab")) == 20.0f); // タイヤのプレハブはそのまま
+
+    // --- 置いた車の、中のプレハブの子(ボルト)を消して Apply すると、外側のプレハブからも消える(戻ってこない) ---
+    husky::engine::Actor* thirdTire = tires[0];
+    std::vector<husky::engine::Actor*> bolts = childrenOf(*thirdTire);
+    REQUIRE(bolts.size() == 1);
+    const std::string boltId = bolts[0]->prefabActorId.ToString();
+    bolts[0]->Destroy();
+    app.GetScene().RemoveDestroyedActors();
+    REQUIRE(commands.Execute("prefab.applyChild", app,
+                             Json(("{\"actor\": \"" + thirdTire->guid.ToString() + "\", \"removed\": \"" + boltId + "\"}").c_str()))
+                .succeeded);
+    husky::engine::Actor* fourthCar = spawn("prefabs/car.prefab");
+    std::vector<husky::engine::Actor*> fourthAll = {fourthCar};
+    fourthCar->GetDescendants(fourthAll);
+    CHECK(fourthAll.size() == 4); // Car、タイヤ 2、ボルト 1
+}
+
 #endif
