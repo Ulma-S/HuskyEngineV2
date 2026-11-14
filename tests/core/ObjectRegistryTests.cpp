@@ -16,7 +16,7 @@ namespace
 
     class Enemy : public Object
     {
-        HUSKY_OBJECT(Enemy, Object)
+        HUSKY_OBJECT_INLINE(Enemy, Object)
     public:
         Enemy() = default;
         Enemy(int startHp) : hp(startHp) {} // Create<Enemy>(30) で呼ばれる
@@ -27,7 +27,7 @@ namespace
 
     class Item : public Object
     {
-        HUSKY_OBJECT(Item, Object)
+        HUSKY_OBJECT_INLINE(Item, Object)
     };
 }
 

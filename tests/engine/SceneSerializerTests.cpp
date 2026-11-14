@@ -26,7 +26,7 @@ namespace
     // ほかのアクターを狙う(ハンドルのプロパティを持つ)アクター。
     class Hunter : public Actor
     {
-        HUSKY_OBJECT(Hunter, Actor)
+        HUSKY_OBJECT_INLINE(Hunter, Actor)
     public:
         std::int32_t level = 1;
         ObjectHandle target;

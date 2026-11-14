@@ -32,11 +32,7 @@ namespace husky::engine
     class Scene;
 
     // 文字の左右の寄せ(TextLayout.h の TextAlign)を、プロパティにできるように名前で登録する。
-    HUSKY_ENUM_BEGIN(TextAlign)
-        HUSKY_ENUM_VALUE(Left)
-        HUSKY_ENUM_VALUE(Center)
-        HUSKY_ENUM_VALUE(Right)
-    HUSKY_ENUM_END()
+    HUSKY_ENUM_DECLARE(TextAlign) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 
     // 文字の上下の寄せ(四角の中のどこに文字のかたまりを置くか)。
     enum class UIVerticalAlign
@@ -45,11 +41,7 @@ namespace husky::engine
         Middle,
         Bottom,
     };
-    HUSKY_ENUM_BEGIN(UIVerticalAlign)
-        HUSKY_ENUM_VALUE(Top)
-        HUSKY_ENUM_VALUE(Middle)
-        HUSKY_ENUM_VALUE(Bottom)
-    HUSKY_ENUM_END()
+    HUSKY_ENUM_DECLARE(UIVerticalAlign) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 
     // 四角いっぱいに画像を描く(Unity の Image)。画像を指していなければ、color の色の板になる。
     // 画像の指し方は SpriteComponent と同じ(sheet + sprite が texture + region より優先)。

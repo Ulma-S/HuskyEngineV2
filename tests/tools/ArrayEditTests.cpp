@@ -29,7 +29,7 @@ namespace
 {
     class Patrol : public Actor
     {
-        HUSKY_OBJECT(Patrol, Actor)
+        HUSKY_OBJECT_INLINE(Patrol, Actor)
     public:
         std::vector<float> speeds;
         std::vector<bool> flags;
@@ -180,7 +180,7 @@ namespace
 
     class Guard : public Actor
     {
-        HUSKY_OBJECT(Guard, Actor)
+        HUSKY_OBJECT_INLINE(Guard, Actor)
     public:
         Mood mood = Mood::Calm;
 

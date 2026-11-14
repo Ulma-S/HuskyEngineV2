@@ -28,13 +28,13 @@ namespace
     // 狙われる側(型の印に使う)。
     class Prey : public Actor
     {
-        HUSKY_OBJECT(Prey, Actor)
+        HUSKY_OBJECT_INLINE(Prey, Actor)
     };
 
     // アクターとコンポーネントを、型の付いた参照で指す(private のメンバーでも、クラスの中で登録すれば保存される)。
     class Hunter : public Actor
     {
-        HUSKY_OBJECT(Hunter, Actor)
+        HUSKY_OBJECT_INLINE(Hunter, Actor)
         ObjectRef<Prey> m_prey;
         ObjectRef<SpriteComponent> m_sprite;
 

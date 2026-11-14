@@ -21,7 +21,7 @@ namespace
     // プロパティにできる型を一通り持つ(ハンドルは対応表なしでは書かないので、比べない)
     class MatchSample : public husky::core::Object
     {
-        HUSKY_OBJECT(MatchSample, husky::core::Object)
+        HUSKY_OBJECT_INLINE(MatchSample, husky::core::Object)
     public:
         bool flag = true;
         std::int32_t count = 3;

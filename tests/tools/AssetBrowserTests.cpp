@@ -26,7 +26,7 @@ namespace
 {
     class BrowserSettings : public husky::engine::ScriptableData
     {
-        HUSKY_OBJECT(BrowserSettings, husky::engine::ScriptableData)
+        HUSKY_OBJECT_INLINE(BrowserSettings, husky::engine::ScriptableData)
     public:
         float speed = 100.0f;
         std::string label = "default";

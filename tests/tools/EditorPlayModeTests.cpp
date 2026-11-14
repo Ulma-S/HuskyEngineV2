@@ -13,7 +13,7 @@ namespace
     // Tick のたびに右へ 1 ずつ進むアクター(更新が呼ばれたかを、位置で確かめる)。
     class Walker : public Actor
     {
-        HUSKY_OBJECT(Walker, Actor)
+        HUSKY_OBJECT_INLINE(Walker, Actor)
     public:
         void Tick(double) override { transform.position.x += 1.0f; }
     };

@@ -33,7 +33,7 @@ namespace
 
     class Chaser : public Actor
     {
-        HUSKY_OBJECT(Chaser, Actor)
+        HUSKY_OBJECT_INLINE(Chaser, Actor)
     public:
         bool active = true;
         std::int32_t level = 3;

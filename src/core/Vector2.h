@@ -18,8 +18,5 @@ namespace husky::core
     };
 
     // リフレクション対応の構造体として登録する。保存すると {"x": .., "y": ..} になる。
-    HUSKY_STRUCT_BEGIN(Vector2)
-        HUSKY_PROPERTY(x)
-        HUSKY_PROPERTY(y)
-    HUSKY_STRUCT_END()
+    HUSKY_STRUCT_DECLARE(Vector2) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 }

@@ -37,7 +37,7 @@ namespace
     // ほかのアクターを指す(ハンドルのプロパティを持つ)アクター。
     class Follower : public Actor
     {
-        HUSKY_OBJECT(Follower, Actor)
+        HUSKY_OBJECT_INLINE(Follower, Actor)
     public:
         ObjectHandle target;
 

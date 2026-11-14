@@ -22,7 +22,7 @@ namespace
     // 届いたイベントを覚えるアクター。
     class OverlapRecorder : public Actor
     {
-        HUSKY_OBJECT(OverlapRecorder, Actor)
+        HUSKY_OBJECT_INLINE(OverlapRecorder, Actor)
     public:
         void OnOverlap(const OverlapEvent& event) override { events.push_back(event); }
         std::vector<OverlapEvent> events;
@@ -31,7 +31,7 @@ namespace
     // 届いたイベントの数を数えるコンポーネント(アクターだけでなく、コンポーネントにも届くことを確かめる)。
     class OverlapCounter : public husky::engine::Component
     {
-        HUSKY_OBJECT(OverlapCounter, husky::engine::Component)
+        HUSKY_OBJECT_INLINE(OverlapCounter, husky::engine::Component)
     public:
         void OnOverlap(const OverlapEvent& event) override { event.begin ? ++begins : ++ends; }
         int begins = 0;

@@ -16,7 +16,7 @@ namespace
     // ほかのオブジェクトへの参照を2本(強い参照)と、登録しない参照を1本(弱い参照)持つ。
     class Node : public Object
     {
-        HUSKY_OBJECT(Node, Object)
+        HUSKY_OBJECT_INLINE(Node, Object)
     public:
         ~Node() override { ++g_destroyedCount; }
 
@@ -33,7 +33,7 @@ namespace
     // 参照のプロパティを親(Node)から引き継ぐ子クラス。
     class DerivedNode : public Node
     {
-        HUSKY_OBJECT(DerivedNode, Node)
+        HUSKY_OBJECT_INLINE(DerivedNode, Node)
     };
 
     // テストの最初に数を 0 に戻す。
@@ -195,7 +195,7 @@ namespace
     // 子の一覧を持つオブジェクト(シーンがアクターの一覧を持つのと同じ形)。
     class Group : public Object
     {
-        HUSKY_OBJECT(Group, Object)
+        HUSKY_OBJECT_INLINE(Group, Object)
     public:
         ~Group() override { ++g_destroyedCount; }
 

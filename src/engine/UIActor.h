@@ -34,13 +34,7 @@ namespace husky::engine
         core::Vector2 sizeDelta = {100.0f, 100.0f};
     };
 
-    HUSKY_STRUCT_BEGIN(RectTransform)
-        HUSKY_PROPERTY(anchorMin)
-        HUSKY_PROPERTY(anchorMax)
-        HUSKY_PROPERTY(pivot)
-        HUSKY_PROPERTY(anchoredPosition)
-        HUSKY_PROPERTY(sizeDelta)
-    HUSKY_STRUCT_END()
+    HUSKY_STRUCT_DECLARE(RectTransform) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 
     // 四角(Canvas の単位)。x, y が左下の角、右と上が +。
     struct UIRect

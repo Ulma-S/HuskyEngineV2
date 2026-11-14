@@ -28,7 +28,7 @@ namespace
     // 武器のデータ(ゲームが作る型の例)。
     class WeaponData : public ScriptableData
     {
-        HUSKY_OBJECT(WeaponData, ScriptableData)
+        HUSKY_OBJECT_INLINE(WeaponData, ScriptableData)
     public:
         float damage = 1.0f;
         std::string label;
@@ -42,7 +42,7 @@ namespace
     // 武器の子の型(AssetRef<WeaponData> が、子の型のファイルも指せることを確かめる)。
     class SwordData : public WeaponData
     {
-        HUSKY_OBJECT(SwordData, WeaponData)
+        HUSKY_OBJECT_INLINE(SwordData, WeaponData)
     public:
         std::int32_t length = 0;
         ObjectHandle owner; // ファイルには書かれないハンドル(WriteScriptableData の警告を確かめる)
@@ -56,7 +56,7 @@ namespace
     // データを AssetRef で指すアクター。
     class Holder : public Actor
     {
-        HUSKY_OBJECT(Holder, Actor)
+        HUSKY_OBJECT_INLINE(Holder, Actor)
     public:
         husky::core::AssetRef<WeaponData> weapon;
 

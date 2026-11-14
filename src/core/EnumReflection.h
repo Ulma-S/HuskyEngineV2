@@ -93,10 +93,15 @@ namespace husky::core
     }
 }
 
+// enum の名前の表を返す関数の宣言だけを書く(ヘッダ用。HR-1)。中身は .cpp の HUSKY_ENUM_BEGIN 〜 END。
+// 理由は StructReflection.h の HUSKY_STRUCT_DECLARE と同じ(DLL の中に表を1つだけ作るため)。
+#define HUSKY_ENUM_DECLARE(EnumType) const ::husky::core::EnumInfo& HuskyEnumType(const EnumType*);
+
 // enum の登録を始める。中身は「HuskyEnumType(const EnumType*) という関数」で、最初に呼ばれたときに1回だけ表を作る。
+// 書く場所は .cpp(ヘッダには HUSKY_ENUM_DECLARE)。
 // get / set は、enum の実際の大きさで読み書きする(static_cast で数と enum を行き来する)。
 #define HUSKY_ENUM_BEGIN(EnumType)                                                                \
-    inline const ::husky::core::EnumInfo& HuskyEnumType(const EnumType*)                         \
+    const ::husky::core::EnumInfo& HuskyEnumType(const EnumType*)                                \
     {                                                                                            \
         using ThisEnum = EnumType;                                                               \
         static const ::husky::core::EnumInfo info = [] {                                         \

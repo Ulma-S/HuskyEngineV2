@@ -19,7 +19,7 @@ namespace
 {
     class Score : public husky::core::Object
     {
-        HUSKY_OBJECT(Score, husky::core::Object)
+        HUSKY_OBJECT_INLINE(Score, husky::core::Object)
     public:
         std::int64_t total = 0;
         double ratio = 0.0;

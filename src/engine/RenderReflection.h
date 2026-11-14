@@ -13,10 +13,5 @@
 
 namespace husky::render
 {
-    HUSKY_STRUCT_BEGIN(Color)
-        HUSKY_PROPERTY(r)
-        HUSKY_PROPERTY(g)
-        HUSKY_PROPERTY(b)
-        HUSKY_PROPERTY(a)
-    HUSKY_STRUCT_END()
+    HUSKY_STRUCT_DECLARE(Color) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 }

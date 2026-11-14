@@ -34,7 +34,7 @@ namespace
 
     class EnemySettings : public husky::engine::ScriptableData
     {
-        HUSKY_OBJECT(EnemySettings, husky::engine::ScriptableData)
+        HUSKY_OBJECT_INLINE(EnemySettings, husky::engine::ScriptableData)
     public:
         float speed = 100.0f;
         std::int32_t hp = 3;

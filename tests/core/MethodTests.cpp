@@ -24,7 +24,7 @@ namespace
     //   └ Rock(メソッドなし。違う型で呼ぶテスト用)
     class Character : public Object
     {
-        HUSKY_OBJECT(Character, Object)
+        HUSKY_OBJECT_INLINE(Character, Object)
     public:
         std::int32_t hp = 10;
 
@@ -42,7 +42,7 @@ namespace
 
     class Wizard : public Character
     {
-        HUSKY_OBJECT(Wizard, Character)
+        HUSKY_OBJECT_INLINE(Wizard, Character)
     public:
         ObjectHandle target;
 
@@ -62,7 +62,7 @@ namespace
 
     class Rock : public Object
     {
-        HUSKY_OBJECT(Rock, Object)
+        HUSKY_OBJECT_INLINE(Rock, Object)
     };
 }
 

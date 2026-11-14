@@ -19,7 +19,7 @@ namespace
     // Tick で "A" と書くアクター。
     class LoggingActor : public Actor
     {
-        HUSKY_OBJECT(LoggingActor, Actor)
+        HUSKY_OBJECT_INLINE(LoggingActor, Actor)
     public:
         void Tick(double) override { g_log += "A"; }
     };
@@ -27,7 +27,7 @@ namespace
     // Tick で "C" と書き、受け取った dt の合計を数えるコンポーネント。
     class Counter : public Component
     {
-        HUSKY_OBJECT(Counter, Component)
+        HUSKY_OBJECT_INLINE(Counter, Component)
     public:
         void Tick(double dt) override
         {
@@ -40,19 +40,19 @@ namespace
     // Counter とは別の型(GetComponent の型の区別を確かめる用)。
     class Other : public Component
     {
-        HUSKY_OBJECT(Other, Component)
+        HUSKY_OBJECT_INLINE(Other, Component)
     };
 
     // Counter の子(GetComponent が子孫も見つけることを確かめる用)。
     class FastCounter : public Counter
     {
-        HUSKY_OBJECT(FastCounter, Counter)
+        HUSKY_OBJECT_INLINE(FastCounter, Counter)
     };
 
     // 実行順ごとに、決まった1文字を書くコンポーネント。
     class InputLogger : public Component
     {
-        HUSKY_OBJECT(InputLogger, Component)
+        HUSKY_OBJECT_INLINE(InputLogger, Component)
     public:
         std::int32_t GetTickOrder() const override { return TickOrder::Input; }
         void Tick(double) override { g_log += "i"; }
@@ -60,7 +60,7 @@ namespace
 
     class LateLogger : public Component
     {
-        HUSKY_OBJECT(LateLogger, Component)
+        HUSKY_OBJECT_INLINE(LateLogger, Component)
     public:
         std::int32_t GetTickOrder() const override { return TickOrder::Late; }
         void Tick(double) override { g_log += "l"; }
@@ -68,7 +68,7 @@ namespace
 
     class PreRenderLogger : public Component
     {
-        HUSKY_OBJECT(PreRenderLogger, Component)
+        HUSKY_OBJECT_INLINE(PreRenderLogger, Component)
     public:
         std::int32_t GetTickOrder() const override { return TickOrder::PreRender; }
         void Tick(double) override { g_log += "r"; }
@@ -77,7 +77,7 @@ namespace
     // 名前付きの値の「間」(Default と Late の間)で動く。
     class BetweenLogger : public Component
     {
-        HUSKY_OBJECT(BetweenLogger, Component)
+        HUSKY_OBJECT_INLINE(BetweenLogger, Component)
     public:
         std::int32_t GetTickOrder() const override { return 500; }
         void Tick(double) override { g_log += "b"; }
@@ -86,7 +86,7 @@ namespace
     // Default の実行順で、持ち主に LateLogger を1つ足す(1回だけ)。
     class LateAdder : public Component
     {
-        HUSKY_OBJECT(LateAdder, Component)
+        HUSKY_OBJECT_INLINE(LateAdder, Component)
     public:
         void Tick(double) override
         {
@@ -102,7 +102,7 @@ namespace
     // Default の実行順で、持ち主のアクターを Destroy する。
     class OwnerDestroyer : public Component
     {
-        HUSKY_OBJECT(OwnerDestroyer, Component)
+        HUSKY_OBJECT_INLINE(OwnerDestroyer, Component)
     public:
         void Tick(double) override { GetOwner()->Destroy(); }
     };

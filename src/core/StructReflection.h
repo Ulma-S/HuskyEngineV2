@@ -31,11 +31,15 @@
 #include "core/TypeInfo.h"
 
 // 構造体の登録を始める。StructType: 構造体の名前(名前空間を付けずに書く。HUSKY_STRUCT_BEGIN は同じ名前空間の中に書くため)。
-//   inline: ヘッダに書いた関数が、複数の .cpp から読み込まれても1つにまとめられるようにする指定。
-//           中の static な型情報も、プログラム全体で1つだけになる。
+//   書く場所は .cpp(HR-1)。ヘッダに書く inline の関数だと、中の static な型情報が exe と DLL のそれぞれに
+//   別々にできてしまう(Object.h の HUSKY_OBJECT の説明)。ほかのファイルから使う構造体は、ヘッダに
+//   HUSKY_STRUCT_DECLARE(StructType) と書いて関数の宣言だけを見せる(1つの .cpp の中だけで使う構造体なら要らない)。
 //   Registrar: 関数の中だけで使う小さなクラス(ローカルクラス)。HUSKY_PROPERTY が使う ThisType と info を用意する。
+// 構造体の型情報を返す関数の宣言だけを書く(ヘッダ用)。中身は .cpp の HUSKY_STRUCT_BEGIN 〜 END。
+#define HUSKY_STRUCT_DECLARE(StructType) const ::husky::core::TypeInfo& HuskyStructType(const StructType*);
+
 #define HUSKY_STRUCT_BEGIN(StructType)                                                            \
-    inline const ::husky::core::TypeInfo& HuskyStructType(const StructType*)                     \
+    const ::husky::core::TypeInfo& HuskyStructType(const StructType*)                            \
     {                                                                                            \
         struct Registrar                                                                         \
         {                                                                                        \

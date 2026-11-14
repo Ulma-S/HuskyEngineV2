@@ -26,7 +26,7 @@ namespace
     // 毎フレーム、秒速 100 で右へ動く。Space が押されている間は、さらに秒速 100 で下へ動く。
     class Walker : public Actor
     {
-        HUSKY_OBJECT(Walker, Actor)
+        HUSKY_OBJECT_INLINE(Walker, Actor)
     public:
         void Tick(double dt) override
         {
@@ -43,7 +43,7 @@ namespace
     std::string g_log;
     class TickLogger : public Actor
     {
-        HUSKY_OBJECT(TickLogger, Actor)
+        HUSKY_OBJECT_INLINE(TickLogger, Actor)
     public:
         void Tick(double) override { g_log += "T"; }
     };

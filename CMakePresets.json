@@ -18,6 +18,16 @@
       "cacheVariables": {
         "HUSKY_ENABLE_ASAN": "ON"
       }
+    },
+    {
+      "name": "vs2022-static",
+      "inherits": "vs2022",
+      "displayName": "Visual Studio 2022 (x64) + 静的リンク(製品用)",
+      "description": "エンジンを DLL にせず、exe に静的リンクする(製品用。HR-1)。build/vs2022-static に生成する",
+      "binaryDir": "${sourceDir}/build/vs2022-static",
+      "cacheVariables": {
+        "HUSKY_ENGINE_SHARED": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -38,6 +48,12 @@
       "displayName": "Debug + ASan",
       "configurePreset": "vs2022-asan",
       "configuration": "Debug"
+    },
+    {
+      "name": "ship",
+      "displayName": "Release(静的リンク、製品用)",
+      "configurePreset": "vs2022-static",
+      "configuration": "Release"
     }
   ],
   "testPresets": [

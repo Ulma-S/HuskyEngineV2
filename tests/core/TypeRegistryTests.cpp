@@ -12,14 +12,14 @@ namespace
 {
     class Fruit : public Object
     {
-        HUSKY_OBJECT(Fruit, Object)
+        HUSKY_OBJECT_INLINE(Fruit, Object)
     public:
         int sweetness = 3;
     };
 
     class Apple : public Fruit
     {
-        HUSKY_OBJECT(Apple, Fruit)
+        HUSKY_OBJECT_INLINE(Apple, Fruit)
     };
 }
 

@@ -23,10 +23,5 @@ namespace husky::engine
     };
 
     // 構造体のリフレクションの登録(StructReflection.h)。型と同じ名前空間に書く決まり。
-    HUSKY_STRUCT_BEGIN(PixelRect)
-        HUSKY_PROPERTY(x)
-        HUSKY_PROPERTY(y)
-        HUSKY_PROPERTY(width)
-        HUSKY_PROPERTY(height)
-    HUSKY_STRUCT_END()
+    HUSKY_STRUCT_DECLARE(PixelRect) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 }

@@ -36,6 +36,7 @@
 // 中身:
 //   - Super: 親クラスの別名(C# の base にあたるものを、Super::Foo() のように書ける)。
 //   - ThisType: このクラス自身の別名。HUSKY_PROPERTY の中で使う。
+//   - HuskyTypeName(): 型の名前("Enemy")。ファイルに保存する名前なので、名前空間は付けない。
 //   - StaticType(): この型の型情報を返す。関数の中の static 変数なので、最初に呼ばれたときに1回だけ作られる。
 //     作るときに、このクラスの RegisterMembers(プロパティとメソッドの登録)を1回だけ呼ぶ。
 //     ただし、このクラスが HUSKY_REFLECTION_BEGIN を書いていない場合、ThisClass::RegisterMembers は
@@ -43,26 +44,55 @@
 //     そのまま呼ぶと親のプロパティを二重に登録するので、親と同じ関数なら nullptr(登録なし)を渡す。
 //   - GetType(): オブジェクトの実際の型の型情報を返す(virtual なので、基底クラスのポインタから呼んでも正しい型が返る)。
 // マクロの最後で private: に戻す(class の既定と同じ)。メンバーを公開したいときは、マクロの後に public: と書く。
-#define HUSKY_OBJECT(ThisClass, ParentClass)                                                      \
+//
+// HUSKY_OBJECT と HUSKY_OBJECT_INLINE の違い(HR-1、ホットリロードのためにエンジンを DLL にした):
+//   型情報は「関数の中の static 変数」1つで、型を見分けるときはそのアドレスで比べる(TypeInfo::IsA)。
+//   ところが Windows の DLL では、ヘッダに書いた(inline の)関数の中の static 変数は、
+//   exe と DLL のそれぞれに別々にできてしまう(モジュールごとに写しが入る)。すると同じ Actor の型情報が2つになり、
+//   DLL の中のエンジンが「ゲームの BouncerActor は Actor か」を調べても、親が別の写しを指していて false になる。
+//   - HUSKY_OBJECT: StaticType() は宣言だけ。中身は .cpp に HUSKY_OBJECT_DEFINE(クラス) と1行書いて作る。
+//     .cpp は1つのモジュール(エンジンなら HuskyEngine.dll)にしか入らないので、型情報はプログラムに1つだけになる。
+//     ほかのモジュールからは、DLL が書き出した関数として呼ぶ。src/ の型(エンジンとゲーム)はこちらを使う。
+//   - HUSKY_OBJECT_INLINE: 今までどおりクラスの中に中身を書く。そのクラスを使うのが1つのモジュールだけ
+//     (テストの exe の中だけのテスト用の型など)なら、写しが1つしかできないので、こちらでよい。
+#define HUSKY_DETAIL_OBJECT_COMMON(ThisClass, ParentClass)                                        \
 public:                                                                                          \
     using Super = ParentClass;                                                                   \
     using ThisType = ThisClass;                                                                  \
-    static const ::husky::core::TypeInfo& StaticType()                                           \
-    {                                                                                            \
-        static const ::husky::core::TypeInfo info(                                               \
-            #ThisClass,                                                                          \
-            &ParentClass::StaticType(),                                                          \
-            &ThisClass::RegisterMembers != &ParentClass::RegisterMembers                         \
-                ? &ThisClass::RegisterMembers                                                    \
-                : nullptr);                                                                      \
-        return info;                                                                             \
-    }                                                                                            \
+    static constexpr const char* HuskyTypeName() { return #ThisClass; }                          \
     const ::husky::core::TypeInfo& GetType() const override                                      \
     {                                                                                            \
         return StaticType();                                                                     \
     }                                                                                            \
                                                                                                  \
 private:
+
+// 型情報を作る中身(HUSKY_OBJECT_DEFINE と HUSKY_OBJECT_INLINE で共通)。
+#define HUSKY_DETAIL_OBJECT_TYPE_INFO_BODY(ThisClass)                                             \
+    {                                                                                            \
+        static const ::husky::core::TypeInfo info(                                               \
+            ThisClass::HuskyTypeName(),                                                          \
+            &ThisClass::Super::StaticType(),                                                     \
+            &ThisClass::RegisterMembers != &ThisClass::Super::RegisterMembers                    \
+                ? &ThisClass::RegisterMembers                                                    \
+                : nullptr);                                                                      \
+        return info;                                                                             \
+    }
+
+#define HUSKY_OBJECT(ThisClass, ParentClass)                                                      \
+public:                                                                                          \
+    static const ::husky::core::TypeInfo& StaticType();                                          \
+    HUSKY_DETAIL_OBJECT_COMMON(ThisClass, ParentClass)
+
+// HUSKY_OBJECT を書いたクラスの型情報の中身を作る。そのクラスの .cpp に1回だけ書く。
+//   ThisClass は名前空間を付けて書いてもよい(engine::SpriteComponent)。名前の文字列には使わない。
+#define HUSKY_OBJECT_DEFINE(ThisClass)                                                            \
+    const ::husky::core::TypeInfo& ThisClass::StaticType() HUSKY_DETAIL_OBJECT_TYPE_INFO_BODY(ThisClass)
+
+#define HUSKY_OBJECT_INLINE(ThisClass, ParentClass)                                               \
+public:                                                                                          \
+    static const ::husky::core::TypeInfo& StaticType() HUSKY_DETAIL_OBJECT_TYPE_INFO_BODY(ThisClass) \
+    HUSKY_DETAIL_OBJECT_COMMON(ThisClass, ParentClass)
 
 // リフレクションの登録を始める。BEGIN と END の間に HUSKY_PROPERTY と HUSKY_METHOD を並べる。
 // 中身は「RegisterMembers という static 関数」の始まり。END がその関数を閉じる。
@@ -127,11 +157,8 @@ namespace husky::core
         Object& operator=(const Object&) = delete;
 
         // Object 自身の型情報。親が無い一番上の型なので、マクロを使わずに直接書く。
-        static const TypeInfo& StaticType()
-        {
-            static const TypeInfo info("Object", nullptr);
-            return info;
-        }
+        // 中身は Object.cpp(HUSKY_OBJECT と同じく、DLL の中に1つだけ作るため)。
+        static const TypeInfo& StaticType();
 
         // プロパティの登録(Object にはプロパティが無いので空)。
         // 子クラスは HUSKY_REFLECTION_BEGIN で同じ名前の関数を作る。作らなかった子クラスでは、これが引き継がれる。

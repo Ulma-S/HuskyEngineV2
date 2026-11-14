@@ -25,6 +25,13 @@
 
 namespace husky::game
 {
+    // ゲームの型の型情報の中身(HR-1。Object.h の HUSKY_OBJECT の説明)。ゲームに型を足したら、ここにも足す。
+    HUSKY_OBJECT_DEFINE(BouncerSettings)
+    HUSKY_OBJECT_DEFINE(CameraFollowComponent)
+    HUSKY_OBJECT_DEFINE(BouncerActor)
+    HUSKY_OBJECT_DEFINE(PlayerActor)
+    HUSKY_OBJECT_DEFINE(HudComponent)
+
     namespace
     {
         // 1つの軸について、位置を進め、範囲(minPosition〜maxPosition)の端に当たったら跳ね返す。

@@ -21,7 +21,7 @@ namespace
     // 毎フレーム、秒速 100 で右へ動く(アクター自身の Tick は TickOrder::Default)。
     class FollowTestRunner : public Actor
     {
-        HUSKY_OBJECT(FollowTestRunner, Actor)
+        HUSKY_OBJECT_INLINE(FollowTestRunner, Actor)
     public:
         void Tick(double dt) override { transform.position.x += static_cast<float>(100.0 * dt); }
     };

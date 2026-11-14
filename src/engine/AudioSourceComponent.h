@@ -23,10 +23,7 @@ namespace husky::audio
 {
     // audio::Bus をプロパティにできるよう、名前の表を登録する(保存は名前)。
     // 音の層はリフレクションを知らないので、使う側の engine で登録する(enum と同じ名前空間に書く決まり)。
-    HUSKY_ENUM_BEGIN(Bus)
-        HUSKY_ENUM_VALUE(Effect)
-        HUSKY_ENUM_VALUE(Music)
-    HUSKY_ENUM_END()
+    HUSKY_ENUM_DECLARE(Bus) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 }
 
 namespace husky::engine

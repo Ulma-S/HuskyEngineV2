@@ -50,7 +50,7 @@ namespace structtest
 
     class Walker : public Object
     {
-        HUSKY_OBJECT(Walker, Object)
+        HUSKY_OBJECT_INLINE(Walker, Object)
     public:
         Vector2 velocity;
         Waypoint goal;

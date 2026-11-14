@@ -35,7 +35,7 @@ namespace
 {
     class Waypoint : public Actor
     {
-        HUSKY_OBJECT(Waypoint, Actor)
+        HUSKY_OBJECT_INLINE(Waypoint, Actor)
     };
 
     // 構造体の要素(中に型の付いた参照も持つ)。
@@ -52,7 +52,7 @@ namespace
     // いろいろな配列を持つコンポーネント(private でもよい)。
     class Route : public husky::engine::Component
     {
-        HUSKY_OBJECT(Route, husky::engine::Component)
+        HUSKY_OBJECT_INLINE(Route, husky::engine::Component)
     public:
         std::vector<std::int32_t> ids;
         std::vector<float> speeds;

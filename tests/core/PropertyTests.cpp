@@ -24,7 +24,7 @@ namespace
     //      └ Prop(プロパティを登録しない)
     class Actor : public Object
     {
-        HUSKY_OBJECT(Actor, Object)
+        HUSKY_OBJECT_INLINE(Actor, Object)
     public:
         std::string name = "actor";
         bool visible = true;
@@ -37,7 +37,7 @@ namespace
 
     class Enemy : public Actor
     {
-        HUSKY_OBJECT(Enemy, Actor)
+        HUSKY_OBJECT_INLINE(Enemy, Actor)
     public:
         std::int32_t hp = 10;
         float speed = 1.5f;
@@ -53,7 +53,7 @@ namespace
 
     class Boss : public Enemy
     {
-        HUSKY_OBJECT(Boss, Enemy)
+        HUSKY_OBJECT_INLINE(Boss, Enemy)
     public:
         std::int32_t rage = 0;
 
@@ -65,7 +65,7 @@ namespace
     // HUSKY_REFLECTION_BEGIN を書かないクラス。親のプロパティを二重に登録しないことを確かめる。
     class Prop : public Actor
     {
-        HUSKY_OBJECT(Prop, Actor)
+        HUSKY_OBJECT_INLINE(Prop, Actor)
     };
 
     // ForEachProperty で集めた名前の一覧。

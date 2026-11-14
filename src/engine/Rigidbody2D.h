@@ -28,11 +28,7 @@ namespace husky::engine
 {
     // 体の種類の名前の表(保存は "Dynamic" のような名前。インスペクタは名前から選ぶ)。
     // BodyType2D と同じ名前空間(husky::engine)に書く(ADL で見つけるため)。
-    HUSKY_ENUM_BEGIN(BodyType2D)
-        HUSKY_ENUM_VALUE(Static)
-        HUSKY_ENUM_VALUE(Kinematic)
-        HUSKY_ENUM_VALUE(Dynamic)
-    HUSKY_ENUM_END()
+    HUSKY_ENUM_DECLARE(BodyType2D) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 
     class Rigidbody2D : public Component
     {

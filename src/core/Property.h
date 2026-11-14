@@ -328,6 +328,10 @@ namespace husky::core
         }
 
     private:
+        // 2つの配列の扱い方が、同じ要素の型のものか。ArrayInfoOf はテンプレートの中の static なので、
+        // exe と DLL のそれぞれに別の写しができる(HR-1)。アドレスが違っても、要素の型が同じなら同じとみなす。
+        static bool SameArrayInfo(const ArrayInfo* a, const ArrayInfo* b);
+
         // T が、このプロパティの型と合うか。構造体なら同じ構造体か(Color と Vector2 を取り違えないため)、
         // AssetRef なら同じアセットの型かも確かめる。
         template <typename T>
@@ -345,7 +349,7 @@ namespace husky::core
             {
                 // AssetRef<TextureAsset> を AssetRef<SoundAsset> として読むような取り違えを防ぐ。
                 // 配列なら、同じ要素の型の配列か(ArrayInfoOf は要素の型ごとに1つなので、ポインタで比べられる)。
-                return DetailTypeOf<T>() == m_detailType && ArrayInfoOf<T>() == m_arrayInfo && EnumInfoOf<T>() == m_enumInfo;
+                return DetailTypeOf<T>() == m_detailType && SameArrayInfo(ArrayInfoOf<T>(), m_arrayInfo) && EnumInfoOf<T>() == m_enumInfo;
             }
         }
 
@@ -384,6 +388,22 @@ namespace husky::core
         // 要素の場所が取れず、写しを通して読み書きする配列か。
         bool IsProxy() const { return at == nullptr; }
     };
+
+    inline bool Property::SameArrayInfo(const ArrayInfo* a, const ArrayInfo* b)
+    {
+        if (a == b)
+        {
+            return true;
+        }
+        if (a == nullptr || b == nullptr)
+        {
+            return false;
+        }
+        const Property& x = a->element;
+        const Property& y = b->element;
+        return x.m_type == y.m_type && x.m_detailType == y.m_detailType && x.m_enumInfo == y.m_enumInfo &&
+               SameArrayInfo(x.m_arrayInfo, y.m_arrayInfo);
+    }
 
     template <typename T>
     const ArrayInfo* ArrayInfoOf()

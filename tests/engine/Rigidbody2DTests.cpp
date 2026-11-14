@@ -274,7 +274,7 @@ namespace
     // 届いたぶつかり・重なりのイベントを覚えるアクター(PHY-3)。
     class ContactRecorder : public Actor
     {
-        HUSKY_OBJECT(ContactRecorder, Actor)
+        HUSKY_OBJECT_INLINE(ContactRecorder, Actor)
     public:
         void OnCollision(const husky::engine::CollisionEvent& event) override { collisions.push_back(event); }
         void OnOverlap(const husky::engine::OverlapEvent& event) override { overlaps.push_back(event); }
@@ -285,7 +285,7 @@ namespace
     // ぶつかりのイベントの数を数えるコンポーネント(コンポーネントにも届くことを確かめる)。
     class CollisionCounter : public husky::engine::Component
     {
-        HUSKY_OBJECT(CollisionCounter, husky::engine::Component)
+        HUSKY_OBJECT_INLINE(CollisionCounter, husky::engine::Component)
     public:
         void OnCollision(const husky::engine::CollisionEvent& event) override { event.begin ? ++begins : ++ends; }
         int begins = 0;

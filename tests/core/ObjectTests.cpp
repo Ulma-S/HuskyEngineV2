@@ -19,33 +19,33 @@ namespace
     //      └ Player
     class Actor : public Object
     {
-        HUSKY_OBJECT(Actor, Object)
+        HUSKY_OBJECT_INLINE(Actor, Object)
     public:
         int x = 0;
     };
 
     class Enemy : public Actor
     {
-        HUSKY_OBJECT(Enemy, Actor)
+        HUSKY_OBJECT_INLINE(Enemy, Actor)
     public:
         int hp = 10;
     };
 
     class Boss : public Enemy
     {
-        HUSKY_OBJECT(Boss, Enemy)
+        HUSKY_OBJECT_INLINE(Boss, Enemy)
     };
 
     class Player : public Actor
     {
-        HUSKY_OBJECT(Player, Actor)
+        HUSKY_OBJECT_INLINE(Player, Actor)
     };
 
     // デストラクタが呼ばれたかを数えるためのクラス。
     int g_destroyedCount = 0;
     class Counted : public Object
     {
-        HUSKY_OBJECT(Counted, Object)
+        HUSKY_OBJECT_INLINE(Counted, Object)
     public:
         ~Counted() override { ++g_destroyedCount; }
     };

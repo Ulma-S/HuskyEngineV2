@@ -28,12 +28,12 @@ namespace
 {
     class Prey : public Actor
     {
-        HUSKY_OBJECT(Prey, Actor)
+        HUSKY_OBJECT_INLINE(Prey, Actor)
     };
 
     class Hunter : public Actor
     {
-        HUSKY_OBJECT(Hunter, Actor)
+        HUSKY_OBJECT_INLINE(Hunter, Actor)
     public:
         ObjectRef<Prey> prey;
         ObjectRef<SpriteComponent> sprite;

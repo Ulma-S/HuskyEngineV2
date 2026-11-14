@@ -1,10 +1,8 @@
 // COL-1: Box2D を入れたことの確かめ(スモークテスト = 「火を入れて煙が出ないか」程度の、最低限の動作確認)。
 // ふつうのコードは Box2D を直接使わない(設計メモ「当たり判定と物理」)。ここはライブラリの組み込みを確かめるテストなので、
 // 例外として Box2D のヘッダを直接読む。COL-2 で PhysicsWorld2D を作ったら、そちらのテストが本筋になる。
-#include "engine/PhysicsMemory.h"
-
-#include "core/MemoryTracker.h"
-
+// エンジンを DLL にした構成(HR-1)では、このテストの exe の中の Box2D は、DLL の中の Box2D とは別の写しになる。
+// そのため「確保が MemoryTracker を通る」ことは、エンジンの窓口を通して PhysicsWorld2DTests.cpp で確かめる。
 #include <box2d/box2d.h>
 #include <doctest/doctest.h>
 
@@ -18,19 +16,13 @@ namespace
     }
 }
 
-TEST_CASE("COL-1: Box2D の世界を作り、四角を置いて、範囲の問い合わせで見つけられる。確保は MemoryTracker を通る")
+TEST_CASE("COL-1: Box2D の世界を作り、四角を置いて、範囲の問い合わせで見つけられる")
 {
-    husky::engine::InstallPhysicsMemoryHooks();
-    const std::size_t trackedBefore = husky::core::GetMemoryStats().currentBytes;
-
     // 世界を作る(重力なし: 今は当たり判定だけに使う)
     b2WorldDef worldDef = b2DefaultWorldDef();
     worldDef.gravity = b2Vec2{0.0f, 0.0f};
     const b2WorldId world = b2CreateWorld(&worldDef);
     REQUIRE(b2World_IsValid(world));
-    // Box2D の確保が MemoryTracker を通っている: Box2D が数えた量だけ、MemoryTracker の数も増えている
-    CHECK(husky::engine::GetPhysicsAllocatedBytes() > 0);
-    CHECK(husky::core::GetMemoryStats().currentBytes >= trackedBefore + husky::engine::GetPhysicsAllocatedBytes());
 
     // 動かない体(static)を (100, 50) に置き、32 x 32 の四角(半分の大きさ 16)を付ける
     b2BodyDef bodyDef = b2DefaultBodyDef();
@@ -51,5 +43,5 @@ TEST_CASE("COL-1: Box2D の世界を作り、四角を置いて、範囲の問�
 
     // 世界を消すと、Box2D の確保は全部返る
     b2DestroyWorld(world);
-    CHECK(husky::engine::GetPhysicsAllocatedBytes() == 0);
+    CHECK(b2GetByteCount() == 0); // このテストの exe の中の Box2D が数えた量
 }

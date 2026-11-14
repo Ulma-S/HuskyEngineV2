@@ -45,7 +45,7 @@ namespace
 
     class Unit : public husky::core::Object
     {
-        HUSKY_OBJECT(Unit, husky::core::Object)
+        HUSKY_OBJECT_INLINE(Unit, husky::core::Object)
     public:
         Team team = Team::Red;
         Size size = Size::Small;

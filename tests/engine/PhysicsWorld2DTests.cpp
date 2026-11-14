@@ -2,6 +2,7 @@
 // 自前の型だけを使い、Box2D は知らない(中身を替えても、このテストはそのまま通るはず)。
 #include "engine/PhysicsWorld2D.h"
 
+#include "core/MemoryTracker.h"
 #include "core/ObjectRegistry.h"
 #include "engine/PhysicsMemory.h"
 
@@ -53,6 +54,18 @@ namespace
         world.OverlapPoint(x, y, mask, hits);
         return hits.size();
     }
+}
+
+TEST_CASE("COL-1: 物理の世界の確保は MemoryTracker を通る(Box2D は DLL の中の1つ)")
+{
+    husky::engine::InstallPhysicsMemoryHooks();
+    const std::size_t trackedBefore = husky::core::GetMemoryStats().currentBytes;
+    auto world = CreatePhysicsWorld2D();
+    // Box2D が数えた量だけ、MemoryTracker の数も増えている
+    CHECK(husky::engine::GetPhysicsAllocatedBytes() > 0);
+    CHECK(husky::core::GetMemoryStats().currentBytes >= trackedBefore + husky::engine::GetPhysicsAllocatedBytes());
+    world.reset();
+    CHECK(husky::engine::GetPhysicsAllocatedBytes() == 0); // 世界を消すと、Box2D の確保は全部返る
 }
 
 TEST_CASE("COL-2: 四角を置くと、点の問い合わせで見つかる。回転・拡大縮小に合わせて形が変わる")

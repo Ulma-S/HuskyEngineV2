@@ -28,6 +28,19 @@ endif()
 # ASan はメモリの誤用(範囲外の読み書き、解放済みメモリの使用、二重解放など)を、起きた瞬間に止めて場所を教える。
 # 普段のビルド(vs2022 プリセット)では OFF。ASan 用のプリセット(vs2022-asan)が ON にする。
 option(HUSKY_ENABLE_ASAN "AddressSanitizer を有効にする(MSVC)" OFF)
+# エンジンを1つの DLL(HuskyEngine.dll)にするか(HR-1。ゲームのコードを DLL にしてホットリロードするための土台)。
+#   ON : core / platform / audio / render / engine / tools(と ImGui)を OBJECT ライブラリ(.obj の集まり)として
+#        コンパイルし、それを1つの DLL にまとめる。exe・ゲーム・テストは DLL を使う。
+#        エンジンが1か所にしか無いので、型情報・ログ・メモリの数など「プログラムに1つ」のものが1つのままになる。
+#   OFF: 今までどおり静的ライブラリ(.lib)にして exe に丸ごと組み込む(製品用。プリセット vs2022-static)。
+# Visual Studio のように Debug と Release が1つの生成を共有する場合、STATIC か DLL かは構成ごとに変えられない
+# (ライブラリの種類は生成のときに1回しか決められない)ので、ビルドのフォルダ(プリセット)ごとに選ぶ。
+option(HUSKY_ENGINE_SHARED "エンジンを1つの DLL にする(ホットリロード用)" ON)
+if(HUSKY_ENGINE_SHARED)
+    set(HUSKY_MODULE_TYPE OBJECT)
+else()
+    set(HUSKY_MODULE_TYPE STATIC)
+endif()
 if(HUSKY_ENABLE_ASAN AND MSVC)
     # Debug の既定に入っている /RTC1(実行時チェック)は、ASan と一緒に使えないので取り除く。
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
@@ -152,7 +165,7 @@ FetchContent_Declare(imgui
 )
 FetchContent_MakeAvailable(imgui)
 
-add_library(husky_imgui STATIC
+add_library(husky_imgui ${HUSKY_MODULE_TYPE}
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -223,8 +236,10 @@ endfunction()
 
 # --- core モジュール ---
 # 型、メモリ、ハンドル、リフレクション、GC など、エンジンの一番下の土台。ほかのモジュールを一切参照しない。
-add_library(husky_core STATIC
+add_library(husky_core ${HUSKY_MODULE_TYPE}
+    src/core/CoreReflection.cpp
     src/core/FreeListAllocator.cpp
+    src/core/Object.cpp
     src/core/Guid.cpp
     src/core/JsonLinesLogSink.cpp
     src/core/Log.cpp
@@ -245,7 +260,7 @@ set(HUSKY_GLOBAL_NEW_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/GlobalOperator
 # --- platform モジュール(静的ライブラリ) ---
 # OS 依存のコードを集める場所。SDL3 を触ってよいのはここだけ。
 # STATIC は「.lib を作り、使う側の exe に丸ごと組み込む」という意味。
-add_library(husky_platform STATIC
+add_library(husky_platform ${HUSKY_MODULE_TYPE}
     src/platform/FileSystem.cpp
     src/platform/Image.cpp
     src/platform/LogFileWriter.cpp
@@ -270,7 +285,7 @@ target_link_libraries(husky_platform PRIVATE SDL3::SDL3 husky_core)
 # --- audio モジュール(静的ライブラリ) ---
 # 音を混ぜて鳴らす層(設計メモ「音」)。render と同じく platform の上に置き、engine が使う(engine → audio)。
 # SDL を触るのは中身の1つのファイルだけにする(AUD-2。替えるときはそのファイルだけを書き直す)。
-add_library(husky_audio STATIC
+add_library(husky_audio ${HUSKY_MODULE_TYPE}
     src/audio/AudioDevice.cpp
     src/audio/Mixer.cpp
     src/audio/SdlAudioOutput.cpp # SDL を触るのはこのファイルだけ
@@ -283,7 +298,7 @@ target_link_libraries(husky_audio PUBLIC husky_core PRIVATE SDL3::SDL3)
 
 # --- engine モジュール(静的ライブラリ) ---
 # ゲームループ、ワールド、アセットなど、OS に依存しないエンジンの本体を集める場所。
-add_library(husky_engine STATIC
+add_library(husky_engine ${HUSKY_MODULE_TYPE}
     src/engine/Actor.cpp
     src/engine/Application.cpp
     src/engine/AssetDatabase.cpp
@@ -391,7 +406,7 @@ husky_compile_shader(Sprite.frag ps HUSKY_SHADER_HEADERS)
 # SDL_GPU で描く層。公開するのは RenderDevice と独自の型(Color、Sprite など)だけ。
 # platform と同じく SDL3 を触ってよい場所。engine 本体に SDL3 が見えないよう、別のライブラリにしている。
 # engine はこれを使う(engine → render)。render は engine を知らない。
-add_library(husky_render STATIC
+add_library(husky_render ${HUSKY_MODULE_TYPE}
     src/render/RenderDevice.cpp
     ${HUSKY_SHADER_HEADERS} # ソースに含めると、ビルドの前にシェーダの変換が走る
 )
@@ -411,6 +426,45 @@ target_link_libraries(husky_render
             $<$<CONFIG:Debug>:husky_imgui>
 )
 
+# --- エンジンの DLL(HR-1) ---
+# HUSKY_ENGINE_SHARED のとき、各モジュールの .obj を1つの DLL にまとめる。
+# $<TARGET_OBJECTS:x> は「OBJECT ライブラリ x がコンパイルした .obj の一覧」。
+# WINDOWS_EXPORT_ALL_SYMBOLS: DLL の中の関数をすべて外へ見せる(書き出す)。C++ の DLL では、ふつうは
+#   __declspec(dllexport) をクラスや関数に1つずつ付けるが、CMake が .obj を調べて一覧(.def)を作ってくれる。
+#   ただし、グローバル変数(データ)は自動では使えない(使う側に __declspec(dllimport) が要る)。
+#   エンジンは外から見えるグローバル変数を置かず、関数を通して使う。
+# 使う側(ゲーム、exe、テスト、CLI)は HUSKY_ENGINE_LINK をリンクする。OBJECT ライブラリを直接リンクすると、
+# 同じ .obj が使う側にもう1つ入ってしまう(写しが2つになる)ので、必ずこの変数を通す。
+if(HUSKY_ENGINE_SHARED)
+    add_library(husky_engine_dll SHARED
+        $<TARGET_OBJECTS:husky_core>
+        $<TARGET_OBJECTS:husky_platform>
+        $<TARGET_OBJECTS:husky_audio>
+        $<TARGET_OBJECTS:husky_render>
+        $<TARGET_OBJECTS:husky_engine>
+        $<TARGET_OBJECTS:husky_tools> # Release では中身が #if で空になる
+        $<$<CONFIG:Debug>:$<TARGET_OBJECTS:husky_imgui>> # ImGui は開発ビルドだけ
+        # DLL の中の new も MemoryTracker に通す。operator new の差し替えはモジュール(exe と DLL)ごとに効くため、
+        # DLL にも入れる(数える先の MemoryTracker は、この DLL の中の1つだけ)。
+        ${HUSKY_GLOBAL_NEW_SOURCE}
+    )
+    set_target_properties(husky_engine_dll PROPERTIES OUTPUT_NAME HuskyEngine WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    husky_set_compile_options(husky_engine_dll)
+    target_include_directories(husky_engine_dll PUBLIC src)
+    # 外部のライブラリの中身(.lib)は DLL の中にだけ入れる(PRIVATE)。使う側には見えない。
+    target_link_libraries(husky_engine_dll PUBLIC husky_glm PRIVATE SDL3::SDL3 yyjson box2d)
+    set(HUSKY_ENGINE_LINK husky_engine_dll)
+    set(HUSKY_TOOLS_LINK husky_engine_dll) # tools も同じ DLL の中にある
+    # ImGui も DLL の中にあるので、テストはヘッダ(インクルードのフォルダ)だけをもらう(リンクすると .obj がもう1つ入る)。
+    set(HUSKY_IMGUI_LINK "")
+    set(HUSKY_IMGUI_INCLUDES $<TARGET_PROPERTY:husky_imgui,INTERFACE_INCLUDE_DIRECTORIES>)
+else()
+    set(HUSKY_ENGINE_LINK husky_engine)
+    set(HUSKY_TOOLS_LINK $<$<CONFIG:Debug>:husky_tools>)
+    set(HUSKY_IMGUI_LINK $<$<CONFIG:Debug>:husky_imgui>)
+    set(HUSKY_IMGUI_INCLUDES "")
+endif()
+
 # --- ゲームのコード(このゲームの型、型の登録、最初の配置。src/game) ---
 # エンジンの部品(付け外しするもの)ではなく、エンジンを使う側(アプリケーション)の本体。engine に依存する。
 # 起動する exe(HuskyEngineV2)と、エディタ(HuskyEditorCli)の両方がリンクする(エディタもゲームの型を知る必要があるため)。
@@ -421,11 +475,11 @@ add_library(husky_game STATIC
 )
 husky_set_compile_options(husky_game)
 target_include_directories(husky_game PUBLIC src)
-target_link_libraries(husky_game PUBLIC husky_engine)
+target_link_libraries(husky_game PUBLIC ${HUSKY_ENGINE_LINK})
 
 # --- tools モジュール(開発用の UI とエディタの機能。開発ビルドだけ) ---
 # engine に依存する。中のコードは #if HUSKY_DEVELOPMENT で囲んであり、Release では空のライブラリになる。
-add_library(husky_tools STATIC
+add_library(husky_tools ${HUSKY_MODULE_TYPE}
     src/tools/AssetBrowser.cpp
     src/tools/DebugWindow.cpp
     src/tools/EditorCli.cpp
@@ -456,7 +510,7 @@ husky_set_compile_options(HuskyEditorCli)
 husky_copy_asan_runtime(HuskyEditorCli)
 # 既定のアセットのフォルダ(ソースの assets)を教える。ゲームと同じく、開発ビルドだけ。
 target_compile_definitions(HuskyEditorCli PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
-target_link_libraries(HuskyEditorCli PRIVATE husky_platform $<$<CONFIG:Debug>:husky_tools> $<$<CONFIG:Debug>:husky_game>)
+target_link_libraries(HuskyEditorCli PRIVATE ${HUSKY_ENGINE_LINK} ${HUSKY_TOOLS_LINK} $<$<CONFIG:Debug>:husky_game>)
 
 # --- 実行ファイル ---
 # src/main.cpp をコンパイルして HuskyEngineV2.exe を作る。
@@ -472,9 +526,9 @@ husky_copy_asan_runtime(HuskyEngineV2)
 target_compile_definitions(HuskyEngineV2 PRIVATE "$<$<CONFIG:Debug>:HUSKY_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}/\">")
 
 # exe は engine、render、platform を使う。SDL3 はそれらの中に隠れているので、ここには書かない。
-target_link_libraries(HuskyEngineV2 PRIVATE husky_game husky_engine husky_render husky_platform)
+target_link_libraries(HuskyEngineV2 PRIVATE husky_game ${HUSKY_ENGINE_LINK})
 # tools(開発用の UI)は、開発ビルドだけリンクする。製品(Release)には入らない。
-target_link_libraries(HuskyEngineV2 PRIVATE $<$<CONFIG:Debug>:husky_tools>)
+target_link_libraries(HuskyEngineV2 PRIVATE ${HUSKY_TOOLS_LINK})
 
 # ビルドのたびに、assets フォルダを exe の隣へコピーする。
 # プログラムは exe の場所を基準にアセットを読むので、どこから起動しても同じパスで見つかる。
@@ -498,6 +552,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
         tests/engine/FontFaceTests.cpp
+        tests/engine/ModuleBoundaryTests.cpp
         tests/engine/FontAtlasTests.cpp
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp
@@ -575,13 +630,14 @@ if(HUSKY_BUILD_TESTS)
     )
     husky_set_compile_options(HuskyTests)
     husky_copy_asan_runtime(HuskyTests)
-    target_link_libraries(HuskyTests PRIVATE husky_core husky_engine husky_game husky_audio doctest::doctest)
+    target_link_libraries(HuskyTests PRIVATE ${HUSKY_ENGINE_LINK} husky_game doctest::doctest)
     # Box2D はふつう engine の中だけで使うが、組み込みのスモークテスト(Box2DSmokeTests.cpp)だけは直接読む。
     target_link_libraries(HuskyTests PRIVATE box2d)
     # テストで共通に使うヘッダ(TestFolder.h など)を、#include "TestFolder.h" で読めるようにする。
     target_include_directories(HuskyTests PRIVATE tests)
     # 開発ビルドだけ、tools(インスペクタ)と ImGui のテストもする。
-    target_link_libraries(HuskyTests PRIVATE $<$<CONFIG:Debug>:husky_tools> $<$<CONFIG:Debug>:husky_imgui>)
+    target_link_libraries(HuskyTests PRIVATE ${HUSKY_TOOLS_LINK} ${HUSKY_IMGUI_LINK})
+    target_include_directories(HuskyTests SYSTEM PRIVATE ${HUSKY_IMGUI_INCLUDES})
     # 例外が無効なので、doctest にも「例外を使わずに動く」設定を伝える。
     # _BUT_WITH_ALL_ASSERTS: 例外なしでも REQUIRE(失敗したら打ち切る確認)を使えるようにする。
     #   例外で「そのテストだけ」を抜けられないので、REQUIRE が失敗するとテストの実行全体がそこで止まる

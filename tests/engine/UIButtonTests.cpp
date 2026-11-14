@@ -20,7 +20,7 @@ namespace
     // 押されたこと(OnUIClick)を数えるボタンのアクター
     class CountingButton : public UIActor
     {
-        HUSKY_OBJECT(CountingButton, UIActor)
+        HUSKY_OBJECT_INLINE(CountingButton, UIActor)
     public:
         int clicks = 0;
         void OnUIClick(const husky::engine::UIClickEvent& event) override
@@ -33,7 +33,7 @@ namespace
     // ボタンから名前で呼ばれるメソッドを持つアクター
     class Receiver : public husky::engine::Actor
     {
-        HUSKY_OBJECT(Receiver, husky::engine::Actor)
+        HUSKY_OBJECT_INLINE(Receiver, husky::engine::Actor)
     public:
         int starts = 0;
         void StartGame() { ++starts; }

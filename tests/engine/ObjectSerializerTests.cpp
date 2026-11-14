@@ -22,7 +22,7 @@ namespace
     // プロパティにできる型を一通り持つアクター。Actor の name、x、y も引き継ぐ。
     class SaveTestEnemy : public Actor
     {
-        HUSKY_OBJECT(SaveTestEnemy, Actor)
+        HUSKY_OBJECT_INLINE(SaveTestEnemy, Actor)
     public:
         bool angry = false;
         std::int32_t hp = 10;

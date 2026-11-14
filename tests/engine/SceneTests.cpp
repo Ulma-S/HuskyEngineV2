@@ -16,7 +16,7 @@ namespace
     // 毎フレーム右へ動くアクター。Tick が呼ばれた回数も数える。
     class Mover : public Actor
     {
-        HUSKY_OBJECT(Mover, Actor)
+        HUSKY_OBJECT_INLINE(Mover, Actor)
     public:
         void Tick(double dt) override
         {
@@ -29,7 +29,7 @@ namespace
     // Tick の中で、新しいアクターを1つ作る(弾を撃つようなもの)。
     class Spawner : public Actor
     {
-        HUSKY_OBJECT(Spawner, Actor)
+        HUSKY_OBJECT_INLINE(Spawner, Actor)
     public:
         explicit Spawner(Scene& owner) : scene(&owner) {}
         void Tick(double) override { scene->Spawn<Mover>(); }
@@ -39,7 +39,7 @@ namespace
     // Tick の中で、自分を Destroy する。
     class SelfDestroyer : public Actor
     {
-        HUSKY_OBJECT(SelfDestroyer, Actor)
+        HUSKY_OBJECT_INLINE(SelfDestroyer, Actor)
     public:
         void Tick(double) override { Destroy(); }
     };
@@ -173,7 +173,7 @@ namespace
     // シーンから入力を引き、Space が押されている間だけ右へ動くアクター。
     class InputReader : public Actor
     {
-        HUSKY_OBJECT(InputReader, Actor)
+        HUSKY_OBJECT_INLINE(InputReader, Actor)
     public:
         void Tick(double dt) override
         {

@@ -25,9 +25,5 @@ namespace husky::engine
     };
 
     // 入れ子の構造体(core::Vector3)は、core/Vector3.h で先に登録してある。
-    HUSKY_STRUCT_BEGIN(Transform)
-        HUSKY_PROPERTY(position)
-        HUSKY_PROPERTY(rotation)
-        HUSKY_PROPERTY(scale)
-    HUSKY_STRUCT_END()
+    HUSKY_STRUCT_DECLARE(Transform) // 中身は .cpp(HR-1。DLL の中に1つだけ作るため)
 }
