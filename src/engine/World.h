@@ -188,6 +188,23 @@ namespace husky::engine
             }
         }
 
+        // 生きているアクターの、T 型(か、その子の型)の最初のコンポーネント(一覧の順)。無ければ nullptr(SC-5)。
+        // シーンをまたぐ参照は保存できないので、別のシーンの係(常駐の system のシーンのものなど)は、始まるときにこれで探す。
+        // アクターを全部調べるので、毎フレームではなく、始まるときに1回探して弱い参照で覚える使い方にする。
+        template <typename T>
+        T* FindComponent()
+        {
+            T* found = nullptr;
+            ForEachActor([&found](Actor& actor) {
+                if (found == nullptr)
+                {
+                    T* component = actor.GetComponent<T>();
+                    found = component != nullptr && !component->IsPendingDestroy() ? component : nullptr;
+                }
+            });
+            return found;
+        }
+
         // シーンにいるアクターのハンドルの一覧。プロパティとして登録しているので、GC がたどる(強い参照)。
         std::vector<core::ObjectHandle> actors;
 

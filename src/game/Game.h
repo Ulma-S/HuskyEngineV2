@@ -41,6 +41,12 @@ namespace husky::game
     // 乱数の種を固定しているので、毎回同じ配置になる。
     void SpawnInitialActors(engine::Application& app);
 
+    // SpawnInitialActors のうち、ゲームの配置(跳ね回るもの・木箱・壁・カメラ・プレイヤー。placeMusic が true なら BGM も)。ワールドの
+    // ルートシーンに置く(SC-5。ゲームのシーンの GameSpawnerComponent が呼び、置いた後に自分のシーンへ移す)。
+    void SpawnGameplay(engine::World& world, bool placeMusic);
+    // HUD のプレハブ(prefabs/hud.prefab)を置く。
+    void SpawnHud(engine::World& world);
+
     // シーンに Canvas(CanvasComponent を持つアクター)が無ければ、HUD のプレハブ(prefabs/hud.prefab)を置く(UI-7)。
     // シーンのファイルを読んだ後も、コードで最初の配置をした後も呼ぶ(F5 で保存すれば、次からはファイルの HUD が使われる)。
     // 先にアセットの表が要る。

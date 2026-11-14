@@ -485,6 +485,7 @@ endif()
 add_library(husky_game ${HUSKY_MODULE_TYPE}
     src/game/CameraFollowComponent.cpp
     src/game/HudComponent.cpp
+    src/game/GameFlow.cpp
     src/game/Game.cpp
 )
 husky_set_compile_options(husky_game)
@@ -663,6 +664,7 @@ if(HUSKY_BUILD_TESTS)
         tests/core/ProfilerTests.cpp
         tests/core/JobSystemTests.cpp
         tests/game/GameTests.cpp
+        tests/game/GameFlowTests.cpp
         tests/game/CameraFollowComponentTests.cpp
         tests/core/HandleTableTests.cpp
         tests/core/ObjectTests.cpp

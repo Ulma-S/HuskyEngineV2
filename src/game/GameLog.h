@@ -16,6 +16,7 @@ namespace husky::game
         AssetScan = 8,
         NoSceneFile = 9,
         ClearColorChanged = 10,
+        GameFlowMissing = 11, // SC-5
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(GameLog, "Game")
@@ -37,5 +38,7 @@ namespace husky::game
         HUSKY_LOG_MESSAGE(NoSceneFile, Info, "シーンのファイルが無いので、コードでアクターを置きます({path})",
                           HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(ClearColorChanged, Info, "色を切り替えました: {index}", HUSKY_LOG_ARG(index, Int))
+        HUSKY_LOG_MESSAGE(GameFlowMissing, Warning, "{actor}: ゲームの状態の係(GameFlowComponent。system のシーン)が見つかりません。master のシーンから始めてください",
+                          HUSKY_LOG_ARG(actor, String))
     HUSKY_LOG_CHANNEL_END()
 }

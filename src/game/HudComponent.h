@@ -23,6 +23,7 @@ namespace husky::game
         core::ObjectRef<engine::UITextComponent> scoreText; // スコアを書く文字(プレハブの中の子)
         core::ObjectRef<engine::UITextComponent> timeText;  // 残り時間を書く文字
         float timeLimit = 60.0f;                            // 1回の長さ(秒)
+        static constexpr float ResultDelaySeconds = 2.0f; // 時間切れからリザルトへ移るまで(SC-5)
 
         void Tick(double dt) override;
 
@@ -51,6 +52,8 @@ namespace husky::game
         int m_score = 0;          // 表示しているスコア
         int m_scoreBase = 0;      // リセットしたときのプレイヤーの score
         int m_shownScore = -1;    // 最後に書いたスコア(-1 はまだ書いていない)
+        float m_finishedSeconds = 0.0f; // 時間切れからの秒数(SC-5)
+        bool m_reported = false;        // ゲームの状態の係にスコアを渡したか
         int m_shownSeconds = -1;  // 最後に書いた残りの秒(-1 はまだ書いていない)
         core::ObjectHandle m_player;
     };

@@ -9,6 +9,7 @@
 #include "engine/Rigidbody2D.h"
 #include "game/CameraFollowComponent.h"
 #include "game/HudComponent.h"
+#include "game/GameFlow.h"
 #include "engine/Input.h"
 #include "engine/Prefab.h"
 #include "engine/SpriteAnimatorComponent.h"
@@ -31,6 +32,21 @@ namespace husky::game
     HUSKY_OBJECT_DEFINE(BouncerActor)
     HUSKY_OBJECT_DEFINE(PlayerActor)
     HUSKY_OBJECT_DEFINE(HudComponent)
+    HUSKY_OBJECT_DEFINE(GameFlowComponent)
+    HUSKY_OBJECT_DEFINE(GameFlowButtonComponent)
+    HUSKY_OBJECT_DEFINE(ResultComponent)
+    HUSKY_OBJECT_DEFINE(GameSpawnerComponent)
+
+    HUSKY_ENUM_BEGIN(GameFlowState)
+        HUSKY_ENUM_VALUE(Title)
+        HUSKY_ENUM_VALUE(Playing)
+        HUSKY_ENUM_VALUE(Result)
+    HUSKY_ENUM_END()
+
+    HUSKY_ENUM_BEGIN(GameFlowAction)
+        HUSKY_ENUM_VALUE(StartGame)
+        HUSKY_ENUM_VALUE(BackToTitle)
+    HUSKY_ENUM_END()
 
     namespace
     {
@@ -52,15 +68,15 @@ namespace husky::game
         }
         // assets の中のパスでプレハブを探して読み、読み終わったアセットを返す。無い・読めないときはログに出して nullptr。
         // 最初の配置は起動のときに1回だけなので、読み終わるまで待つ(WaitForAllLoads)。
-        const engine::PrefabAsset* LoadPrefab(engine::Application& app, const char* path)
+        const engine::PrefabAsset* LoadPrefab(engine::World& world, const char* path)
         {
-            const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
+            const core::Guid* guid = world.GetAssetLoader()->GetDatabase().FindGuid(path);
             if (guid == nullptr)
             {
                 HUSKY_LOG(GameLog::PrefabNotInDatabase, path);
                 return nullptr;
             }
-            engine::AssetLoader& loader = app.GetAssetLoader();
+            engine::AssetLoader& loader = *world.GetAssetLoader();
             const engine::PrefabAsset* prefab = loader.Resolve<engine::PrefabAsset>(loader.Load<engine::PrefabAsset>(*guid));
             loader.WaitForAllLoads();
             if (prefab == nullptr || !prefab->IsLoaded())
@@ -74,10 +90,10 @@ namespace husky::game
         // プレハブを1つ置き、T の型として返す(プレハブの中のアクターが T でなければ nullptr)。
         // 置いたものの警告(知らないプロパティなど)はログに出す。
         template <typename T>
-        T* PlacePrefab(engine::Application& app, const engine::PrefabAsset& prefab)
+        T* PlacePrefab(engine::World& world, const engine::PrefabAsset& prefab)
         {
             engine::Prefab::InstantiateResult placed =
-                engine::Prefab::Instantiate(prefab, app.GetWorld(), app.GetTypeRegistry());
+                engine::Prefab::Instantiate(prefab, world, world.GetAssetLoader()->GetTypes());
             for (const std::string& warning : placed.warnings)
             {
                 HUSKY_LOG(GameLog::PrefabWarning, warning);
@@ -87,16 +103,16 @@ namespace husky::game
 
         // 設定のデータ(.sdata)を assets の中のパスで探して読み、読み終わった中身を返す。無い・読めないときはログに出して nullptr。
         // reference は呼んだ側が持つ(持っている間は、データが GC に回収されない)。
-        const BouncerSettings* LoadSettings(engine::Application& app, const char* path,
+        const BouncerSettings* LoadSettings(engine::World& world, const char* path,
                                             core::AssetRef<BouncerSettings>& reference)
         {
-            const core::Guid* guid = app.GetAssetDatabase().FindGuid(path);
+            const core::Guid* guid = world.GetAssetLoader()->GetDatabase().FindGuid(path);
             if (guid == nullptr)
             {
                 HUSKY_LOG(GameLog::SettingsNotInDatabase, path);
                 return nullptr;
             }
-            engine::AssetLoader& loader = app.GetAssetLoader();
+            engine::AssetLoader& loader = *world.GetAssetLoader();
             reference.guid = *guid;
             loader.Resolve(reference); // 読み始める
             loader.WaitForAllLoads();
@@ -114,7 +130,7 @@ namespace husky::game
         // 乱数の種(seed)を固定しているので、毎回同じ配置になる(CLAUDE.md: 結果が毎回同じになるように)。
         // 乱数は S-2 までと同じ型(double)で、同じ順番に引く。型や順番が変わると乱数の消費のしかたが変わり、配置が変わってしまうため。
         // 速さの上限 maxSpeed は設定のデータ(BouncerSettings)から。既定の 200 なら、配置も速度も今までと同じになる。
-        void SpawnBouncers(engine::Application& app, const engine::PrefabAsset& prefab, int count, float maxSpeed)
+        void SpawnBouncers(engine::World& world, const engine::PrefabAsset& prefab, int count, float maxSpeed)
         {
             std::mt19937 random(12345); // 種を固定した乱数生成器
             std::uniform_real_distribution<double> randomX(0.0, WorldWidth - BouncerSize);
@@ -124,7 +140,7 @@ namespace husky::game
 
             for (int i = 0; i < count; ++i)
             {
-                BouncerActor* bouncer = PlacePrefab<BouncerActor>(app, prefab);
+                BouncerActor* bouncer = PlacePrefab<BouncerActor>(world, prefab);
                 engine::SpriteComponent* sprite =
                     bouncer != nullptr ? bouncer->GetComponent<engine::SpriteComponent>() : nullptr;
                 if (sprite == nullptr) // オブジェクト用のメモリを使い切った、またはプレハブの形が違う
@@ -144,11 +160,11 @@ namespace husky::game
 
         // 木箱を、プレイヤーの最初の場所(世界の真ん中)の右に 4 個 × 2 段で置く(PHY-5)。
         // 1 つずつ違うのは位置だけ(ほかの値はプレハブのもの)。
-        void SpawnCrates(engine::Application& app, const engine::PrefabAsset& prefab)
+        void SpawnCrates(engine::World& world, const engine::PrefabAsset& prefab)
         {
             for (int i = 0; i < CrateCount; ++i)
             {
-                engine::Actor* crate = PlacePrefab<engine::Actor>(app, prefab);
+                engine::Actor* crate = PlacePrefab<engine::Actor>(world, prefab);
                 if (crate == nullptr)
                 {
                     return;
@@ -328,15 +344,19 @@ namespace husky::game
         types.Register<PlayerActor>();
         types.Register<CameraFollowComponent>();
         types.Register<HudComponent>(); // スコアと残り時間の表示(UI-7)
+        types.Register<GameFlowComponent>();       // ゲームの流れ(SC-5)
+        types.Register<GameFlowButtonComponent>();
+        types.Register<ResultComponent>();
+        types.Register<GameSpawnerComponent>();
         types.Register<BouncerSettings>(); // .sdata の "type" から作れるように(ScriptableData も同じ登録簿)
     }
 
-    void SpawnInitialActors(engine::Application& app)
+    void SpawnGameplay(engine::World& world, bool placeMusic)
     {
         // 跳ね回るものの数・速さ・プレハブは、設定のデータ(data/bouncers.sdata)から読む(SD-4)。
         // コードを直さず、アセットの窓や data.set で調整できる。読めなければ、コードの既定の値を使う。
         core::AssetRef<BouncerSettings> settingsReference;
-        const BouncerSettings* settings = LoadSettings(app, "data/bouncers.sdata", settingsReference);
+        const BouncerSettings* settings = LoadSettings(world, "data/bouncers.sdata", settingsReference);
 
         // どのプレハブを使うかは、ゲームの決め事なのでここ(ゲームのコード)に書く。パスで探し、GUID で読む。
         // 跳ね回るものは、設定のデータがプレハブを指していればそれを使う。
@@ -344,7 +364,7 @@ namespace husky::game
         if (settings != nullptr && !settings->prefab.IsNull())
         {
             core::AssetRef<engine::PrefabAsset> prefabReference = settings->prefab; // データは読むだけなので、参照は写して使う
-            engine::AssetLoader& loader = app.GetAssetLoader();
+            engine::AssetLoader& loader = *world.GetAssetLoader();
             loader.Resolve(prefabReference);
             loader.WaitForAllLoads();
             bouncerPrefab = loader.Resolve(prefabReference);
@@ -355,22 +375,22 @@ namespace husky::game
         }
         if (bouncerPrefab == nullptr)
         {
-            bouncerPrefab = LoadPrefab(app, "prefabs/bouncer.prefab");
+            bouncerPrefab = LoadPrefab(world, "prefabs/bouncer.prefab");
         }
-        const engine::PrefabAsset* playerPrefab = LoadPrefab(app, "prefabs/player.prefab");
-        engine::World& scene = app.GetWorld();
+        const engine::PrefabAsset* playerPrefab = LoadPrefab(world, "prefabs/player.prefab");
+        engine::World& scene = world;
 
         if (bouncerPrefab != nullptr)
         {
-            SpawnBouncers(app, *bouncerPrefab, settings != nullptr ? settings->count : BouncerCount,
+            SpawnBouncers(world, *bouncerPrefab, settings != nullptr ? settings->count : BouncerCount,
                           settings != nullptr ? settings->maxSpeed : 200.0f);
         }
 
         // 押せる木箱(PHY-5。crate.prefab: スプライト + 四角のコライダー + Dynamic の Rigidbody2D)と、世界の端の壁。
         // 描く順は一覧の順なので、プレイヤーより先に置く(木箱の上にプレイヤーが描かれる)。
-        if (const engine::PrefabAsset* cratePrefab = LoadPrefab(app, "prefabs/crate.prefab"))
+        if (const engine::PrefabAsset* cratePrefab = LoadPrefab(world, "prefabs/crate.prefab"))
         {
-            SpawnCrates(app, *cratePrefab);
+            SpawnCrates(world, *cratePrefab);
         }
         SpawnWalls(scene);
 
@@ -386,7 +406,7 @@ namespace husky::game
 
         // BGM(AUD-4): 音を鳴らすコンポーネントだけを持つアクター。再生を始めると鳴り始め、ループする。
         // 音のファイルが無ければ(テストのアセットなど)置かない。
-        const core::Guid* bgmGuid = app.GetAssetDatabase().FindGuid("sounds/bgm.wav");
+        const core::Guid* bgmGuid = !placeMusic ? nullptr : world.GetAssetLoader()->GetDatabase().FindGuid("sounds/bgm.wav");
         engine::Actor* music = bgmGuid != nullptr ? scene.Spawn<engine::Actor>() : nullptr;
         if (music != nullptr)
         {
@@ -403,7 +423,7 @@ namespace husky::game
 
         // プレイヤー(player.prefab): PlayerActor + スプライトシート(shapes.spritesheet)の切り出しを貼る SpriteComponent
         // + 4 つの図形を順に切り替えるアニメーション(SpriteAnimatorComponent)。見た目の決め事は、すべてプレハブの中にある。
-        PlayerActor* player = playerPrefab != nullptr ? PlacePrefab<PlayerActor>(app, *playerPrefab) : nullptr;
+        PlayerActor* player = playerPrefab != nullptr ? PlacePrefab<PlayerActor>(world, *playerPrefab) : nullptr;
         if (player != nullptr)
         {
             player->transform.position.x = WorldWidth / 2.0f; // 世界の真ん中(位置はスプライトの真ん中)
@@ -424,6 +444,11 @@ namespace husky::game
         }
     }
 
+    void SpawnInitialActors(engine::Application& app)
+    {
+        SpawnGameplay(app.GetWorld(), true);
+    }
+
     void SpawnHudIfMissing(engine::Application& app)
     {
         bool hasCanvas = false;
@@ -437,9 +462,14 @@ namespace husky::game
         {
             return;
         }
-        if (const engine::PrefabAsset* hudPrefab = LoadPrefab(app, "prefabs/hud.prefab"))
+        SpawnHud(app.GetWorld());
+    }
+
+    void SpawnHud(engine::World& world)
+    {
+        if (const engine::PrefabAsset* hudPrefab = LoadPrefab(world, "prefabs/hud.prefab"))
         {
-            PlacePrefab<engine::Actor>(app, *hudPrefab);
+            PlacePrefab<engine::Actor>(world, *hudPrefab);
         }
     }
 

@@ -113,7 +113,8 @@ int main(int argc, char** argv)
     const std::string assetsDirectory = platform::GetExecutableDirectory() + "assets";
 #endif
     HUSKY_LOG(game::GameLog::AssetsDirectory, assetsDirectory);
-    std::string scenePath = assetsDirectory + "/scenes/main.json";
+    std::string scenePath = assetsDirectory + "/scenes/main.json"; // シーンの一覧が無いときに開く(今までの形)
+    bool sceneFromArgs = false;                                       // --scene で選んだか
 #if HUSKY_DEVELOPMENT
     // 開発ビルドだけ: 起動の引数 --scene <ファイル> で、main.json の代わりに開くシーンを選べる
     // (確かめ用のシーンを、手元の main.json を書き換えずに開くため。F5 の保存もそのファイルへ)。
@@ -122,10 +123,12 @@ int main(int argc, char** argv)
         if (std::string_view(argv[i]) == "--scene")
         {
             scenePath = argv[i + 1];
+            sceneFromArgs = true;
         }
     }
 #else
     (void)argc; // 製品は引数を使わない
+    (void)sceneFromArgs;
     (void)argv;
 #endif
 
@@ -259,8 +262,18 @@ int main(int argc, char** argv)
     {
         app.LoadSceneList(*sceneList);
     }
-    // シーンのファイルをルートシーンとして開く(SC-3。load の印のある子のシーンも読む)。
-    if (!platform::FileExists(scenePath.c_str()) || !app.OpenRootSceneFile(scenePath))
+    // 最初のシーンをルートシーンとして開く(SC-3、SC-5。load の印のある子のシーンも読む)。
+    // --scene で選んでいなければ、シーンの一覧の先頭(サンプルは master)。一覧が無ければ今までどおり main.json。
+    bool opened = false;
+    if (!sceneFromArgs && !app.GetFirstSceneName().empty())
+    {
+        opened = app.OpenRootScene(app.GetFirstSceneName());
+    }
+    else
+    {
+        opened = platform::FileExists(scenePath.c_str()) && app.OpenRootSceneFile(scenePath);
+    }
+    if (!opened)
     {
         HUSKY_LOG(game::GameLog::NoSceneFile, scenePath);
         if (gameModule.spawnInitialActors != nullptr)

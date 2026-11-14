@@ -4,6 +4,7 @@
 #include "engine/Actor.h"
 #include "engine/World.h"
 #include "game/GameActors.h"
+#include "game/GameFlow.h" // 時間切れでリザルトへ(SC-5)
 
 #include <cmath>   // std::ceil
 #include <cstdio>  // std::snprintf
@@ -52,6 +53,22 @@ namespace husky::game
             }
             m_score = ReadPlayerScore() - m_scoreBase; // 時間切れの後は数えない(最後の値のまま)
         }
+        else if (!m_reported)
+        {
+            // 時間切れ: 「おしまい!」を少し見せてから、ゲームの状態の係(system のシーン)にスコアを渡してリザルトへ(SC-5)。
+            // 係がいない(master から始めていない、今までの main.json など)ときは何もしない。探すのは1回だけ。
+            m_finishedSeconds += static_cast<float>(dt);
+            if (m_finishedSeconds >= ResultDelaySeconds)
+            {
+                m_reported = true;
+                engine::Actor* owner = GetOwner();
+                engine::World* world = owner != nullptr ? owner->GetWorld() : nullptr;
+                if (GameFlowComponent* flow = world != nullptr ? FindGameFlow(*world) : nullptr)
+                {
+                    flow->FinishGame(m_score);
+                }
+            }
+        }
         UpdateTexts();
     }
 
@@ -61,6 +78,8 @@ namespace husky::game
         m_remaining = timeLimit;
         m_scoreBase = ReadPlayerScore();
         m_score = 0;
+        m_finishedSeconds = 0.0f;
+        m_reported = false;
         UpdateTexts();
     }
 

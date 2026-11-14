@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 0,
+      "type": "Actor",
+      "properties": {
+        "name": "GameFlow",
+        "guid": "fb751744-ab23-427e-ac83-d9bd5e854656",
+        "transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": 0.0,
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "parent": null,
+        "prefab": null,
+        "prefabActorId": null,
+        "components": [
+          1
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "type": "GameFlowComponent",
+      "properties": {
+        "prefabComponentId": null,
+        "state": "Title",
+        "titleScene": "title",
+        "gameScene": "game",
+        "resultScene": "result"
+      }
+    },
+    {
+      "id": 2,
+      "type": "Actor",
+      "properties": {
+        "name": "Music",
+        "guid": "c8661617-19af-4994-a9ac-76cd29b335c7",
+        "transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": 0.0,
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "parent": null,
+        "prefab": null,
+        "prefabActorId": null,
+        "components": [
+          3
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "AudioSourceComponent",
+      "properties": {
+        "prefabComponentId": null,
+        "sound": "525cc114-6009-449d-a0d1-548ff99c499c",
+        "volume": 0.4,
+        "loop": true,
+        "playOnStart": true,
+        "bus": "Music"
+      }
+    }
+  ],
+  "actors": [
+    0,
+    2
+  ]
+}

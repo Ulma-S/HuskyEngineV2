@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 0,
+      "type": "Actor",
+      "properties": {
+        "name": "GameSpawner",
+        "guid": "cb658cce-b6d7-4173-9eac-b37f6030c2f4",
+        "transform": {
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": 0.0,
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "parent": null,
+        "prefab": null,
+        "prefabActorId": null,
+        "components": [
+          1
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "type": "GameSpawnerComponent",
+      "properties": {
+        "prefabComponentId": null
+      }
+    }
+  ],
+  "actors": [
+    0
+  ]
+}
