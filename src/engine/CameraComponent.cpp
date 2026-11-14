@@ -26,7 +26,8 @@ namespace husky::engine
         {
             return CameraView{screenWidth * 0.5f, screenHeight * 0.5f, 1.0f}; // MakeScreenCamera と同じ見え方
         }
-        return CameraView{owner->transform.position.x, owner->transform.position.y, camera->zoom};
+        const core::Vector3 position = owner->GetWorldPosition(); // 親がいてもワールドの位置を映す(HIER-1)
+        return CameraView{position.x, position.y, camera->zoom};
     }
 
     CameraMatrices MakeSceneCamera(Scene& scene, float screenWidth, float screenHeight)

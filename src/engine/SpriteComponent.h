@@ -84,7 +84,7 @@ namespace husky::engine
                 return;
             }
             render::Sprite sprite;
-            sprite.model = MakeModelMatrix(actor.GetRenderTransform()); // 位置・回転・拡大縮小(物理の体は補間した位置。PHY-4)
+            sprite.model = actor.GetRenderWorldMatrix(); // ワールドの位置・回転・拡大縮小(親子をたどる。物理の体は補間した位置。PHY-4)
             sprite.width = spriteComponent->width;
             sprite.height = spriteComponent->height;
             sprite.pivotX = spriteComponent->pivot.x;

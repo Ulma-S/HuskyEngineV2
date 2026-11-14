@@ -5,6 +5,7 @@
 
 #include "engine/Actor.h"
 #include "engine/Collider2D.h"
+#include "engine/EngineLog.h"
 #include "engine/Rigidbody2D.h"
 #include "engine/Scene.h"
 
@@ -103,7 +104,7 @@ namespace husky::engine
             return;
         }
         scene.ForEachActor([&](Actor& actor) {
-            const Pose2D pose = MakePose2D(actor.transform);
+            const Pose2D pose = MakePose2D(actor.GetWorldTransform()); // 親がいればワールドの値(HIER-1)
             // Rigidbody2D があれば先に体を置く。コライダーはその体に付ける(無ければ null で、形だけの体に置く)
             bool dynamic = false;
             const PhysicsBodyHandle2D body = SyncBody(actor, *registry, pose, dynamic);
@@ -219,6 +220,17 @@ namespace husky::engine
         }
         if (rigidbody == nullptr)
         {
+            return PhysicsBodyHandle2D{};
+        }
+        if (actor.GetParent() != nullptr)
+        {
+            // 動く体は親を持てない(HIER-1。SetParent は断るが、親を付けた後に Rigidbody2D を足すとここに来る)。
+            // 体を作らず、コライダーは形だけの体でワールドの場所に置く
+            if (!rigidbody->warnedIgnoredAsChild)
+            {
+                HUSKY_LOG(SceneLog::ChildBodyIgnored, actor.name);
+                rigidbody->warnedIgnoredAsChild = true;
+            }
             return PhysicsBodyHandle2D{};
         }
         if (handle.index >= m_bodies.size())
@@ -363,7 +375,7 @@ namespace husky::engine
             const Actor* actor = registry->Resolve<Actor>(entry.actor);
             if (actor != nullptr)
             {
-                entry.pose = MakePose2D(actor->transform);
+                entry.pose = MakePose2D(actor->GetWorldTransform());
             }
         }
     }

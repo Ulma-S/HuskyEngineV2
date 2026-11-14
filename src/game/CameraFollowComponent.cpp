@@ -15,8 +15,12 @@ namespace husky::game
         {
             return;
         }
-        owner->transform.position.x = targetActor->transform.position.x + offset.x;
-        owner->transform.position.y = targetActor->transform.position.y + offset.y;
+        // どちらに親がいても、ワールドの位置で追う(HIER-1)。z はそのまま
+        const core::Vector3 targetPosition = targetActor->GetWorldPosition();
+        core::Vector3 position = owner->GetWorldPosition();
+        position.x = targetPosition.x + offset.x;
+        position.y = targetPosition.y + offset.y;
+        owner->SetWorldPosition(position);
     }
 
     const Actor* CameraFollowComponent::FindTarget() const

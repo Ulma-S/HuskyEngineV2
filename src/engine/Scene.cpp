@@ -125,6 +125,7 @@ namespace husky::engine
             if (actor->IsPendingDestroy())
             {
                 actor->DestroyComponents();
+                actor->DetachFromHierarchy(); // 親の子の一覧から外し、子は親なしにする(HIER-1。HIER-2 で子も一緒に消す)
             }
             else
             {

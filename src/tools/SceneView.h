@@ -79,6 +79,7 @@ namespace husky::tools
         GizmoHandle m_dragHandle = GizmoHandle::None; // つかんでいるギズモの部品
         core::ObjectHandle m_dragging;   // ギズモで動かしているアクター(弱い参照。動かしていなければ null)
         engine::Transform m_dragFrom;    // つかむ前の位置・回転・拡大縮小(離したときに Undo のための「前の値」にする)
+        engine::Transform m_dragFromWorld; // つかむ前のワールドの値(ギズモの軸の向きと、動かす計算に使う。HIER-1)
         GizmoTool m_tool = GizmoTool::Move; // 今の道具(W / E / R で切り替える)
         GizmoSpace m_space = GizmoSpace::World; // ギズモの向き(X で Global / Local を切り替える。効くのは移動の矢印)
         float m_dragStartScreenX = 0.0f; // つかんだときのマウスの画面の位置(拡大縮小で使う)

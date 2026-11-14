@@ -474,6 +474,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FrameClockTests.cpp
         tests/engine/InputTests.cpp
         tests/engine/SceneTests.cpp
+        tests/engine/HierarchyTests.cpp
         tests/engine/ComponentTests.cpp
         tests/engine/SpriteComponentTests.cpp
         tests/engine/SpriteAnimatorComponentTests.cpp

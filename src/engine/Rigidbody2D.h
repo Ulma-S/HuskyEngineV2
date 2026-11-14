@@ -71,6 +71,8 @@ namespace husky::engine
 
         // PhysicsScene2D が、体を置いたときに呼ぶ(世界は借りるだけ)。控えていた速度を体に入れる。
         void ConnectBody(PhysicsWorld2D* world, PhysicsBodyHandle2D body);
+        // 親を持つアクターに付いていて使わないことを、もう警告したか(PhysicsScene2D が 1 回だけ警告する。HIER-1。保存しない)
+        bool warnedIgnoredAsChild = false;
 
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(bodyType)

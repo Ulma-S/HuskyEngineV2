@@ -114,7 +114,8 @@ namespace husky::tools
         auto GizmoOriginOnScreen = [&](const engine::Actor& actor) {
             const engine::CameraMatrices camera =
                 engine::MakeOrthographicCamera(m_view.centerX, m_view.centerY, m_view.zoom, screenWidth, screenHeight);
-            return engine::WorldToScreen(camera, actor.transform.position.x, actor.transform.position.y, screenWidth, screenHeight);
+            const core::Vector3 position = actor.GetWorldPosition(); // 親がいてもワールドの位置に出す(HIER-1)
+            return engine::WorldToScreen(camera, position.x, position.y, screenWidth, screenHeight);
         };
         // マウスがギズモのどの部品の上か(画面のピクセルで比べる)
         auto PickAtMouse = [&]() {
@@ -123,7 +124,7 @@ namespace husky::tools
                 return GizmoHandle::None;
             }
             const core::Vector3 origin = GizmoOriginOnScreen(*selected);
-            return PickGizmoHandle(m_tool, origin.x, origin.y, io.MousePos.x, io.MousePos.y, selected->transform.rotation, m_space);
+            return PickGizmoHandle(m_tool, origin.x, origin.y, io.MousePos.x, io.MousePos.y, selected->GetWorldTransform().rotation, m_space);
         };
 
         // 道具の切り替え: W(移動)、E(回転)、R(拡大縮小)、X(ギズモの向き Global / Local)。Unity と同じキー。
@@ -181,6 +182,7 @@ namespace husky::tools
                     m_dragging = selected->GetHandle();
                     m_dragHandle = handle;
                     m_dragFrom = selected->transform;
+                    m_dragFromWorld = selected->GetWorldTransform();
                     m_dragStartX = world.x;
                     m_dragStartY = world.y;
                     m_dragStartScreenX = io.MousePos.x;
@@ -225,7 +227,7 @@ namespace husky::tools
                 {
                     // 拡大縮小: つかんでから動いた量(画面のピクセル)を、アクターの向きの軸に直して掛ける
                     actor->transform.scale =
-                        ApplyScaleDrag(m_dragHandle, m_dragFrom.scale, m_dragFrom.rotation, m_dragStartScreenX,
+                        ApplyScaleDrag(m_dragHandle, m_dragFrom.scale, m_dragFromWorld.rotation, m_dragStartScreenX,
                                        m_dragStartScreenY, io.MousePos.x, io.MousePos.y, io.KeyCtrl ? GizmoSnap::Scale : 0.0f);
                 }
                 else
@@ -234,8 +236,9 @@ namespace husky::tools
                     // スナップの間隔は、見えているグリッドと同じ(ChooseGridSpacing。寄ると細かく、引くと粗い)
                     const core::Vector3 world = MouseWorld(io, screenWidth, screenHeight);
                     const float snap = io.KeyCtrl ? ChooseGridSpacing(m_view.zoom) : 0.0f;
-                    actor->transform.position = ApplyGizmoDrag(m_dragHandle, m_dragFrom.position, world.x - m_dragStartX,
-                                                               world.y - m_dragStartY, snap, m_dragFrom.rotation, m_space);
+                    // 計算はワールドの値で行い、親から見た値に直して書く(HIER-1。スナップもワールドのグリッドに合う)
+                    actor->SetWorldPosition(ApplyGizmoDrag(m_dragHandle, m_dragFromWorld.position, world.x - m_dragStartX,
+                                                           world.y - m_dragStartY, snap, m_dragFromWorld.rotation, m_space));
                 }
                 m_hovered = m_dragHandle; // つかんでいる部品は光らせたまま
             }
@@ -277,7 +280,7 @@ namespace husky::tools
                 {
                     if (!box->IsPendingDestroy())
                     {
-                        AppendQuadOutline(engine::ComputeBoxColliderCorners(actor.transform, *box), m_view, ColliderColor,
+                        AppendQuadOutline(engine::ComputeBoxColliderCorners(actor.GetWorldTransform(), *box), m_view, ColliderColor,
                                           m_colliderSprites);
                     }
                 }
@@ -288,7 +291,7 @@ namespace husky::tools
                         float centerX = 0.0f;
                         float centerY = 0.0f;
                         float radius = 0.0f;
-                        engine::ComputeCircleColliderWorld(actor.transform, *circle, centerX, centerY, radius);
+                        engine::ComputeCircleColliderWorld(actor.GetWorldTransform(), *circle, centerX, centerY, radius);
                         AppendCircleOutline(centerX, centerY, radius, m_view, ColliderColor, 32, m_colliderSprites);
                     }
                 }
@@ -301,7 +304,7 @@ namespace husky::tools
         if (sprite != nullptr)
         {
             render::Sprite shape;
-            shape.model = engine::MakeModelMatrix(selected->transform);
+            shape.model = selected->GetWorldMatrix();
             shape.width = sprite->width;
             shape.height = sprite->height;
             shape.pivotX = sprite->pivot.x;
@@ -312,7 +315,8 @@ namespace husky::tools
         m_gizmoSprites.clear();
         if (selected != nullptr)
         {
-            BuildGizmoSprites(m_tool, m_view, selected->transform.position, selected->transform.rotation, m_hovered,
+            const engine::Transform world = selected->GetWorldTransform();
+            BuildGizmoSprites(m_tool, m_view, world.position, world.rotation, m_hovered,
                               m_gizmoSprites, m_space);
         }
         // 今の道具の名前を、画面の上の真ん中に出す(ImGui の窓より奥。文字は定数なので、毎フレームの確保は無い)

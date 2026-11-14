@@ -17,4 +17,12 @@
 namespace husky::engine
 {
     core::Matrix4 MakeModelMatrix(const Transform& transform);
+
+    // モデル行列を、位置・回転・拡大縮小に分け直す(MakeModelMatrix の逆。HIER-1)。
+    // 親子の階層で、ワールドの行列からワールドの値を取り出すとき、ワールドの値をローカルに直すときに使う。
+    // 回転は -180〜180 度。左右の反転(拡大縮小のマイナス)は scale.y のマイナスで表す(x を反転した行列は、
+    // 「180 度回して y を反転」と同じなので、どちらで表しても見た目は同じ)。
+    // 親の拡大縮小が縦横で違い子が回っていると、行列はゆがむ(せん断)。そのときは x の軸の向きと長さを正しくし、
+    // y は x の軸に直角な成分だけを使う(面積は保つ)。
+    Transform DecomposeModelMatrix(const core::Matrix4& model);
 }

@@ -4,6 +4,7 @@
 
 #include "core/AssetRef.h"
 #include "core/Guid.h"
+#include "core/Matrix4.h"
 #include "core/ObjectRegistry.h"
 #include "engine/Component.h"
 #include "engine/PrefabAsset.h"
@@ -129,6 +130,32 @@ namespace husky::engine
         }
         void ClearRenderTransform() { m_hasRenderTransform = false; }
 
+        // ---- 親子の階層(HIER-1)----
+        // transform は親から見たローカルの値。ワールドの行列 = 親のワールドの行列 × 自分のローカルの行列。
+        // 親が無ければ、ローカル = ワールド(今までどおり)。
+        // 今は保存しない(HIER-2 で保存する)。親を消しても子は消えず、そのときのワールドの場所のまま親なしになる(HIER-2 で一緒に消す)。
+
+        // 親。無い(か、もう消えた)なら nullptr。
+        Actor* GetParent() const;
+        // 子のハンドルの一覧(付けた順)。消えたものは、フレームの終わりに外れる。
+        const std::vector<core::ObjectHandle>& GetChildren() const { return m_children; }
+        // 親を付け替える。nullptr なら親なしにする。keepWorldTransform が true なら、画面で見える場所(ワールドの値)を保つよう
+        // transform を直す。false なら transform をそのまま新しい親から見た値として使う(見える場所が変わる)。
+        // 断るとき(false を返し、警告を出す): 自分か自分の子孫を親にする(輪になる)、別のレジストリ・消えかけのアクター、
+        // 自分が Rigidbody2D を持つ(物理がワールドの場所を決めるので、最初は動く体は親を持てない)。
+        bool SetParent(Actor* parent, bool keepWorldTransform = true);
+        // 本当の transform から作ったワールドの行列(当たり判定、エディタ、ゲームの決め事に使う)。
+        core::Matrix4 GetWorldMatrix() const;
+        // 描くときの transform(GetRenderTransform。物理の補間)から作ったワールドの行列。親も描くときの値を使う。
+        core::Matrix4 GetRenderWorldMatrix() const;
+        // ワールドの位置・回転・拡大縮小。親が無ければ transform そのもの(誤差なし)。
+        Transform GetWorldTransform() const;
+        // ワールドの値が world になるよう、transform(ローカル)を書く。親が無ければ transform = world。
+        void SetWorldTransform(const Transform& world);
+        core::Vector3 GetWorldPosition() const;
+        // ワールドの位置だけを変える(回転・拡大縮小のローカルの値はそのまま)。
+        void SetWorldPosition(const core::Vector3& position);
+
         HUSKY_REFLECTION_BEGIN()
             HUSKY_PROPERTY(name)
             HUSKY_PROPERTY(guid)
@@ -147,6 +174,15 @@ namespace husky::engine
         Transform m_renderTransform;
         Transform m_renderBase;
         bool m_hasRenderTransform = false;
+
+        // 親と子(HIER-1)。プロパティにしないので弱い参照(生かしているのはシーンの一覧)。保存は HIER-2。
+        core::ObjectHandle m_parent;
+        std::vector<core::ObjectHandle> m_children;
+
+        // 子の一覧から child を外す(無ければ何もしない)。
+        void RemoveChild(core::ObjectHandle child);
+        // Destroy 済みのアクターを親子から外す(フレームの終わりに Scene が呼ぶ)。子はワールドの場所のまま親なしになる。
+        void DetachFromHierarchy();
 
         // 下のコンポーネントの更新と片付けは、Scene だけが呼ぶ。
         // friend: Scene には private なメンバーを触らせる(ゲームのコードから直接呼ばれないようにするため)。

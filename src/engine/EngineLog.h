@@ -71,6 +71,8 @@ namespace husky::engine
         SaveWarning = 4,
         JsonWriteFailed = 5,
         Saved = 6,
+        ParentRefused = 7,
+        ChildBodyIgnored = 8,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(SceneLog, "Engine.Scene")
@@ -86,6 +88,11 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(JsonWriteFailed, Error, "シーンを JSON にできません({path})", HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(Saved, Info, "シーンを保存しました({path}): アクター {actors}、{bytes} バイト",
                           HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(actors, Int), HUSKY_LOG_ARG(bytes, Int))
+        HUSKY_LOG_MESSAGE(ParentRefused, Warning, "{actor} の親を {parent} にできません: {reason}", HUSKY_LOG_ARG(actor, String),
+                          HUSKY_LOG_ARG(parent, String), HUSKY_LOG_ARG(reason, String))
+        HUSKY_LOG_MESSAGE(ChildBodyIgnored, Warning,
+                          "親を持つアクター {actor} の Rigidbody2D は使いません(動く体は親を持てません)。コライダーは形だけで置きます",
+                          HUSKY_LOG_ARG(actor, String))
     HUSKY_LOG_CHANNEL_END()
 
     // 毎秒の統計(テレメトリで、値ごとに追えるように1つずつの値にする)。
