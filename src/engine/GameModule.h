@@ -55,6 +55,21 @@ namespace husky::engine
     // 表の関数はライブラリの中を指すので、library を外したら使えない。
     bool LoadGameModule(platform::DynamicLibrary& library, const std::string& path, GameModule& out);
 
+    // ホットリロード(HR-4)の結果。
+    struct GameModuleReloadResult
+    {
+        bool succeeded = false;
+        std::string message;               // 人が読む1行
+        std::vector<std::string> warnings; // シーンを控える・読み戻すときの警告
+    };
+
+    // ゲームの DLL を読み直す(HR-4。開発ビルドの編集中に、エディタのコマンド game.reload が呼ぶ)。
+    //   1. シーンを値の木に控える(Play と同じ形)  2. アクターを全部消す  3. GameModuleHost::Detach
+    //   4. ビルドし直した DLL の写しを読み、型を登録し直す  5. 控えからシーンを読み戻す
+    // 外せない(ゲームの型のものが残っている)ときは、控えからシーンを戻して失敗を返す。新しい DLL を読めないときは、
+    // 前の写しに戻してシーンを戻す。保存しないメンバー(タイマーなど)の値は引き継がない(Unity のドメインリロードと同じ)。
+    GameModuleReloadResult ReloadGameModule(Application& app);
+
     // 今のゲームのモジュールを持つ係(HR-3)。Application が持つ(いちばん先に作り、いちばん後に壊れる位置に置くので、
     // ゲームの型のオブジェクトがすべて消えてから DLL が外れる)。
     // 付けるときに表の registerTypes で型を登録し、登録した型を覚える。外すとき(Detach)は、DLL の中を
@@ -73,8 +88,20 @@ namespace husky::engine
     class GameModuleHost
     {
     public:
+        GameModuleHost() = default;
+        ~GameModuleHost(); // DLL を外し、読んでいた写しのファイルを消す
+        GameModuleHost(const GameModuleHost&) = delete;
+        GameModuleHost& operator=(const GameModuleHost&) = delete;
+
         // DLL を読み、型を登録する。読めなければ false(何も付けない)。付いていたものは先に外しておくこと。
-        bool LoadFromLibrary(const std::string& path, core::TypeRegistry& types);
+        // sourcePath(ビルドが書く HuskyGame.dll)は直接読まず、隣に写した HuskyGame.loaded<N>.dll を読む(HR-4)。
+        // Windows は読み込んだ DLL のファイルを掴むので、元を読むと、動かしたままビルドし直せない(上書きできない)ため。
+        // 前に読んでいた写しのファイルは、新しいものを読めたときに消す(読めなければ、それに戻せるように残す)。
+        bool LoadFromLibrary(const std::string& sourcePath, core::TypeRegistry& types);
+        // 新しい DLL を読めなかったときに、前に読んでいた写しに戻す(写しは作らない)。戻せなければ false。
+        bool RestorePreviousLibrary(core::TypeRegistry& types);
+        const std::string& GetSourcePath() const { return m_sourcePath; }
+        const std::string& GetLoadedPath() const { return m_library.GetPath(); }
         // 表をそのまま付ける(静的リンクの製品と、テスト)。型を登録する。
         void Attach(const GameModule& module, core::TypeRegistry& types);
         // 外す(上の 1〜5)。何も付いていなければ true。残ったオブジェクトがあれば false(何も外さない。理由はログ)。
@@ -92,8 +119,13 @@ namespace husky::engine
 
     private:
         void RegisterTypes(core::TypeRegistry& types);
+        // 写しを読む(LoadFromLibrary と RestorePreviousLibrary の共通)
+        bool LoadCopy(const std::string& copyPath, core::TypeRegistry& types);
 
         platform::DynamicLibrary m_library;
+        std::string m_sourcePath;   // ビルドが書く元の DLL
+        std::string m_previousCopy; // 外した後もまだ消していない、前に読んでいた写し(戻すため)
+        int m_loadCount = 0;        // 写しの名前の番号(読むたびに増やし、前の写しと名前を分ける)
         GameModule m_module;
         std::vector<const core::TypeInfo*> m_types; // ゲームが登録した型(登録簿の中の型情報。DLL の中にある)
         bool m_attached = false;

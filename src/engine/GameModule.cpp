@@ -3,10 +3,13 @@
 
 #include "core/ObjectRegistry.h"
 #include "core/TypeRegistry.h"
+#include "engine/Application.h"
 #include "engine/AssetLoader.h"
 #include "engine/EngineLog.h"
 #include "engine/Prefab.h"
+#include "engine/SceneSerializer.h"
 #include "platform/DynamicLibrary.h"
+#include "platform/FileSystem.h"
 
 namespace husky::engine
 {
@@ -42,10 +45,63 @@ namespace husky::engine
         return true;
     }
 
-    bool GameModuleHost::LoadFromLibrary(const std::string& path, core::TypeRegistry& types)
+    GameModuleHost::~GameModuleHost()
+    {
+        const std::string loaded = m_library.GetPath();
+        m_library.Unload(); // ここで外す(写しのファイルを消せるように)
+        if (!loaded.empty())
+        {
+            platform::RemoveFile(loaded.c_str());
+        }
+        if (!m_previousCopy.empty())
+        {
+            platform::RemoveFile(m_previousCopy.c_str());
+        }
+    }
+
+    bool GameModuleHost::LoadFromLibrary(const std::string& sourcePath, core::TypeRegistry& types)
+    {
+        // 写しの名前: HuskyGame.dll → HuskyGame.loaded1.dll(読むたびに番号を増やす)
+        const std::string suffix = platform::DynamicLibrary::GetFileSuffix();
+        std::string stem = sourcePath;
+        if (stem.size() >= suffix.size() && stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0)
+        {
+            stem.resize(stem.size() - suffix.size());
+        }
+        const std::string copyPath = stem + ".loaded" + std::to_string(++m_loadCount) + suffix;
+        if (!platform::DuplicateFile(sourcePath.c_str(), copyPath.c_str()))
+        {
+            return false;
+        }
+        if (!LoadCopy(copyPath, types))
+        {
+            platform::RemoveFile(copyPath.c_str());
+            return false;
+        }
+        m_sourcePath = sourcePath;
+        if (!m_previousCopy.empty())
+        {
+            platform::RemoveFile(m_previousCopy.c_str()); // 新しいものを読めたので、戻す先は要らない
+            m_previousCopy.clear();
+        }
+        return true;
+    }
+
+    bool GameModuleHost::RestorePreviousLibrary(core::TypeRegistry& types)
+    {
+        if (m_previousCopy.empty() || m_attached)
+        {
+            return false;
+        }
+        const std::string copyPath = m_previousCopy;
+        m_previousCopy.clear();
+        return LoadCopy(copyPath, types);
+    }
+
+    bool GameModuleHost::LoadCopy(const std::string& copyPath, core::TypeRegistry& types)
     {
         GameModule module;
-        if (!LoadGameModule(m_library, path, module))
+        if (!LoadGameModule(m_library, copyPath, module))
         {
             return false;
         }
@@ -134,8 +190,76 @@ namespace husky::engine
         if (m_library.IsLoaded())
         {
             m_library.Unload();
+            m_previousCopy = path; // 写しのファイルは、次を読めるまで消さない(読めなければ戻すため)
             HUSKY_LOG(ModuleLog::Unloaded, path);
         }
         return true;
+    }
+
+    GameModuleReloadResult ReloadGameModule(Application& app)
+    {
+        GameModuleReloadResult result;
+        GameModuleHost& host = app.GetGameModule();
+        if (!host.IsFromLibrary())
+        {
+            result.message = "The game code is not loaded from a library (static link)";
+            return result;
+        }
+        Scene& scene = app.GetScene();
+        core::ObjectRegistry& registry = app.GetRegistry();
+        core::TypeRegistry& types = app.GetTypeRegistry();
+        const std::string sourcePath = host.GetSourcePath();
+
+        // 1. シーンを控える(Play と同じ形)
+        SceneSerializer::WriteResult saved = SceneSerializer::Write(scene);
+        result.warnings = std::move(saved.warnings);
+        const std::size_t actorCount = scene.actors.size();
+        const auto restoreScene = [&]() {
+            const SceneSerializer::ReadReport report = SceneSerializer::Read(
+                saved.value, scene, types, [&app](const core::Guid& guid) { return app.FindPrefabForScene(guid); });
+            result.warnings.insert(result.warnings.end(), report.warnings.begin(), report.warnings.end());
+        };
+
+        // 2. アクターを全部消す(ゲームのコードが作ったエンジンの型のコンポーネントも、vtable がゲームの DLL を
+        //    指しうるので残さない)。メモリから消えるのは Detach の中の破棄の確定と GC。
+        for (const core::ObjectHandle handle : scene.actors)
+        {
+            if (Actor* actor = registry.Resolve<Actor>(handle))
+            {
+                actor->Destroy();
+            }
+        }
+        scene.RemoveDestroyedActors();
+
+        // 3. 外す。外せなければ(ゲームの型のものが残っている)、シーンを戻してやめる
+        if (!host.Detach(types, registry, app.GetAssetLoader()))
+        {
+            restoreScene();
+            result.message = "Could not unload the game module: objects of game types remain (see the log)";
+            return result;
+        }
+
+        // 4. ビルドし直した DLL の写しを読む。読めなければ前の写しに戻す
+        bool restoredPrevious = false;
+        if (!host.LoadFromLibrary(sourcePath, types))
+        {
+            restoredPrevious = host.RestorePreviousLibrary(types);
+        }
+
+        // 5. シーンを読み戻す(型を登録し直したので、ゲームの型のアクターも新しい DLL の型で作られる)
+        restoreScene();
+        if (restoredPrevious)
+        {
+            result.message = "Could not load the new game module; restored the previous one (see the log)";
+            return result;
+        }
+        if (!host.IsAttached())
+        {
+            result.message = "Could not load the game module (see the log). Game types are missing";
+            return result;
+        }
+        result.succeeded = true;
+        result.message = "Reloaded the game module (" + std::to_string(actorCount) + " actors restored)";
+        return result;
     }
 }

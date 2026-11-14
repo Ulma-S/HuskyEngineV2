@@ -505,6 +505,7 @@ add_library(husky_tools ${HUSKY_MODULE_TYPE}
     src/tools/LogWindow.cpp
     src/tools/EditorCommands.cpp
     src/tools/EditorPlayMode.cpp
+    src/tools/GameModuleCommands.cpp
     src/tools/Inspector.cpp
     src/tools/PropertyEditRecorder.cpp
     src/tools/TransformGizmo.cpp

@@ -17,6 +17,7 @@ namespace husky::platform
         WindowAlreadyOpen = 9,
         LibraryLoadFailed = 10,
         LibraryFunctionMissing = 11,
+        FileCopyFailed = 12,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(PlatformLog, "Engine.Platform")
@@ -41,5 +42,7 @@ namespace husky::platform
                           HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(error, String))
         HUSKY_LOG_MESSAGE(LibraryFunctionMissing, Error, "ライブラリ({path})に関数 {name} がありません",
                           HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(name, String))
+        HUSKY_LOG_MESSAGE(FileCopyFailed, Error, "ファイルを写せませんでした({from} → {to}): {error}",
+                          HUSKY_LOG_ARG(from, String), HUSKY_LOG_ARG(to, String), HUSKY_LOG_ARG(error, String))
     HUSKY_LOG_CHANNEL_END()
 }

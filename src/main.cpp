@@ -26,6 +26,7 @@
 #include "tools/DebugWindow.h" // 開発用のデバッグの窓(tools モジュール。開発ビルドだけ)
 #include "tools/EditorCommands.h" // エディタのコマンド(同じく開発ビルドだけ)
 #include "tools/EditorPlayMode.h" // 編集モードと Play / Stop(同じく開発ビルドだけ)
+#include "tools/GameModuleCommands.h" // game.reload(ホットリロード。同じく開発ビルドだけ)
 #include "tools/Inspector.h"   // シーンのインスペクタ(同じく開発ビルドだけ)
 #include "tools/SceneView.h"   // シーンビュー(編集中のエディタのカメラ、クリックで選ぶ。同じく開発ビルドだけ)
 #include "tools/ScreenTestOverlay.h" // 画面の座標で描く試し(view.screenTest。UI-2a)
@@ -136,6 +137,7 @@ int main(int argc, char** argv)
     tools::EditorCommandRegistry commands;
     // 再生・一時停止・コマ送り・停止(editor.play / pause / step / stop)。画面では1行に並ぶ。
     playMode.RegisterCommands(commands);
+    commands.Register(tools::MakeGameReloadCommand(playMode)); // game.reload(ゲームの DLL を読み直す。HR-4)
     // アセットを最新にする(asset.refresh): .meta を作り、スプライトシートを整え、アセットの表を作り直す。
     commands.Register(tools::MakeRefreshAssetsCommand(assetsDirectory));
     // 試しの音を鳴らす(audio.testTone)。音の出す先が動いているかを耳で確かめる。

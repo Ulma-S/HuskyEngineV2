@@ -31,6 +31,10 @@ namespace husky::platform
     // 消せなかった(使用中、権限が無いなど)ときは false。空のフォルダも消せる(中身があるフォルダは消せない)。
     bool RemoveFile(const char* path);
 
+    // ファイルを写す(to があれば上書きする)。写せなかったら false(理由はログ)。HR-4: ゲームの DLL を写してから読むのに使う。
+    // 名前を CopyFile にしないのは、Windows のヘッダが CopyFile という名前のマクロを作るため(読み込むと名前が変わってしまう)。
+    bool DuplicateFile(const char* from, const char* to);
+
     // フォルダを作る。途中のフォルダが無ければ、それも作る。すでにあれば何もしない。
     // 戻り値: 呼んだ後にフォルダがあれば true。
     // (名前を CreateDirectory にしないのは、Windows のヘッダが同じ名前のマクロを定義していて、ぶつかることがあるため)

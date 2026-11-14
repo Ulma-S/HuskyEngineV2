@@ -63,6 +63,16 @@ namespace husky::platform
         return SDL_RemovePath(path);
     }
 
+    bool DuplicateFile(const char* from, const char* to)
+    {
+        if (!SDL_CopyFile(from, to))
+        {
+            HUSKY_LOG(PlatformLog::FileCopyFailed, from, to, SDL_GetError());
+            return false;
+        }
+        return true;
+    }
+
     bool MakeDirectory(const char* path)
     {
         // SDL_CreateDirectory は、途中のフォルダもまとめて作り、すでにあるときも true を返す。
