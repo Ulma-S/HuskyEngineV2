@@ -1217,7 +1217,11 @@ namespace husky::tools
             for (std::size_t i = 0; i < values.GetArraySize(); ++i)
             {
                 engine::ArchiveValue item = values.At(i);
-                item.Set("actor", engine::ArchiveValue(guid));
+                // 値ごとに "actor" があれば、そのアクター(子孫の値をまとめて戻すとき。HIER)。無ければ actor
+                if (item.GetType() == engine::ArchiveValue::Type::Object && item.Find("actor") == nullptr)
+                {
+                    item.Set("actor", engine::ArchiveValue(guid));
+                }
                 engine::Actor* found = nullptr;
                 engine::ArchiveValue old;
                 std::string who;
@@ -1231,15 +1235,16 @@ namespace husky::tools
                     error = "value #" + std::to_string(i) + ": " + error;
                     for (auto it = undone.rbegin(); it != undone.rend(); ++it) // 逆の順に戻す
                     {
-                        engine::ArchiveValue back = *it;
-                        back.Set("actor", engine::ArchiveValue(guid));
+                        const engine::ArchiveValue& back = *it; // 前の値(アクターの guid 入り)
                         std::string ignored;
                         SetOneProperty(app, back, found, old, who, ignored);
                     }
                     return false;
                 }
                 const engine::ArchiveValue* component = values.At(i).Find("component");
-                undone.push_back(MakeSetItem(std::string(), component != nullptr ? component->AsString() : std::string(),
+                // 前の値には、どのアクターかを書いておく(子孫の値が混ざっても、Undo で同じアクターに戻せる)
+                undone.push_back(MakeSetItem(item.Find("actor")->AsString(),
+                                             component != nullptr ? component->AsString() : std::string(),
                                              item.Find("property")->AsString(), old));
             }
             olds = engine::ArchiveValue::MakeArray();
@@ -1366,7 +1371,8 @@ namespace husky::tools
             actorArg,
             {"values", EditorArgType::Any,
              "Array of {\"component\": type name (leave out for the actor), \"property\": path, \"value\": new value}, "
-             "the same as the arguments of property.set", true},
+             "the same as the arguments of property.set. An item may also have \"actor\" to change another actor "
+             "(used to revert child actors together)", true},
         };
         command.execute = [](EditorCommandContext& context) {
             std::string error;
@@ -2249,6 +2255,62 @@ namespace husky::tools
         return command;
     }
 
+    namespace
+    {
+        // prefab.revert / prefab.apply で扱う1体: アクターと、そのプレハブとの違いと、選んだ違い。
+        struct OverrideTarget
+        {
+            engine::Actor* actor = nullptr;
+            engine::Prefab::OverridesResult found;
+            std::vector<const engine::Prefab::Override*> selected; // found.overrides の中を指す
+        };
+
+        // actor と、全部を選ぶとき(property も component も指していない)は、同じプレハブから置いた子孫も集める(HIER)。
+        // 子孫は、プレハブの中の ID を持つものだけ(置いた後に足した子は、プレハブに組が無いので入れない)。
+        // 違いを読めないアクターがあれば、空の一覧と error。
+        std::vector<OverrideTarget> CollectOverrideTargets(engine::Application& app, engine::Actor& actor,
+                                                           const engine::ArchiveValue& args, std::string& error)
+        {
+            std::vector<engine::Actor*> actors = {&actor};
+            if (args.Find("property") == nullptr && args.Find("component") == nullptr)
+            {
+                std::vector<engine::Actor*> descendants;
+                actor.GetDescendants(descendants);
+                for (engine::Actor* descendant : descendants)
+                {
+                    if (descendant->prefab.guid == actor.prefab.guid && !descendant->prefabActorId.IsNull())
+                    {
+                        actors.push_back(descendant);
+                    }
+                }
+            }
+            std::vector<OverrideTarget> targets(actors.size()); // 先に大きさを決める(後で中を指すので、並べ直さない)
+            for (std::size_t i = 0; i < actors.size(); ++i)
+            {
+                targets[i].actor = actors[i];
+                targets[i].found = engine::Prefab::FindOverrides(*actors[i], &app.GetTypeRegistry());
+                if (targets[i].found.prefab == nullptr)
+                {
+                    error = DescribeActor(*actors[i]) + ": " + targets[i].found.error;
+                    return {};
+                }
+                targets[i].selected = SelectOverrides(targets[i].found, args);
+            }
+            return targets;
+        }
+
+        // 選んだ違いの数(全員の合計)。
+        std::size_t CountSelected(const std::vector<OverrideTarget>& targets)
+        {
+            std::size_t count = 0;
+            for (const OverrideTarget& target : targets)
+            {
+                count += target.selected.size();
+            }
+            return count;
+        }
+    }
+
     EditorCommand MakeRevertPrefabCommand()
     {
         EditorCommand command;
@@ -2267,14 +2329,14 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
-            if (found.prefab == nullptr)
+            const std::vector<OverrideTarget> targets = CollectOverrideTargets(context.app, *actor, context.args, error);
+            if (targets.empty())
             {
-                return EditorCommandResult::Failure(who + ": " + found.error);
+                return EditorCommandResult::Failure(error);
             }
-            const std::vector<const engine::Prefab::Override*> selected = SelectOverrides(found, context.args);
+            const std::size_t count = CountSelected(targets);
             const engine::ArchiveValue* propertyValue = context.args.Find("property");
-            if (selected.empty())
+            if (count == 0)
             {
                 if (propertyValue != nullptr)
                 {
@@ -2283,22 +2345,32 @@ namespace husky::tools
                 return EditorCommandResult::Success("Nothing to revert on " + who); // 戻すものが無い(Undo の履歴にも積まない)
             }
 
-            // プレハブの値を書く。property.setMany と同じ道具なので、Undo も property.setMany(前の値)になる。
+            // プレハブの値を書く。property.setMany と同じ道具なので、Undo も property.setMany(前の値)の1件になる。
+            // 子孫の値は、値ごとに "actor" を書いて、同じ1件に入れる。
             engine::ArchiveValue values = engine::ArchiveValue::MakeArray();
-            for (const engine::Prefab::Override* item : selected)
+            for (const OverrideTarget& target : targets)
             {
-                values.Append(MakeSetItem(std::string(), item->component, item->path, item->prefabValue));
+                const std::string guid = target.actor == actor ? std::string() : target.actor->guid.ToString();
+                for (const engine::Prefab::Override* item : target.selected)
+                {
+                    values.Append(MakeSetItem(guid, item->component, item->path, item->prefabValue));
+                }
             }
             engine::ArchiveValue olds;
             if (!SetManyProperties(context.app, *actor, values, olds, error))
             {
                 return EditorCommandResult::Failure("Could not revert " + who + ": " + error);
             }
-            EditorCommandResult result =
-                EditorCommandResult::Success("Reverted " + std::to_string(selected.size()) + " value(s) of " + who);
-            for (const engine::Prefab::Override* item : selected)
+            EditorCommandResult result = EditorCommandResult::Success(
+                "Reverted " + std::to_string(count) + " value(s) of " + who +
+                (targets.size() > 1 ? " and its child actors" : ""));
+            for (const OverrideTarget& target : targets)
             {
-                result.details.push_back(DescribeOverride(*item));
+                for (const engine::Prefab::Override* item : target.selected)
+                {
+                    result.details.push_back((target.actor == actor ? std::string() : DescribeActor(*target.actor) + ": ") +
+                                             DescribeOverride(*item));
+                }
             }
             result.undo = MakeSetManyCall(*actor, olds);
             result.redo = MakeSetManyCall(*actor, values);
@@ -2357,14 +2429,14 @@ namespace husky::tools
                 return EditorCommandResult::Failure(error);
             }
             const std::string who = DescribeActor(*actor);
-            const engine::Prefab::OverridesResult found = engine::Prefab::FindOverrides(*actor, &context.app.GetTypeRegistry());
-            if (found.prefab == nullptr)
+            const std::vector<OverrideTarget> targets = CollectOverrideTargets(app, *actor, context.args, error);
+            if (targets.empty())
             {
-                return EditorCommandResult::Failure(who + ": " + found.error);
+                return EditorCommandResult::Failure(error);
             }
-            const std::vector<const engine::Prefab::Override*> selected = SelectOverrides(found, context.args);
+            const std::size_t count = CountSelected(targets);
             const engine::ArchiveValue* propertyValue = context.args.Find("property");
-            if (selected.empty())
+            if (count == 0)
             {
                 if (propertyValue != nullptr)
                 {
@@ -2372,6 +2444,7 @@ namespace husky::tools
                 }
                 return EditorCommandResult::Success("Nothing to apply from " + who);
             }
+            const engine::Prefab::OverridesResult& found = targets[0].found;
             const core::Guid guid = found.prefab->GetGuid();
             const std::string* relativePath = app.GetAssetDatabase().FindPath(guid);
             if (relativePath == nullptr)
@@ -2381,15 +2454,26 @@ namespace husky::tools
             const std::string prefabPath = *relativePath; // 表を作り直しても消えないように写す
 
             // 1. 新しいプレハブの値を作り、ファイルに書く(読み込んだアセットは書き換えない。変わらないデータなので)
-            std::vector<engine::Prefab::ValueChange> changes;
-            for (const engine::Prefab::Override* item : selected)
+            //    アクターごとに、プレハブの中の同じ ID のアクターの記録へ書く(子孫の違いも。HIER)。
+            std::vector<std::vector<engine::Prefab::ValueChange>> changesOf(targets.size());
+            engine::ArchiveValue newData = found.prefab->GetData();
+            for (std::size_t t = 0; t < targets.size(); ++t)
             {
-                changes.push_back({item->component, item->path, item->prefabValue, item->value, item->componentId});
-            }
-            engine::ArchiveValue newData;
-            if (!engine::Prefab::WriteChanges(found.prefab->GetData(), changes, newData, error, actor->prefabActorId))
-            {
-                return EditorCommandResult::Failure("Could not apply to " + prefabPath + ": " + error);
+                for (const engine::Prefab::Override* item : targets[t].selected)
+                {
+                    changesOf[t].push_back({item->component, item->path, item->prefabValue, item->value, item->componentId});
+                }
+                if (changesOf[t].empty())
+                {
+                    continue;
+                }
+                engine::ArchiveValue written;
+                if (!engine::Prefab::WriteChanges(newData, changesOf[t], written, error, targets[t].actor->prefabActorId))
+                {
+                    return EditorCommandResult::Failure("Could not apply " + DescribeActor(*targets[t].actor) + " to " +
+                                                        prefabPath + ": " + error);
+                }
+                newData = std::move(written);
             }
             // 2. ファイルから読み直す(新しいアセットになる)
             core::ObjectHandle reloaded;
@@ -2404,21 +2488,29 @@ namespace husky::tools
             app.GetScene().ForEachActor([&](engine::Actor& other) {
                 if (other.prefab.guid == guid)
                 {
-                    // プレハブの中の同じアクター(根なら根、子なら同じ ID の子)にだけ伝える(HIER-2b)
-                    if (other.prefabActorId == actor->prefabActorId && engine::Prefab::FollowChanges(other, changes) > 0)
+                    // プレハブの中の同じアクター(根なら根、子なら同じ ID の子)の違いだけを伝える(HIER-2b)
+                    for (std::size_t t = 0; t < targets.size(); ++t)
                     {
-                        ++followed;
+                        if (other.prefabActorId == targets[t].actor->prefabActorId && !changesOf[t].empty() &&
+                            engine::Prefab::FollowChanges(other, changesOf[t]) > 0)
+                        {
+                            ++followed;
+                        }
                     }
                     other.prefab.asset = reloaded;
                 }
             });
 
             EditorCommandResult result = EditorCommandResult::Success(
-                "Applied " + std::to_string(selected.size()) + " value(s) of " + who + " to " + prefabPath + "; " +
-                std::to_string(followed) + " other actor(s) followed");
-            for (const engine::Prefab::Override* item : selected)
+                "Applied " + std::to_string(count) + " value(s) of " + who + (targets.size() > 1 ? " and its child actors" : "") +
+                " to " + prefabPath + "; " + std::to_string(followed) + " other actor(s) followed");
+            for (const OverrideTarget& target : targets)
             {
-                result.details.push_back(DescribeOverride(*item));
+                for (const engine::Prefab::Override* item : target.selected)
+                {
+                    result.details.push_back((target.actor == actor ? std::string() : DescribeActor(*target.actor) + ": ") +
+                                             DescribeOverride(*item));
+                }
             }
             result.data = engine::ArchiveValue::MakeObject();
             result.data.Set("prefab", engine::ArchiveValue(prefabPath));

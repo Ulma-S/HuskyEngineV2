@@ -1572,4 +1572,69 @@ TEST_CASE("EditorCommands: actor.setParent は親を付け替え、Undo / Redo �
 }
 
 
+
+TEST_CASE("EditorCommands: 子を含むプレハブの prefab.revert / prefab.apply(全部)は、子孫の違いもまとめて扱う(HIER)")
+{
+    husky::tests::TestFolder folder("husky_test_prefab_tree_all");
+    folder.Write("readme.txt", "assets");
+    Application app;
+    REQUIRE(app.GetAssetDatabase().Scan(folder.Root()));
+    EditorCommandRegistry commands;
+    REQUIRE(commands.Register(husky::tools::MakeSpawnActorCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeCreatePrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeSetPropertyCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeSetManyPropertiesCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeRevertPrefabCommand()));
+    REQUIRE(commands.Register(husky::tools::MakeApplyPrefabCommand(folder.Root())));
+    REQUIRE(commands.Register(husky::tools::MakeUndoCommand(commands)));
+    REQUIRE(commands.Register(husky::tools::MakeRedoCommand(commands)));
+
+    // Car → Wheel のプレハブを作る
+    husky::engine::Actor* car = app.GetScene().Spawn<husky::engine::Actor>();
+    car->name = "Car";
+    husky::engine::Actor* wheel = app.GetScene().Spawn<husky::engine::Actor>();
+    wheel->name = "Wheel";
+    wheel->transform.position = {10.0f, 0.0f, 0.0f};
+    REQUIRE(wheel->SetParent(car, false));
+    REQUIRE(commands.Execute("prefab.create", app, Json(R"({"actor": "Car", "path": "prefabs/car.prefab"})")).succeeded);
+
+    // 2つ置く
+    auto spawn = [&]() {
+        const EditorCommandResult spawned = commands.Execute("actor.spawn", app, Json(R"({"prefab": "prefabs/car.prefab"})"));
+        REQUIRE(spawned.succeeded);
+        husky::core::Guid guid;
+        REQUIRE(husky::core::Guid::Parse(spawned.data.Find("guid")->AsString(), guid));
+        husky::engine::Actor* placed = app.GetScene().FindActorByGuid(guid);
+        REQUIRE(placed != nullptr);
+        std::vector<husky::engine::Actor*> children;
+        placed->GetChildren(children);
+        REQUIRE(children.size() == 1);
+        return std::make_pair(placed, children[0]);
+    };
+    const auto [first, firstWheel] = spawn();
+    const auto [second, secondWheel] = spawn();
+    const std::string firstGuid = first->guid.ToString();
+
+    // 1つ目の子の値を変える
+    firstWheel->transform.position.y = 7.0f;
+
+    // Revert all(根を指す)で、子の違いも戻る。Undo 1回で、子の値も戻る
+    const EditorCommandResult reverted =
+        commands.Execute("prefab.revert", app, Json(("{\"actor\": \"" + firstGuid + "\"}").c_str()));
+    REQUIRE(reverted.succeeded);
+    CHECK(firstWheel->transform.position.y == 0.0f);
+    REQUIRE(commands.Execute("editor.undo", app).succeeded);
+    CHECK(firstWheel->transform.position.y == 7.0f);
+
+    // Apply all(根を指す)で、子の違いもプレハブに書かれ、2つ目の子も同じ値になる
+    const EditorCommandResult applied =
+        commands.Execute("prefab.apply", app, Json(("{\"actor\": \"" + firstGuid + "\"}").c_str()));
+    REQUIRE(applied.succeeded);
+    CHECK(secondWheel->transform.position.y == 7.0f);
+    CHECK(second->transform.position.y == 0.0f); // 根は変えていない
+    const auto [third, thirdWheel] = spawn();
+    CHECK(thirdWheel->transform.position.y == 7.0f); // 書き直したプレハブから置いても同じ
+    (void)third;
+}
+
 #endif

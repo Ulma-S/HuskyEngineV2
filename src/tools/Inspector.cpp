@@ -907,6 +907,14 @@ namespace husky::tools
 
                 OverrideMarks marks;
                 marks.overrides = &m_overrides;
+                // 親がいれば、transform(親から見た値)の上に、ワールドの値を読むだけで出す(HIER。直すのは transform かギズモ)
+                if (selected->GetParent() != nullptr)
+                {
+                    const engine::Transform world = selected->GetWorldTransform();
+                    ImGui::TextDisabled("World: position (%.2f, %.2f, %.2f)  rotation %.2f  scale (%.2f, %.2f)",
+                                        world.position.x, world.position.y, world.position.z, world.rotation, world.scale.x,
+                                        world.scale.y);
+                }
                 m_recorder.SetOwner(*selected); // ここから描くプロパティの持ち主(書き換えをコマンドにするため)
                 DrawPropertiesImpl(selected->GetType(), selected, registry, &app.GetAssetDatabase(), &m_recorder, &marks);
                 if (g_parentRequest.pending)
