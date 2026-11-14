@@ -11,6 +11,7 @@
 #include "core/MemoryTracker.h"
 #include "engine/CameraComponent.h"
 #include "engine/UIActor.h"
+#include "engine/UIComponents.h"
 #include "engine/EngineTypes.h"
 #include "engine/JsonFormat.h"
 #include "engine/SceneSerializer.h"
@@ -381,6 +382,7 @@ namespace husky::engine
                                                                     static_cast<float>(renderDevice.GetScreenHeight()))
                                                        .ViewProjection());
                     DrawSprites(*m_scene, renderDevice, m_loader, m_defaultSpriteTexture, SpritePass::Screen);
+                    DrawUI(*m_scene, renderDevice, m_loader, m_uiTextLayout); // UI の画像と文字(UI-6a)
                     if (m_screenDraw)
                     {
                         m_screenDraw(renderDevice);

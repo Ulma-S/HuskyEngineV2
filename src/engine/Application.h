@@ -25,6 +25,7 @@
 #include "engine/Input.h"
 #include "engine/PhysicsScene2D.h"
 #include "engine/Scene.h"
+#include "engine/TextLayout.h"
 #include "platform/InputEvents.h"
 #include "render/RenderDevice.h"
 
@@ -226,6 +227,7 @@ namespace husky::engine
         bool m_sceneStepRequested = false; // 止めている間に、次のフレームだけ進める(RequestSceneStep)
         render::FrameStats m_lastRenderStats;
         ScreenDrawCallback m_screenDraw; // 画面の座標で描くもの(SetScreenDrawCallback)
+        TextLayoutResult m_uiTextLayout; // UI の文字を並べる入れ物(DrawUI。毎フレーム使い回す)
 
 #if HUSKY_DEVELOPMENT
         DevUiCallback m_devUiCallback;

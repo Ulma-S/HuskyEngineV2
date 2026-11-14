@@ -67,12 +67,18 @@ namespace husky::engine
 
     const TextureAsset* ChooseSpriteTexture(SpriteComponent& component, AssetLoader& loader, PixelRect& outRegion)
     {
+        return ChooseTexture(loader, component.sheet, component.sprite, component.texture, component.region, outRegion);
+    }
+
+    const TextureAsset* ChooseTexture(AssetLoader& loader, core::AssetRef<SpriteSheetAsset>& sheetReference, std::int32_t sprite,
+                                      core::AssetRef<TextureAsset>& textureReference, const PixelRect& region, PixelRect& outRegion)
+    {
         outRegion = {};
 
         // 1. スプライトシートを指していれば、そちらを使う(texture と region より優先)。
-        if (!component.sheet.IsNull())
+        if (!sheetReference.IsNull())
         {
-            SpriteSheetAsset* sheet = LoadedOrNull(loader.Resolve(component.sheet));
+            SpriteSheetAsset* sheet = LoadedOrNull(loader.Resolve(sheetReference));
             if (sheet == nullptr)
             {
                 return nullptr; // 読み込み中か失敗
@@ -82,7 +88,7 @@ namespace husky::engine
             {
                 return nullptr; // 画像が読み込み中か失敗
             }
-            if (const SpriteSlice* slice = sheet->FindSlice(component.sprite))
+            if (const SpriteSlice* slice = sheet->FindSlice(sprite))
             {
                 outRegion = slice->rect;
             }
@@ -90,10 +96,10 @@ namespace husky::engine
         }
 
         // 2. テクスチャを直接指していれば、その画像と region。
-        const TextureAsset* texture = LoadedOrNull(loader.Resolve(component.texture));
+        const TextureAsset* texture = LoadedOrNull(loader.Resolve(textureReference));
         if (texture != nullptr)
         {
-            outRegion = component.region;
+            outRegion = region;
         }
         return texture;
     }

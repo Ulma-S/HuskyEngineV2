@@ -14,6 +14,7 @@
 #include "engine/SpriteAnimatorComponent.h" // アニメーションの ID を名前で選ぶ表示
 #include "engine/SpriteComponent.h"   // 切り出しの ID を名前で選ぶ表示
 #include "engine/SpriteSheetAsset.h"
+#include "engine/UIComponents.h" // UIImageComponent の切り出しの ID も名前で選ぶ
 
 #include <imgui.h>
 #include <imgui_stdlib.h> // ImGui::InputText(std::string*)
@@ -109,11 +110,13 @@ namespace husky::tools
 
         // SpriteComponent::sprite(切り出しの ID)を、スプライトシートの切り出しの名前から選ぶ箱で並べる。
         // スプライトシートがまだ読めていなければ、ID の数字を表示するだけ。
+        // Owner は sheet(AssetRef<SpriteSheetAsset>)を持つ型(SpriteComponent、UIImageComponent)。
+        template <typename Owner>
         bool DrawSpriteSlicePicker(const Property& property, void* container, core::ObjectRegistry& registry,
                                    const engine::AssetDatabase* /*assets*/)
         {
-            // container はこのプロパティの持ち主(SpriteComponent)の先頭。単一継承なので、そのまま型を戻せる。
-            auto* component = static_cast<engine::SpriteComponent*>(container);
+            // container はこのプロパティの持ち主(Owner)の先頭。単一継承なので、そのまま型を戻せる。
+            auto* component = static_cast<Owner*>(container);
             std::int32_t* id = property.GetValuePtrAt<std::int32_t>(container);
             const engine::SpriteSheetAsset* sheet = registry.Resolve<engine::SpriteSheetAsset>(component->sheet.asset);
             if (sheet == nullptr || !sheet->IsLoaded() || sheet->GetGuid() != component->sheet.guid)
@@ -204,7 +207,8 @@ namespace husky::tools
                 return;
             }
             registered = true;
-            RegisterPropertyDrawer(engine::SpriteComponent::StaticType(), "sprite", DrawSpriteSlicePicker);
+            RegisterPropertyDrawer(engine::SpriteComponent::StaticType(), "sprite", DrawSpriteSlicePicker<engine::SpriteComponent>);
+            RegisterPropertyDrawer(engine::UIImageComponent::StaticType(), "sprite", DrawSpriteSlicePicker<engine::UIImageComponent>);
             RegisterPropertyDrawer(engine::SpriteAnimatorComponent::StaticType(), "animation", DrawSpriteAnimationPicker);
             RegisterPropertyDrawer(engine::Actor::StaticType(), "parent", DrawParentPicker);
         }

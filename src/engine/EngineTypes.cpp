@@ -11,6 +11,7 @@
 #include "engine/SpriteAnimatorComponent.h"
 #include "engine/SpriteComponent.h"
 #include "engine/UIActor.h"
+#include "engine/UIComponents.h"
 
 namespace husky::engine
 {
@@ -28,5 +29,7 @@ namespace husky::engine
         types.Register<AudioSourceComponent>();
         types.Register<UIActor>();         // ゲーム用 UI のアクター(UI-5a)
         types.Register<CanvasComponent>();
+        types.Register<UIImageComponent>(); // UI の画像と文字(UI-6a)
+        types.Register<UITextComponent>();
     }
 }

@@ -315,6 +315,7 @@ add_library(husky_engine STATIC
     src/engine/FontAtlas.cpp
     src/engine/TextLayout.cpp
     src/engine/UIActor.cpp
+    src/engine/UIComponents.cpp
 )
 husky_set_compile_options(husky_engine)
 target_include_directories(husky_engine PUBLIC src)
@@ -499,6 +500,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FontAtlasTests.cpp
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp
+        tests/engine/UIComponentsTests.cpp
         tests/engine/SceneTests.cpp
         tests/engine/HierarchyTests.cpp
         tests/engine/ComponentTests.cpp

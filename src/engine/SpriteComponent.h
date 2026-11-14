@@ -124,6 +124,9 @@ namespace husky::engine
     // まだ読んでいないアセットは、ここで読み始める(loader.Resolve)ので、コンポーネントを書き換えることがある。
     // 動作スレッド: ゲームスレッドのみ
     const TextureAsset* ChooseSpriteTexture(SpriteComponent& component, AssetLoader& loader, PixelRect& outRegion);
+    // ChooseSpriteTexture の中身を、値で渡す形にしたもの(UIImageComponent も使う。UI-6a)。
+    const TextureAsset* ChooseTexture(AssetLoader& loader, core::AssetRef<SpriteSheetAsset>& sheet, std::int32_t sprite,
+                                      core::AssetRef<TextureAsset>& texture, const PixelRect& region, PixelRect& outRegion);
 
     // シーンのスプライトを、一覧の順に renderDevice.DrawSprite で積む(先に積んだものが奥)。
     // テクスチャと範囲は ChooseSpriteTexture で決める。指していない、もう無い、読めていないときは、
