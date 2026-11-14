@@ -202,4 +202,8 @@ namespace husky::engine::Prefab
     // prefabActorId: 消す先のプレハブの中のアクター(空なら根。HIER-2b)。
     bool RemoveComponentFromData(const ArchiveValue& data, const core::Guid& componentId, ArchiveValue& out,
                                  std::string& error, const core::Guid& prefabActorId = {});
+
+    // FindOverrides が型ごとに控えた「型の既定の値」を捨てる(HR-3)。控えの鍵は型情報のアドレスなので、
+    // ゲームの DLL を読み直すと、同じアドレスに新しい型(既定の値が変わったかもしれない)ができることがある。
+    void ClearDefaultPropertiesCache();
 }

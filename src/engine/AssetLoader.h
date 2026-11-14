@@ -174,6 +174,12 @@ namespace husky::engine
         // 古い箱を指している AssetRef は、次の Resolve で新しい箱に乗り換える(新しい箱が読み終わるまでは古い中身のまま)。
         core::ObjectHandle ReloadScriptableData(const core::Guid& guid);
 
+        // 中身の型が types のどれか(か、その子)の ScriptableData を、キャッシュから外して中身を手放す(HR-3)。
+        // ゲームの DLL を外す前に、DLL の中の型のオブジェクトを残さないため。古い箱には読み直しと同じ印を付けるので、
+        // 指している AssetRef は次の Resolve で GUID から読み直す(型を登録し直した後なら、新しい型で作られる)。
+        // 戻り値: 外した数。
+        std::size_t ForgetScriptableData(const std::vector<const core::TypeInfo*>& types);
+
         // 読み込んだ中身が、読み込んだときの値から変わっていないかを確かめる(SD-2。開発ビルドだけ。製品では何もせず 0)。
         // 中身には読むだけの印が付き、書く入口は断るが、C++ の生のポインタ(const_cast など)からの書き込みは止められない。
         // そこで読み込んだときの値を控えておき、ここで比べる。変わっていたら、ファイル・型・プロパティの名前つきでエラーを出し、

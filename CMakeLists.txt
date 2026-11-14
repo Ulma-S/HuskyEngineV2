@@ -580,6 +580,7 @@ if(HUSKY_BUILD_TESTS)
         tests/engine/FontFaceTests.cpp
         tests/engine/ModuleBoundaryTests.cpp
         tests/engine/GameModuleTests.cpp
+        tests/engine/GameModuleHostTests.cpp
         tests/engine/FontAtlasTests.cpp
         tests/engine/TextLayoutTests.cpp
         tests/engine/UILayoutTests.cpp

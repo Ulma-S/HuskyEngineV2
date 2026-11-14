@@ -147,14 +147,21 @@ namespace husky::engine::Prefab
             return nullptr;
         }
 
+        // 型の既定の値の控え(型情報 → 書き出した値)。static: 最初に呼んだときに1回だけ作られ、プログラムの終わりまで残る
+        // (ゲームスレッドだけで使う)。捨てるのは ClearDefaultPropertiesCache。
+        std::unordered_map<const core::TypeInfo*, ArchiveValue>& DefaultPropertiesCache()
+        {
+            static std::unordered_map<const core::TypeInfo*, ArchiveValue> cache;
+            return cache;
+        }
+
         // 型の既定の値("properties" の値の木)。型から1つ作って書き出し、すぐに捨てる。型ごとに1回だけ作って控える
         // (既定の値は実行中に変わらないため)。作れない(登録簿に無い・メモリが足りない)なら nullptr。
         // プレハブのファイルに無い値は、置いたときに型の既定の値になるので、それと比べるのに使う。
         const ArchiveValue* FindDefaultProperties(const core::TypeInfo& type, const core::TypeRegistry& types,
                                                   core::ObjectRegistry& registry)
         {
-            // static: 最初に呼んだときに1回だけ作られ、プログラムの終わりまで残る(ゲームスレッドだけで使う)。
-            static std::unordered_map<const core::TypeInfo*, ArchiveValue> cache;
+            std::unordered_map<const core::TypeInfo*, ArchiveValue>& cache = DefaultPropertiesCache();
             const auto found = cache.find(&type);
             if (found != cache.end())
             {
@@ -1203,5 +1210,10 @@ namespace husky::engine::Prefab
         }
         error = "the prefab has no component with id " + componentId.ToString();
         return false;
+    }
+
+    void ClearDefaultPropertiesCache()
+    {
+        DefaultPropertiesCache().clear();
     }
 }

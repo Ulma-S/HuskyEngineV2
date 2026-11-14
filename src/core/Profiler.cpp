@@ -1,7 +1,7 @@
 // Profiler.h の実装。
 #include "core/Profiler.h"
 
-#include <cstring> // std::strcmp
+#include <cstring> // std::strncmp
 
 namespace husky::core
 {
@@ -22,7 +22,7 @@ namespace husky::core
     {
         for (int i = 0; i < m_count; ++i)
         {
-            if (std::strcmp(m_stats[i].name, name) == 0)
+            if (std::strncmp(m_stats[i].name, name, MaxNameLength - 1) == 0)
             {
                 return i; // 同じ名前は同じ区間(別の場所で測った時間も合わせて足す)
             }
@@ -32,7 +32,11 @@ namespace husky::core
             return -1;
         }
         m_stats[m_count] = SectionStats{};
-        m_stats[m_count].name = name;
+        // 名前を写す(入りきらなければ切る。終わりの 0 は SectionStats{} で入っている)
+        for (int c = 0; c < MaxNameLength - 1 && name[c] != '\0'; ++c)
+        {
+            m_stats[m_count].name[c] = name[c];
+        }
         m_currentNs[m_count] = 0;
         m_currentCalls[m_count] = 0;
         return m_count++;

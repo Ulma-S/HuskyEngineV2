@@ -31,11 +31,14 @@ namespace husky::core
     {
     public:
         static constexpr int MaxSections = 32;
+        static constexpr int MaxNameLength = 48; // 区間の名前の長さの上限(終わりの 0 を含む)
 
         // 1つの区間の結果(ミリ秒)。
         struct SectionStats
         {
-            const char* name = nullptr;
+            // 区間の名前。登録したときに写して持つ(HR-3: 名前の文字列の定数はゲームの DLL の中にもあり、
+            // DLL を外すと、指したままのポインタは無効になるため)。長い名前は切る。
+            char name[MaxNameLength] = {};
             double lastMs = 0.0;    // 前のフレームの合計
             double averageMs = 0.0; // 平均(なめらかにした値。急な1フレームの山にふらつかない)
             double maxMs = 0.0;     // ResetMax からの最大

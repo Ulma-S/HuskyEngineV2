@@ -62,6 +62,20 @@ namespace husky::core
         }
 
         // 登録されている型の数。
+        // 登録を外す(HR-3。ゲームの DLL を外す前に、DLL の中にある型情報を指したままにしないため)。無ければ false。
+        bool Unregister(const TypeInfo& type)
+        {
+            for (auto it = m_entries.begin(); it != m_entries.end(); ++it)
+            {
+                if (it->type == &type)
+                {
+                    m_entries.erase(it);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         std::size_t GetCount() const { return m_entries.size(); }
 
         // index 番目(登録した順)の型。範囲外なら nullptr。一覧を作るとき(エディタで型を選ばせる、など)に、GetCount と組で使う。

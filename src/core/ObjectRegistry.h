@@ -107,6 +107,14 @@ namespace husky::core
         // 今あるオブジェクトの数(破棄を予約済みのものも含む)。
         std::size_t GetObjectCount() const { return m_objects.Size(); }
 
+        // 今あるオブジェクトを1つずつ function(Object&) に渡す(破棄を予約済みのものも含む。HR-3: ゲームの DLL を外す前に、
+        // ゲームの型のものが残っていないかを数える)。中でオブジェクトを作ったり破棄を確定したりしないこと。
+        template <typename Function>
+        void ForEachObject(Function&& function)
+        {
+            m_objects.ForEach([&function](Handle<ObjectPtr>, ObjectPtr& object) { function(*object); });
+        }
+
         // オブジェクトのメモリを貸しているアロケータ(使用量などの確認用)。
         const FreeListAllocator& GetAllocator() const { return m_allocator; }
 

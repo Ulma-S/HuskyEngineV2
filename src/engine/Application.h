@@ -21,6 +21,7 @@
 #include "engine/AssetDatabase.h"
 #include "engine/AssetLoader.h"
 #include "engine/Camera.h"
+#include "engine/GameModule.h"
 #include "engine/FrameClock.h"
 #include "engine/Input.h"
 #include "engine/PhysicsScene2D.h"
@@ -81,6 +82,8 @@ namespace husky::engine
         core::ObjectRegistry& GetRegistry() { return m_registry; }
         // 型の登録簿(名前からオブジェクトを作る)。engine の型は登録済み。ゲームの型は、Run の前にゲームが登録する。
         core::TypeRegistry& GetTypeRegistry() { return m_types; }
+        // 今のゲームのモジュール(HR-3)。exe が起動時に付け(DLL か、静的リンクなら表)、ホットリロードで付け替える。
+        GameModuleHost& GetGameModule() { return m_gameModule; }
         Scene& GetScene() { return *m_scene; }
 
         // 2D の当たり判定(COL-3)。ゲームは GetPhysics2D().GetWorld() で問い合わせる(OverlapPoint、Raycast など)。
@@ -203,6 +206,9 @@ namespace husky::engine
         // メンバーは、宣言した順に作られ、逆の順に壊される(C++ の決まり)。
         // m_input をレジストリより先に宣言しているので、シーン(レジストリの中)が m_input を借りている間に、
         // m_input が先に壊れることはない。
+        // ゲームのモジュール(HR-3)。いちばん先に宣言する: メンバーは宣言と逆の順に壊れるので、これがいちばん後に壊れ、
+        // ゲームの型のオブジェクト(レジストリ)と型の登録簿が片付いてから DLL が外れる。
+        GameModuleHost m_gameModule;
         core::TypeRegistry m_types; // 型の登録簿(オブジェクトより長く生きるように、レジストリより先に宣言する)
         FrameClock m_clock;
         Input m_input;

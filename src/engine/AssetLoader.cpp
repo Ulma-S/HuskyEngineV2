@@ -1211,6 +1211,31 @@ namespace husky::engine
         return LoadScriptableData(guid);
     }
 
+    std::size_t AssetLoader::ForgetScriptableData(const std::vector<const core::TypeInfo*>& types)
+    {
+        std::size_t count = 0;
+        for (auto it = m_scriptableData.begin(); it != m_scriptableData.end();)
+        {
+            ScriptableDataAsset* asset = ResolveScriptableDataAsset(it->second);
+            const ScriptableData* data = asset != nullptr ? GetScriptableData(*asset) : nullptr;
+            bool matches = false;
+            for (const core::TypeInfo* type : types)
+            {
+                matches = matches || (data != nullptr && type != nullptr && data->GetType().IsA(*type));
+            }
+            if (!matches)
+            {
+                ++it;
+                continue;
+            }
+            asset->m_superseded = true;
+            asset->m_data = core::ObjectHandle(); // 中身を指さなくなるので、次の GC で回収される
+            it = m_scriptableData.erase(it);
+            ++count;
+        }
+        return count;
+    }
+
     std::size_t AssetLoader::CheckScriptableDataUnchanged()
     {
         std::size_t changedCount = 0;

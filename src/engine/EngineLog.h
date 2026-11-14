@@ -131,6 +131,8 @@ namespace husky::engine
         Loaded = 1,
         EntryFailed = 2,
         VersionMismatch = 3,
+        ObjectsRemain = 4,
+        Unloaded = 5,
     };
 
     HUSKY_LOG_CHANNEL_BEGIN(ModuleLog, "Engine.Module")
@@ -138,5 +140,8 @@ namespace husky::engine
         HUSKY_LOG_MESSAGE(EntryFailed, Error, "ゲームのモジュールの入口が失敗を返しました({path})", HUSKY_LOG_ARG(path, String))
         HUSKY_LOG_MESSAGE(VersionMismatch, Error, "ゲームのモジュールの版が違います({path}: {found}、エンジンは {expected})。ビルドし直してください",
                           HUSKY_LOG_ARG(path, String), HUSKY_LOG_ARG(found, Int), HUSKY_LOG_ARG(expected, Int))
+        HUSKY_LOG_MESSAGE(ObjectsRemain, Error, "ゲームの型のオブジェクトが {count} 個残っているので、ゲームのモジュールを外せません(最初の型: {type})",
+                          HUSKY_LOG_ARG(count, Int), HUSKY_LOG_ARG(type, String))
+        HUSKY_LOG_MESSAGE(Unloaded, Info, "ゲームのモジュールを外しました({path})", HUSKY_LOG_ARG(path, String))
     HUSKY_LOG_CHANNEL_END()
 }
